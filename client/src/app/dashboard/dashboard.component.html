@@ -1,0 +1,35 @@
+<section>
+  <div class="header">
+    <div>
+      <h1>Your apps</h1>
+      <p>Publish and check status from one calm home screen.</p>
+    </div>
+    <button type="button" class="primary" (click)="createProject()">
+      {{ projects().length === 0 ? 'Add your first app' : 'Add app' }}
+    </button>
+  </div>
+
+  @if (loading()) {
+    <p class="muted">One moment…</p>
+  } @else if (error()) {
+    <p class="error">{{ error() }}</p>
+  } @else if (projects().length === 0) {
+    <app-empty-state
+      title="Add your first app to get started"
+      message="Pick a GitHub app, choose where it lives, and publish when you're ready."
+      actionLabel="Add your first app"
+      [actionClick]="createProject.bind(this)"
+    />
+  } @else {
+    <div class="grid">
+      @for (project of projects(); track project.id) {
+        <app-project-card
+          [project]="project"
+          (publish)="publish($event)"
+          (open)="openProject($event)"
+          (history)="openHistory($event)"
+        />
+      }
+    </div>
+  }
+</section>

@@ -1,0 +1,28 @@
+.picker { display: grid; gap: 0.75rem; }
+.breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; color: #6b7280; font-size: 0.875rem; }
+.crumb { background: none; border: none; color: #2563eb; cursor: pointer; padding: 0; font: inherit; }
+.current { color: #111827; font-weight: 500; }
+.sep { color: #9ca3af; }
+.folders { display: grid; gap: 0.5rem; max-height: 220px; overflow: auto; }
+.folder {
+  text-align: left;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.625rem 0.875rem;
+  background: #fff;
+  cursor: pointer;
+}
+.folder:hover { border-color: #2563eb; background: #eff6ff; }
+.actions { display: grid; gap: 0.5rem; }
+.secondary {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+}
+.selected { margin: 0; color: #15803d; font-size: 0.875rem; }
+.muted { color: #6b7280; margin: 0; }
+.error { color: #b91c1c; margin: 0; }

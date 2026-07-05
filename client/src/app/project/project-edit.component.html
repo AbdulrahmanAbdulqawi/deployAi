@@ -1,0 +1,90 @@
+@if (project()) {
+  <section>
+    <h1>Edit your app</h1>
+    <p class="intro">Update how this app is saved. Your GitHub app stays the same.</p>
+
+    @if (message()) {
+      <p class="message" [class.error]="isError()">{{ message() }}</p>
+    }
+
+    <div class="card">
+      <label>
+        App name
+        <input type="text" [(ngModel)]="name" />
+      </label>
+
+      <label>
+        Version to publish
+        <select [(ngModel)]="defaultBranch">
+          @for (branch of branches(); track branch.name) {
+            <option [value]="branch.name">{{ branch.name }}</option>
+          }
+        </select>
+      </label>
+
+      <p class="readonly">GitHub app: {{ project()!.githubRepoFullName }}</p>
+
+      @for (target of editableTargets(); track target.providerName) {
+        <div class="target-block">
+          <h2>{{ targetLabel(target) }}</h2>
+          <p class="hint">Hosted on {{ providerLabel(target.providerName) }}</p>
+          @if (repoOwner() && repoName()) {
+            <app-repo-folder-picker
+              [owner]="repoOwner()!"
+              [repo]="repoName()!"
+              [gitRef]="defaultBranch"
+              [initialPath]="target.serviceDirectory ?? target.rootDirectory ?? ''"
+              (pathSelected)="onFolderSelected(target.providerName, $event)"
+            />
+          }
+          @if (target.providerName === 'vercel' || target.providerName === 'railway') {
+            <button
+              type="button"
+              class="secondary"
+              [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
+              (click)="redetectBuildSettings(target)">
+              {{ detectingProvider() === target.providerName ? 'Detecting…' : 'Re-detect build settings' }}
+            </button>
+            @if (target.outputDirectory || target.buildCommand || target.startCommand || target.framework) {
+              <ul class="build-summary">
+                @if (target.outputDirectory) {
+                  <li>Output: {{ target.outputDirectory }}</li>
+                }
+                @if (target.buildCommand) {
+                  <li>Build: {{ target.buildCommand }}</li>
+                }
+                @if (target.startCommand) {
+                  <li>Start: {{ target.startCommand }}</li>
+                }
+                @if (target.framework) {
+                  <li>Framework: {{ target.framework }}</li>
+                }
+              </ul>
+            }
+          }
+        </div>
+      }
+
+      @if (hasRailwayTarget()) {
+        <p class="hint">Manage PostgreSQL and Redis on the app overview page under Services.</p>
+      }
+
+      <div class="nav">
+        <button type="button" class="secondary" (click)="cancel()">Cancel</button>
+        <button type="button" class="primary" [disabled]="saving() || !name || !defaultBranch" (click)="save()">
+          {{ saving() ? 'Saving…' : 'Save changes' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="danger-zone">
+      <h2>Remove this app</h2>
+      <p class="hint">This removes the app from DeployAI. It does not delete anything on Vercel or Railway.</p>
+      <button type="button" class="danger" [disabled]="deleting()" (click)="remove()">
+        {{ deleting() ? 'Removing…' : 'Remove app' }}
+      </button>
+    </div>
+  </section>
+} @else {
+  <p>One moment…</p>
+}

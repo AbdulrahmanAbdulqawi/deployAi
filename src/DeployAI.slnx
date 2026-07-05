@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="DeployAI.Api/DeployAI.Api.csproj" />
+  <Project Path="DeployAI.Core/DeployAI.Core.csproj" />
+  <Project Path="DeployAI.Data/DeployAI.Data.csproj" />
+  <Project Path="DeployAI.Infrastructure/DeployAI.Infrastructure.csproj" />
+  <Project Path="DeployAI.Providers/DeployAI.Providers.csproj" />
+  <Project Path="DeployAI.Tests/DeployAI.Tests.csproj" />
+</Solution>

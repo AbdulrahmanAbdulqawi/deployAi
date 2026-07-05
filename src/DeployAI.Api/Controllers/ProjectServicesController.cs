@@ -1,0 +1,172 @@
+using DeployAI.Api.Services;
+using DeployAI.Core.Deployments;
+using DeployAI.Core.Exceptions;
+using DeployAI.Core.Providers;
+using DeployAI.Data;
+using DeployAI.Data.Entities;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace DeployAI.Api.Controllers;
+
+[ApiController]
+[Authorize]
+[Route("api/projects/{projectId:guid}/services")]
+public sealed class ProjectServicesController : ControllerBase
+{
+    private readonly DeployAIDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+    private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
+    private readonly IProviderCredentialTokenService _tokens;
+    private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
+
+    public ProjectServicesController(
+        DeployAIDbContext db,
+        ICurrentUserService currentUser,
+        IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
+        IProviderCredentialTokenService tokens,
+        IProviderServiceOperationsFactory serviceOperationsFactory)
+    {
+        _db = db;
+        _currentUser = currentUser;
+        _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
+        _tokens = tokens;
+        _serviceOperationsFactory = serviceOperationsFactory;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> List(Guid projectId, CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        return Ok(MapServicesResponse(project));
+    }
+
+    [HttpGet("{targetId:guid}/status")]
+    public async Task<IActionResult> GetStatus(
+        Guid projectId,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var operations = GetServiceOperations(target);
+
+        var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+        var status = await operations.GetServiceStatusAsync(
+            new ProviderCredentials(token),
+            target.ProviderProjectId,
+            cancellationToken);
+
+        return Ok(new
+        {
+            status = status.Status,
+            deployUrl = status.DeployUrl,
+            lastDeployedAt = status.LastDeployedAt
+        });
+    }
+
+    [HttpPost("{targetId:guid}/redeploy")]
+    public async Task<IActionResult> Redeploy(
+        Guid projectId,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var operations = GetServiceOperations(target);
+
+        var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+        await operations.RedeployServiceAsync(
+            new ProviderCredentials(token),
+            target.ProviderProjectId,
+            cancellationToken);
+
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "Service restart requested." });
+    }
+
+    [HttpDelete("{targetId:guid}")]
+    public async Task<IActionResult> Remove(
+        Guid projectId,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var config = DeployTargetConfig.Parse(target.ConfigJson);
+
+        if (!config.IsDatabaseTarget)
+        {
+            throw new DeployAIException("invalid_target", "Only data services can be removed from DeployAI.");
+        }
+
+        await _railwayDatabaseProvisioning.RemoveDatabaseServiceAsync(project, target, cancellationToken);
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(MapServicesResponse(project));
+    }
+
+    private static object MapServicesResponse(Project project)
+    {
+        var services = ProjectServiceMapper.MapProjectServices(project);
+        return new
+        {
+            applicationServices = services.ApplicationServices.Select(MapService),
+            dataServices = services.DataServices.Select(MapService),
+            hasRailwayServer = services.HasRailwayServer,
+            includePostgres = services.IncludePostgres,
+            includeRedis = services.IncludeRedis
+        };
+    }
+
+    private static object MapService(ProjectServiceView service) => new
+    {
+        id = service.Id,
+        providerName = service.ProviderName,
+        credentialId = service.CredentialId,
+        providerProjectId = service.ProviderProjectId,
+        role = service.Role,
+        databaseEngine = service.DatabaseEngine,
+        displayName = service.DisplayName,
+        railwayProjectId = service.RailwayProjectId,
+        linkedConnectionKeys = service.LinkedConnectionKeys,
+        canManage = service.CanManage,
+        serviceDirectory = service.ServiceDirectory,
+        rootDirectory = service.RootDirectory
+    };
+
+    private async Task<Project> GetOwnedProjectAsync(Guid projectId, CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var project = await _db.Projects
+            .Include(p => p.DeployTargets)
+            .ThenInclude(t => t.Credential)
+            .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
+
+        return project ?? throw new DeployAIException("not_found", "We couldn't find that app.");
+    }
+
+    private static DeployTarget GetTarget(Project project, Guid targetId)
+    {
+        return project.DeployTargets.FirstOrDefault(t => t.Id == targetId)
+            ?? throw new DeployAIException("not_found", "We couldn't find that service.");
+    }
+
+    private IProviderServiceOperations GetServiceOperations(DeployTarget target)
+    {
+        if (!string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new DeployAIException("unsupported_provider", "Service operations are only supported for Railway.");
+        }
+
+        return _serviceOperationsFactory.GetServiceOperations(target.ProviderName)
+            ?? throw new DeployAIException("unsupported_provider", "Service operations are not available for this provider.");
+    }
+
+    private Guid RequireUserId() =>
+        _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
+}

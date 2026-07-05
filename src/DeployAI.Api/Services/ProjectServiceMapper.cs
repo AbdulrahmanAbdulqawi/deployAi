@@ -1,0 +1,108 @@
+using DeployAI.Core.Deployments;
+using DeployAI.Data.Entities;
+
+namespace DeployAI.Api.Services;
+
+public static class ProjectServiceMapper
+{
+    public static ProjectServicesResponse MapProjectServices(Project project)
+    {
+        var applicationServices = new List<ProjectServiceView>();
+        var dataServices = new List<ProjectServiceView>();
+        var hasRailwayServer = false;
+        var includePostgres = false;
+        var includeRedis = false;
+
+        foreach (var target in project.DeployTargets)
+        {
+            var config = DeployTargetConfig.Parse(target.ConfigJson);
+            if (config.IsDatabaseTarget)
+            {
+                dataServices.Add(MapTarget(target, config));
+                continue;
+            }
+
+            applicationServices.Add(MapTarget(target, config));
+            if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+            {
+                hasRailwayServer = true;
+                includePostgres = config.IncludePostgres;
+                includeRedis = config.IncludeRedis;
+            }
+        }
+
+        return new ProjectServicesResponse(
+            applicationServices,
+            dataServices,
+            hasRailwayServer,
+            includePostgres,
+            includeRedis);
+    }
+
+    private static ProjectServiceView MapTarget(DeployTarget target, DeployTargetConfig config)
+    {
+        var isDatabase = config.IsDatabaseTarget;
+        var canManage = string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase);
+        var linkedKeys = isDatabase ? GetLinkedConnectionKeys(config.DatabaseEngine) : [];
+
+        return new ProjectServiceView(
+            target.Id,
+            target.ProviderName,
+            target.CredentialId,
+            target.ProviderProjectId,
+            config.Role,
+            config.DatabaseEngine,
+            GetDisplayName(target, config),
+            config.RailwayProjectId,
+            linkedKeys,
+            canManage,
+            config.ServiceDirectory,
+            config.RootDirectory);
+    }
+
+    private static string GetDisplayName(DeployTarget target, DeployTargetConfig config)
+    {
+        if (config.IsDatabaseTarget)
+        {
+            return config.LinkedServiceName ?? DefaultDatabaseServiceName(config.DatabaseEngine);
+        }
+
+        if (string.Equals(config.Role, "website", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Website";
+        }
+
+        if (string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Server";
+        }
+
+        if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Website";
+        }
+
+        if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Server";
+        }
+
+        return target.ProviderName;
+    }
+
+    private static string DefaultDatabaseServiceName(string? engine) =>
+        engine switch
+        {
+            "postgres" => "Postgres",
+            "redis" => "Redis",
+            _ => "Database"
+        };
+
+    private static IReadOnlyList<string> GetLinkedConnectionKeys(string? engine) =>
+        engine switch
+        {
+            "postgres" => ["ConnectionStrings__DefaultConnection"],
+            "redis" => ["ConnectionStrings__Redis"],
+            _ => []
+        };
+}

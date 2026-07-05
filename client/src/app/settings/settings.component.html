@@ -1,0 +1,88 @@
+<section>
+  <h1>Where your apps can live</h1>
+  <p class="intro">Connect hosting so DeployAI can publish for you. Your connections stay encrypted and never show up here again.</p>
+
+  @if (message()) {
+    <p class="message" [class.error]="isError()">{{ message() }}</p>
+  }
+
+  <div class="list">
+    @for (credential of credentials(); track credential.id) {
+      <article class="row">
+        <div>
+          <strong>{{ displayName(credential.providerName) }}</strong>
+          <p>{{ credential.label }} · {{ credential.isValid ? 'Connected' : 'Needs a quick fix' }}</p>
+        </div>
+        <button type="button" class="danger" (click)="remove(credential.id)">Remove</button>
+      </article>
+    } @empty {
+      <p class="muted">No connections yet.</p>
+    }
+  </div>
+
+  <div class="form-card">
+    <h2>Connect Vercel</h2>
+    <p class="help">Sign in with Vercel once and DeployAI can publish for you.</p>
+    <button type="button" class="primary" [disabled]="connectingOAuth()" (click)="connectWithVercel()">
+      {{ connectingOAuth() ? 'One moment…' : 'Connect with Vercel' }}
+    </button>
+
+    <button type="button" class="link-btn" (click)="showAdvanced.set(!showAdvanced())">
+      {{ showAdvanced() ? 'Hide advanced' : 'Advanced: paste access key instead' }}
+    </button>
+
+    @if (showAdvanced()) {
+      <div class="advanced">
+        <p class="help">
+          Get your access key from
+          <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener">Vercel account tokens</a>.
+        </p>
+        <label>
+          Access key
+          <input type="password" [(ngModel)]="token" placeholder="Paste your Vercel access key" />
+        </label>
+        <label>
+          Label (optional)
+          <input type="text" [(ngModel)]="label" placeholder="Personal" />
+        </label>
+        <button type="button" class="secondary" [disabled]="!token || saving()" (click)="connectWithToken()">
+          {{ saving() ? 'One moment…' : 'Save access key' }}
+        </button>
+      </div>
+    }
+  </div>
+
+  <div class="form-card">
+    <h2>Connect Railway</h2>
+        <p class="help">Sign in with Railway once and DeployAI can publish for you.</p>
+        <p class="help">If database setup fails with “Not Authorized”, use Advanced below with an account token from Railway (not a project token).</p>
+    <button type="button" class="primary" [disabled]="connectingRailwayOAuth()" (click)="connectWithRailway()">
+      {{ connectingRailwayOAuth() ? 'One moment…' : 'Connect with Railway' }}
+    </button>
+
+    <button type="button" class="link-btn" (click)="showAdvancedRailway.set(!showAdvancedRailway())">
+      {{ showAdvancedRailway() ? 'Hide advanced' : 'Advanced: paste access key instead' }}
+    </button>
+
+    @if (showAdvancedRailway()) {
+      <div class="advanced">
+        <p class="help">
+          Create a token at
+          <a href="https://railway.com/account/tokens" target="_blank" rel="noopener">Railway account tokens</a>
+          and choose <strong>No workspace</strong>. This replaces your existing Railway connection and unlocks database creation.
+        </p>
+        <label>
+          Access key
+          <input type="password" [(ngModel)]="railwayToken" placeholder="Paste your Railway access key" />
+        </label>
+        <label>
+          Label (optional)
+          <input type="text" [(ngModel)]="railwayLabel" placeholder="Personal" />
+        </label>
+        <button type="button" class="secondary" [disabled]="!railwayToken || savingRailway()" (click)="connectRailwayWithToken()">
+          {{ savingRailway() ? 'One moment…' : 'Save access key' }}
+        </button>
+      </div>
+    }
+  </div>
+</section>

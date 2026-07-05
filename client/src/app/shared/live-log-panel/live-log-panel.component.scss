@@ -1,0 +1,23 @@
+.panel { margin-top: 1rem; }
+.toggle {
+  background: none;
+  border: none;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+}
+.log {
+  margin-top: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+  padding: 1rem;
+  max-height: 320px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+}
+.line { display: grid; grid-template-columns: 80px 1fr; gap: 0.75rem; padding: 0.25rem 0; }
+.provider { color: #6b7280; text-transform: capitalize; }
+.placeholder { margin: 0; color: #6b7280; font-family: inherit; }

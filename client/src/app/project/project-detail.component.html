@@ -1,0 +1,224 @@
+@if (project()) {
+  <section>
+    <h1>{{ project()!.name }}</h1>
+    <p class="meta">
+      {{ project()!.githubRepoFullName }} · version {{ project()!.defaultBranch }}
+      · {{ targetSummary() }}
+    </p>
+    <div class="actions">
+      <button type="button" class="primary" [disabled]="publishing()" (click)="publish()">
+        {{ publishing() ? 'Getting your app ready…' : 'Publish' }}
+      </button>
+      <button type="button" class="secondary" (click)="openEdit()">Edit app</button>
+      <button type="button" class="secondary" (click)="openHistory()">Past updates</button>
+    </div>
+    @if (message()) {
+      <p class="notice">{{ message() }}</p>
+    }
+
+    @if (services()) {
+      <div class="services-section">
+        <h2>Services</h2>
+        <p class="hint">Manage the hosting services linked to this app.</p>
+
+        <div class="services-group">
+          <h3>Application services</h3>
+          @if (services()!.applicationServices.length === 0) {
+            <p class="muted">No application services connected yet.</p>
+          } @else {
+            @for (service of services()!.applicationServices; track service.id) {
+              <div class="service-card">
+                <div class="service-header">
+                  <div>
+                    <strong>{{ service.displayName }}</strong>
+                    <span class="provider-badge">{{ providerLabel(service.providerName) }}</span>
+                    @if (serviceFolderSummary(service); as folder) {
+                      <p class="muted">{{ folder }}</p>
+                    }
+                  </div>
+                  @if (service.canManage) {
+                    <span class="status-badge" [class]="statusClass(service.id)">
+                      {{ loadingStatus()[service.id] ? 'Checking…' : serviceStatusLabel(serviceStatuses()[service.id]) }}
+                    </span>
+                  }
+                </div>
+                <div class="service-actions">
+                  @if (service.canManage) {
+                    <button
+                      type="button"
+                      class="secondary"
+                      [disabled]="actingOnService()[service.id]"
+                      (click)="redeployService(service)">
+                      {{ actingOnService()[service.id] ? 'Restarting…' : 'Restart service' }}
+                    </button>
+                  }
+                  <button type="button" class="text-btn" (click)="toggleEnvPanel(service)">
+                    {{ isEnvExpanded(service.id) ? 'Hide settings' : 'Manage settings' }}
+                  </button>
+                </div>
+                @if (isEnvExpanded(service.id)) {
+                  <div class="env-panel">
+                    @if (loadingEnv()[service.id]) {
+                      <p class="muted">One moment…</p>
+                    } @else {
+                      <ul class="env-list">
+                        @for (item of envVarsFor(service.id); track item.id) {
+                          <li>
+                            <strong>{{ item.key }}</strong>
+                            <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
+                            <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
+                          </li>
+                        } @empty {
+                          <li class="muted">No settings saved yet.</li>
+                        }
+                      </ul>
+                      <div class="env-form">
+                        <label>
+                          Name
+                          <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="API_URL" />
+                        </label>
+                        <label>
+                          Value
+                          <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
+                        </label>
+                        <button
+                          type="button"
+                          class="secondary"
+                          [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
+                          (click)="addEnv(service)">
+                          {{ savingEnv()[service.id] ? 'Saving…' : 'Add setting' }}
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          }
+        </div>
+
+        @if (services()!.hasRailwayServer) {
+          <div class="services-group">
+            <h3>Data services</h3>
+            @for (service of services()!.dataServices; track service.id) {
+              <div class="service-card">
+                <div class="service-header">
+                  <div>
+                    <strong>{{ databaseEngineLabel(service.databaseEngine) }}</strong>
+                    <span class="provider-badge">{{ service.displayName }}</span>
+                    @if (linkedConnectionSummary(service); as linked) {
+                      <p class="muted">{{ linked }}</p>
+                    }
+                  </div>
+                  <span class="status-badge" [class]="statusClass(service.id)">
+                    {{ loadingStatus()[service.id] ? 'Checking…' : serviceStatusLabel(serviceStatuses()[service.id]) }}
+                  </span>
+                </div>
+                <div class="service-actions">
+                  <button
+                    type="button"
+                    class="secondary"
+                    [disabled]="actingOnService()[service.id]"
+                    (click)="redeployService(service)">
+                    {{ actingOnService()[service.id] ? 'Restarting…' : 'Restart service' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="danger-btn"
+                    [disabled]="actingOnService()[service.id]"
+                    (click)="removeService(service)">
+                    Remove from Railway
+                  </button>
+                  <button type="button" class="text-btn" (click)="toggleEnvPanel(service)">
+                    {{ isEnvExpanded(service.id) ? 'Hide settings' : 'Manage settings' }}
+                  </button>
+                </div>
+                @if (isEnvExpanded(service.id)) {
+                  <div class="env-panel">
+                    @if (loadingEnv()[service.id]) {
+                      <p class="muted">One moment…</p>
+                    } @else {
+                      <ul class="env-list">
+                        @for (item of envVarsFor(service.id); track item.id) {
+                          <li>
+                            <strong>{{ item.key }}</strong>
+                            <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
+                            <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
+                          </li>
+                        } @empty {
+                          <li class="muted">No settings saved yet.</li>
+                        }
+                      </ul>
+                      <div class="env-form">
+                        <label>
+                          Name
+                          <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="POSTGRES_DB" />
+                        </label>
+                        <label>
+                          Value
+                          <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
+                        </label>
+                        <button
+                          type="button"
+                          class="secondary"
+                          [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
+                          (click)="addEnv(service)">
+                          {{ savingEnv()[service.id] ? 'Saving…' : 'Add setting' }}
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @if (!hasPostgresService() || !hasRedisService()) {
+              <div class="setup-panel">
+                <h4>Set up missing databases</h4>
+                @if (detectingRequirements()) {
+                  <p class="muted">Checking what your app needs…</p>
+                } @else if (databaseRequirements()) {
+                  <p class="hint">
+                    Detected from your repo:
+                    @if (databaseRequirements()!.requiresPostgres) { PostgreSQL }
+                    @if (databaseRequirements()!.requiresPostgres && databaseRequirements()!.requiresRedis) { and }
+                    @if (databaseRequirements()!.requiresRedis) { Redis }
+                    @if (!databaseRequirements()!.requiresPostgres && !databaseRequirements()!.requiresRedis) {
+                      no database requirements
+                    }
+                  </p>
+                }
+                <div class="setup-options">
+                  @if (!hasPostgresService()) {
+                    <label class="checkbox">
+                      <input type="checkbox" [(ngModel)]="setupPostgres" />
+                      PostgreSQL
+                    </label>
+                  }
+                  @if (!hasRedisService()) {
+                    <label class="checkbox">
+                      <input type="checkbox" [(ngModel)]="setupRedis" />
+                      Redis
+                    </label>
+                  }
+                </div>
+                <div class="setup-actions">
+                  <button type="button" class="secondary" [disabled]="provisioning()" (click)="autoSetupDatabases()">
+                    {{ provisioning() ? 'Setting up…' : 'Set up from repo' }}
+                  </button>
+                  <button type="button" class="primary" [disabled]="provisioning()" (click)="addSelectedDatabases()">
+                    {{ provisioning() ? 'Adding…' : 'Add selected' }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    } @else {
+      <p class="muted">Loading services…</p>
+    }
+  </section>
+} @else {
+  <p>One moment…</p>
+}

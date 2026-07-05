@@ -1,0 +1,13 @@
+<div class="shell">
+  <header class="topbar">
+    <a routerLink="/dashboard" class="brand">DeployAI</a>
+    <nav>
+      <a routerLink="/dashboard" routerLinkActive="active">Your apps</a>
+      <a routerLink="/settings" routerLinkActive="active">Connections</a>
+    </nav>
+    <button type="button" class="text-btn" (click)="signOut()">Sign out</button>
+  </header>
+  <main>
+    <router-outlet />
+  </main>
+</div>

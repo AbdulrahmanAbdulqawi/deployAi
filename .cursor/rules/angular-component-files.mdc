@@ -1,0 +1,37 @@
+---
+description: Angular components must use separate HTML, SCSS, and TS files
+globs: client/src/**/*.component.ts
+alwaysApply: false
+---
+
+# Angular component file layout
+
+Every Angular component uses three sibling files:
+
+```
+feature-name.component.ts
+feature-name.component.html
+feature-name.component.scss
+```
+
+## Rules
+
+- Do **not** use inline `template:` or `styles:` in `@Component`.
+- Use `templateUrl` and `styleUrl` pointing to sibling files.
+- Keep TypeScript files for logic only: class, imports, lifecycle, methods.
+- Put all markup in `.html` and all component-scoped styles in `.scss`.
+
+## Example
+
+```typescript
+@Component({
+  selector: 'app-example',
+  standalone: true,
+  imports: [FormsModule],
+  templateUrl: './example.component.html',
+  styleUrl: './example.component.scss'
+})
+export class ExampleComponent {}
+```
+
+When adding a new component, create all three files together. When editing an existing inline component, split it before making other changes.

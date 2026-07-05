@@ -1,0 +1,24 @@
+@if (deployment()) {
+  <section>
+    <h1>Publishing your app</h1>
+    <p class="meta">Version {{ deployment()!.branch }}</p>
+
+    <div class="targets">
+      @for (target of deployment()!.targets; track target.id) {
+        <article class="target-card">
+          <div class="row">
+            <strong>{{ target.providerName }}</strong>
+            <app-status-badge [status]="target.status" />
+          </div>
+          @if (target.deployUrl) {
+            <a [href]="target.deployUrl" target="_blank" rel="noopener">Your app is live</a>
+          }
+        </article>
+      }
+    </div>
+
+    <app-live-log-panel [lines]="activity()" />
+  </section>
+} @else {
+  <p>One moment…</p>
+}

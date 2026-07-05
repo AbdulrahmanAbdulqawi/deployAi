@@ -1,0 +1,277 @@
+<section>
+  <h1>Add your app</h1>
+  <p class="steps">Step {{ step() }} of 5</p>
+
+  @if (error()) {
+    <p class="error">{{ error() }}</p>
+  }
+
+  @switch (step()) {
+    @case (1) {
+      <div class="card">
+        <h2>Which app?</h2>
+        <input type="search" [(ngModel)]="search" (ngModelChange)="loadRepos()" placeholder="Search your GitHub apps" />
+        <div class="options">
+          @for (repo of repos(); track repo.fullName) {
+            <button type="button" class="option" [class.selected]="selectedRepo()?.fullName === repo.fullName" (click)="selectRepo(repo)">
+              {{ repo.fullName }}
+            </button>
+          }
+        </div>
+        <button type="button" class="primary" [disabled]="!selectedRepo()" (click)="nextFromRepo()">Continue</button>
+      </div>
+    }
+    @case (2) {
+      <div class="card">
+        <h2>Which version?</h2>
+        <div class="options">
+          @for (branch of branches(); track branch.name) {
+            <button type="button" class="option" [class.selected]="selectedBranch() === branch.name" (click)="selectedBranch.set(branch.name)">
+              {{ branch.name }}
+            </button>
+          }
+        </div>
+        <div class="nav">
+          <button type="button" class="secondary" (click)="step.set(1)">Back</button>
+          <button type="button" class="primary" [disabled]="!selectedBranch()" (click)="enterPartsStep()">Continue</button>
+        </div>
+      </div>
+    }
+    @case (3) {
+      <div class="card">
+        <h2>What do you want to publish?</h2>
+        <p class="hint">Choose one option, then pick the folder for each part.</p>
+
+        <div class="deployment-choices">
+          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
+            <strong>Website on Vercel</strong>
+            <span>Frontend or static site</span>
+          </button>
+          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
+            <strong>Server on Railway</strong>
+            <span>Backend API or service</span>
+          </button>
+          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
+            <strong>Both</strong>
+            <span>Website on Vercel and server on Railway</span>
+          </button>
+        </div>
+
+        @if (publishWebsite) {
+          <div class="part-block">
+            <p class="part-label">Website folder</p>
+            <p class="hint">Choose the folder with your website files.</p>
+            @if (repoOwner() && repoName() && selectedBranch()) {
+              <app-repo-folder-picker
+                [owner]="repoOwner()!"
+                [repo]="repoName()!"
+                [gitRef]="selectedBranch()!"
+                [initialPath]="websiteRootPath"
+                (pathSelected)="onWebsiteFolderSelected($event)"
+              />
+            }
+          </div>
+        }
+
+        @if (publishServer) {
+          <div class="part-block">
+            <p class="part-label">Server folder</p>
+            <p class="hint">Choose the folder with your server files.</p>
+            @if (repoOwner() && repoName() && selectedBranch()) {
+              <app-repo-folder-picker
+                [owner]="repoOwner()!"
+                [repo]="repoName()!"
+                [gitRef]="selectedBranch()!"
+                [initialPath]="serverRootPath"
+                (pathSelected)="onServerFolderSelected($event)"
+              />
+            }
+          </div>
+        }
+
+        <div class="nav">
+          <button type="button" class="secondary" (click)="step.set(2)">Back</button>
+          @if (partsStepBlockedHint()) {
+            <p class="hint">{{ partsStepBlockedHint() }}</p>
+          }
+          <button type="button" class="primary" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</button>
+        </div>
+      </div>
+    }
+    @case (4) {
+      <div class="card">
+        <h2>Where should it live?</h2>
+
+        @if (publishWebsite) {
+          <section class="host-block">
+            <h3>Website on Vercel</h3>
+            @if (loadingCredentials()) {
+              <p class="muted">One moment…</p>
+            } @else if (vercelCredentials().length === 0) {
+              <div class="callout">
+                <p>Connect Vercel first so we know where to publish your website.</p>
+                <button type="button" class="primary" [disabled]="connectingVercelOAuth()" (click)="connectWithVercel()">
+                  {{ connectingVercelOAuth() ? 'One moment…' : 'Connect with Vercel' }}
+                </button>
+                <button type="button" class="link-btn" (click)="goToConnections()">Or open Connections settings</button>
+              </div>
+            } @else {
+              <label>
+                Vercel connection
+                <select [(ngModel)]="selectedVercelCredentialId" (ngModelChange)="onVercelCredentialChange()">
+                  @for (cred of vercelCredentials(); track cred.id) {
+                    <option [value]="cred.id">{{ cred.label }}</option>
+                  }
+                </select>
+              </label>
+              <div class="mode-toggle">
+                <button type="button" class="mode-btn" [class.active]="vercelHostingMode() === 'existing'" (click)="setVercelHostingMode('existing')">Use existing</button>
+                <button type="button" class="mode-btn" [class.active]="vercelHostingMode() === 'create'" (click)="setVercelHostingMode('create')">Create new</button>
+              </div>
+              @if (vercelHostingMode() === 'existing') {
+                @if (loadingVercelProjects()) {
+                  <p class="muted">Loading your Vercel apps…</p>
+                } @else {
+                  <div class="options">
+                    @for (project of vercelProjects(); track project.id) {
+                      <button type="button" class="option" [class.selected]="selectedVercelProjectId() === project.id" (click)="selectedVercelProjectId.set(project.id)">
+                        {{ project.name }}
+                      </button>
+                    }
+                  </div>
+                }
+              } @else {
+                <label>
+                  New app name on Vercel
+                  <input type="text" [(ngModel)]="newVercelProjectName" placeholder="my-app" />
+                </label>
+                <button type="button" class="secondary" [disabled]="!newVercelProjectName || creatingVercelProject()" (click)="createVercelProject()">
+                  {{ creatingVercelProject() ? 'Creating…' : 'Create on Vercel' }}
+                </button>
+              }
+            }
+          </section>
+        }
+
+        @if (publishServer) {
+          <section class="host-block">
+            <h3>Server on Railway</h3>
+            @if (loadingCredentials()) {
+              <p class="muted">One moment…</p>
+            } @else if (railwayCredentials().length === 0) {
+              <div class="callout">
+                <p>Connect Railway first so we know where to publish your server.</p>
+                <button type="button" class="primary" [disabled]="connectingRailwayOAuth()" (click)="connectWithRailway()">
+                  {{ connectingRailwayOAuth() ? 'One moment…' : 'Connect with Railway' }}
+                </button>
+                <button type="button" class="link-btn" (click)="goToConnections()">Or open Connections settings</button>
+              </div>
+            } @else {
+              <label>
+                Railway connection
+                <select [(ngModel)]="selectedRailwayCredentialId" (ngModelChange)="onRailwayCredentialChange()">
+                  @for (cred of railwayCredentials(); track cred.id) {
+                    <option [value]="cred.id">{{ cred.label }}</option>
+                  }
+                </select>
+              </label>
+              <div class="mode-toggle">
+                <button type="button" class="mode-btn" [class.active]="railwayHostingMode() === 'existing'" (click)="setRailwayHostingMode('existing')">Use existing</button>
+                <button type="button" class="mode-btn" [class.active]="railwayHostingMode() === 'create'" (click)="setRailwayHostingMode('create')">Create new</button>
+              </div>
+              @if (railwayHostingMode() === 'existing') {
+                @if (loadingRailwayProjects()) {
+                  <p class="muted">Loading your Railway services…</p>
+                } @else {
+                  <div class="options">
+                    @for (project of railwayProjects(); track project.id) {
+                      <button type="button" class="option" [class.selected]="selectedRailwayProjectId() === project.id" (click)="selectedRailwayProjectId.set(project.id)">
+                        {{ project.name }}
+                      </button>
+                    }
+                  </div>
+                }
+              } @else {
+                <label>
+                  New service name on Railway
+                  <input type="text" [(ngModel)]="newRailwayProjectName" placeholder="my-api" />
+                </label>
+                <button type="button" class="secondary" [disabled]="!newRailwayProjectName || creatingRailwayProject()" (click)="createRailwayProject()">
+                  {{ creatingRailwayProject() ? 'Creating…' : 'Create on Railway' }}
+                </button>
+              }
+
+              @if (detectingDatabaseRequirements()) {
+                <p class="muted">Checking database requirements…</p>
+              } @else if (detectedDatabaseSummary()) {
+                <p class="hint detected">{{ detectedDatabaseSummary() }}</p>
+              }
+            }
+          </section>
+        }
+
+        <div class="nav">
+          <button type="button" class="secondary" (click)="step.set(3)">Back</button>
+          @if (canContinueFromHostingStep()) {
+            <button type="button" class="primary" (click)="step.set(5)">Continue</button>
+          } @else {
+            <p class="hint inline">{{ hostingStepBlockedHint() }}</p>
+          }
+        </div>
+      </div>
+    }
+    @case (5) {
+      <div class="card">
+        <h2>Ready to save?</h2>
+        <label>
+          App name
+          <input type="text" [(ngModel)]="projectName" />
+        </label>
+        <ul class="summary">
+          <li>App: {{ selectedRepo()?.fullName }}</li>
+          <li>Version: {{ selectedBranch() }}</li>
+          @if (publishWebsite) {
+            <li>Website: {{ websiteRootPath || 'app root' }} → Vercel</li>
+            @if (websiteBuildProfile()) {
+              <li class="detected">Build output: {{ websiteBuildProfile()!.outputDirectory }}</li>
+            }
+          }
+              @if (publishServer) {
+                <li>Server: {{ serverRootPath || 'app root' }} → Railway</li>
+                @if (detectedDatabaseSummary()) {
+                  <li class="detected">{{ detectedDatabaseSummary() }}</li>
+                }
+                @if (serverBuildProfile()?.startCommand) {
+                  <li class="detected">Start command: {{ serverBuildProfile()!.startCommand }}</li>
+                }
+              }
+        </ul>
+
+        @if (publishWebsite) {
+          <button type="button" class="link-btn" (click)="showAdvancedEnv.set(!showAdvancedEnv())">
+            {{ showAdvancedEnv() ? 'Hide advanced settings' : 'Advanced settings for website (optional)' }}
+          </button>
+          @if (showAdvancedEnv()) {
+            <div class="advanced">
+              <p class="hint">Add settings on Vercel before your first publish.</p>
+              @for (row of envRows; track $index) {
+                <div class="env-row">
+                  <input type="text" [(ngModel)]="row.key" placeholder="Setting name" />
+                  <input type="password" [(ngModel)]="row.value" placeholder="Value" />
+                </div>
+              }
+              <button type="button" class="secondary" (click)="addEnvRow()">Add another setting</button>
+            </div>
+          }
+        }
+
+        <div class="nav">
+          <button type="button" class="secondary" (click)="step.set(4)">Back</button>
+          <button type="button" class="primary" [disabled]="saving() || !projectName" (click)="create()">
+            {{ saving() ? 'One moment…' : 'Save app' }}
+          </button>
+        </div>
+      </div>
+    }
+  }
+</section>

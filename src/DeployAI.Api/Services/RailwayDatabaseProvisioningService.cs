@@ -1,0 +1,464 @@
+using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
+using DeployAI.Core.Security;
+using DeployAI.Data;
+using DeployAI.Data.Entities;
+using DeployAI.Infrastructure.GitHub;
+using Microsoft.EntityFrameworkCore;
+
+namespace DeployAI.Api.Services;
+
+public interface IRailwayDatabaseProvisioningService
+{
+    Task<DatabaseRequirementProfile> DetectRequirementsAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken);
+
+    Task ProvisionAsync(
+        Project project,
+        DeployTarget serverTarget,
+        DatabaseProvisioningRequest request,
+        CancellationToken cancellationToken);
+
+    Task EnsureFromRepoAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken);
+
+    Task RemoveDatabaseServiceAsync(
+        Project project,
+        DeployTarget databaseTarget,
+        CancellationToken cancellationToken);
+}
+
+public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisioningService
+{
+    private readonly DeployAIDbContext _db;
+    private readonly IProviderDatabaseProvisioningFactory _provisioningFactory;
+    private readonly IProviderManagementFactory _managementFactory;
+    private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
+    private readonly IProviderCredentialTokenService _tokens;
+    private readonly IGitHubService _gitHubService;
+    private readonly IEncryptionService _encryption;
+    private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+
+    public RailwayDatabaseProvisioningService(
+        DeployAIDbContext db,
+        IProviderDatabaseProvisioningFactory provisioningFactory,
+        IProviderManagementFactory managementFactory,
+        IProviderServiceOperationsFactory serviceOperationsFactory,
+        IProviderCredentialTokenService tokens,
+        IGitHubService gitHubService,
+        IEncryptionService encryption,
+        IDatabaseRequirementDetector databaseRequirementDetector)
+    {
+        _db = db;
+        _provisioningFactory = provisioningFactory;
+        _managementFactory = managementFactory;
+        _serviceOperationsFactory = serviceOperationsFactory;
+        _tokens = tokens;
+        _gitHubService = gitHubService;
+        _encryption = encryption;
+        _databaseRequirementDetector = databaseRequirementDetector;
+    }
+
+    public Task<DatabaseRequirementProfile> DetectRequirementsAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken) =>
+        DetectRequirementsInternalAsync(project, serverTarget, branch, cancellationToken);
+
+    public async Task EnsureFromRepoAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(serverTarget.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var profile = await DetectRequirementsInternalAsync(project, serverTarget, branch, cancellationToken);
+        if (!profile.RequiresPostgres && !profile.RequiresRedis)
+        {
+            return;
+        }
+
+        await ProvisionAsync(
+            project,
+            serverTarget,
+            new DatabaseProvisioningRequest(
+                profile.RequiresPostgres,
+                profile.RequiresRedis,
+                profile.PostgresDatabaseName),
+            cancellationToken);
+    }
+
+    private async Task<DatabaseRequirementProfile> DetectRequirementsInternalAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        var parts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return new DatabaseRequirementProfile(false, false, []);
+        }
+
+        var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
+        var gitHubToken = _encryption.Decrypt(user.GitHubTokenEncrypted);
+        var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
+        var serverPath = (serverConfig.ServiceDirectory ?? serverConfig.RootDirectory ?? string.Empty).Trim().Trim('/');
+
+        var dockerCompose = await ReadFirstExistingFileAsync(
+            gitHubToken,
+            parts[0],
+            parts[1],
+            ["docker-compose.yml", "docker-compose.yaml"],
+            branch,
+            cancellationToken);
+        var appsettingsPath = string.IsNullOrEmpty(serverPath)
+            ? "appsettings.json"
+            : $"{serverPath}/appsettings.json";
+        var appsettings = await _gitHubService.GetFileContentAsync(
+            gitHubToken,
+            parts[0],
+            parts[1],
+            appsettingsPath,
+            branch,
+            cancellationToken);
+
+        return _databaseRequirementDetector.Detect(dockerCompose, appsettings);
+    }
+
+    private async Task<string?> ReadFirstExistingFileAsync(
+        string token,
+        string owner,
+        string repo,
+        IReadOnlyList<string> paths,
+        string? gitRef,
+        CancellationToken cancellationToken)
+    {
+        foreach (var path in paths)
+        {
+            var content = await _gitHubService.GetFileContentAsync(token, owner, repo, path, gitRef, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                return content;
+            }
+        }
+
+        return null;
+    }
+    public async Task ProvisionAsync(
+        Project project,
+        DeployTarget serverTarget,
+        DatabaseProvisioningRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.IncludePostgres && !request.IncludeRedis)
+        {
+            return;
+        }
+
+        if (!string.Equals(serverTarget.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var provisioning = _provisioningFactory.GetProvisioning(serverTarget.ProviderName)
+            ?? throw new InvalidOperationException("Railway database provisioning is not available.");
+
+        var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
+        if (serverConfig.IsDatabaseTarget)
+        {
+            return;
+        }
+
+        var token = await _tokens.GetTokenAsync(serverTarget.Credential, cancellationToken);
+        var credentials = new ProviderCredentials(token);
+
+        ProvisionedDatabaseService? postgres = null;
+        ProvisionedDatabaseService? redis = null;
+
+        if (request.IncludePostgres)
+        {
+            postgres = await provisioning.EnsurePostgresAsync(
+                credentials,
+                serverTarget.ProviderProjectId,
+                request.PostgresDatabaseName,
+                cancellationToken);
+        }
+
+        if (request.IncludeRedis)
+        {
+            redis = await provisioning.EnsureRedisAsync(
+                credentials,
+                serverTarget.ProviderProjectId,
+                cancellationToken);
+        }
+
+        var links = BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
+        if (links.Count > 0)
+        {
+            await provisioning.LinkDatabaseVariablesAsync(
+                credentials,
+                serverTarget.ProviderProjectId,
+                links,
+                cancellationToken);
+        }
+
+        var railwayProjectId = postgres?.ProjectId ?? redis?.ProjectId;
+        if (!string.IsNullOrWhiteSpace(railwayProjectId))
+        {
+            serverConfig.RailwayProjectId = railwayProjectId;
+        }
+
+        serverConfig.IncludePostgres = request.IncludePostgres || serverConfig.IncludePostgres;
+        serverConfig.IncludeRedis = request.IncludeRedis || serverConfig.IncludeRedis;
+        var serverConfigJson = serverConfig.ToJson();
+        var trackedServerTarget = project.DeployTargets.FirstOrDefault(t => t.Id == serverTarget.Id);
+        if (trackedServerTarget is not null)
+        {
+            trackedServerTarget.ConfigJson = serverConfigJson;
+        }
+        else
+        {
+            serverTarget.ConfigJson = serverConfigJson;
+        }
+
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""UPDATE deploy_targets SET "ConfigJson" = {serverConfigJson} WHERE "Id" = {serverTarget.Id}""",
+            cancellationToken);
+
+        await UpsertDatabaseDeployTargetAsync(project, serverTarget, postgres, "postgres", cancellationToken);
+        await UpsertDatabaseDeployTargetAsync(project, serverTarget, redis, "redis", cancellationToken);
+
+        DetachAllDeployTargetChanges();
+    }
+
+    internal static IReadOnlyList<DatabaseVariableLink> BuildVariableLinks(
+        string? postgresServiceName,
+        string? redisServiceName)
+    {
+        var links = new List<DatabaseVariableLink>();
+        if (!string.IsNullOrWhiteSpace(postgresServiceName))
+        {
+            var postgresHostReference =
+                $"Host=${{{{{postgresServiceName}.RAILWAY_PRIVATE_DOMAIN}}}};Port=5432;Username=${{{{{postgresServiceName}.POSTGRES_USER}}}};Password=${{{{{postgresServiceName}.POSTGRES_PASSWORD}}}}";
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__DefaultConnection",
+                $"{postgresHostReference};Database=${{{{{postgresServiceName}.POSTGRES_DB}}}}"));
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__AdminConnection",
+                $"{postgresHostReference};Database=postgres"));
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__TenantTemplate",
+                $"{postgresHostReference};Database=postgres"));
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__TestConnection",
+                $"{postgresHostReference};Database=idaara_test"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(redisServiceName))
+        {
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__Redis",
+                $"${{{{{redisServiceName}.REDIS_URL}}}}"));
+        }
+
+        return links;
+    }
+
+    private async Task UpsertDatabaseDeployTargetAsync(
+        Project project,
+        DeployTarget serverTarget,
+        ProvisionedDatabaseService? database,
+        string engine,
+        CancellationToken cancellationToken)
+    {
+        if (database is null)
+        {
+            return;
+        }
+
+        var configJson = DeployTargetConfig.FromDatabaseService(
+            engine,
+            database.ProjectId,
+            database.ServiceName).ToJson();
+        var providerProjectId = $"{database.ServiceId}|{database.EnvironmentId}";
+
+        var existingId = await FindDatabaseDeployTargetIdAsync(project.Id, engine, cancellationToken);
+        if (existingId is not null)
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE deploy_targets
+                SET "ConfigJson" = {configJson}, "ProviderProjectId" = {providerProjectId}
+                WHERE "Id" = {existingId}
+                """,
+                cancellationToken);
+
+            UpdateInMemoryDatabaseTarget(project, existingId.Value, providerProjectId, configJson);
+            return;
+        }
+
+        var newId = Guid.NewGuid();
+        var createdAt = DateTimeOffset.UtcNow;
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            INSERT INTO deploy_targets ("Id", "ProjectId", "ProviderName", "CredentialId", "ProviderProjectId", "ConfigJson", "CreatedAt")
+            VALUES ({newId}, {project.Id}, {serverTarget.ProviderName}, {serverTarget.CredentialId}, {providerProjectId}, {configJson}, {createdAt})
+            """,
+            cancellationToken);
+
+        project.DeployTargets.Add(new DeployTarget
+        {
+            Id = newId,
+            ProjectId = project.Id,
+            ProviderName = serverTarget.ProviderName,
+            CredentialId = serverTarget.CredentialId,
+            ProviderProjectId = providerProjectId,
+            ConfigJson = configJson,
+            CreatedAt = createdAt
+        });
+    }
+
+    private static void UpdateInMemoryDatabaseTarget(
+        Project project,
+        Guid deployTargetId,
+        string providerProjectId,
+        string configJson)
+    {
+        var existing = project.DeployTargets.FirstOrDefault(t => t.Id == deployTargetId);
+        if (existing is null)
+        {
+            return;
+        }
+
+        existing.ProviderProjectId = providerProjectId;
+        existing.ConfigJson = configJson;
+    }
+
+    private void DetachAllDeployTargetChanges()
+    {
+        foreach (var entry in _db.ChangeTracker.Entries<DeployTarget>().ToList())
+        {
+            entry.State = EntityState.Unchanged;
+        }
+    }
+
+    private async Task<Guid?> FindDatabaseDeployTargetIdAsync(
+        Guid projectId,
+        string engine,
+        CancellationToken cancellationToken)
+    {
+        var deployTargets = await _db.DeployTargets
+            .AsNoTracking()
+            .Where(t => t.ProjectId == projectId)
+            .ToListAsync(cancellationToken);
+
+        foreach (var deployTarget in deployTargets)
+        {
+            var config = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+            if (config.IsDatabaseTarget &&
+                string.Equals(config.DatabaseEngine, engine, StringComparison.OrdinalIgnoreCase))
+            {
+                return deployTarget.Id;
+            }
+        }
+
+        return null;
+    }
+
+    public async Task RemoveDatabaseServiceAsync(
+        Project project,
+        DeployTarget databaseTarget,
+        CancellationToken cancellationToken)
+    {
+        var config = DeployTargetConfig.Parse(databaseTarget.ConfigJson);
+        if (!config.IsDatabaseTarget)
+        {
+            throw new InvalidOperationException("Only database services can be removed through this method.");
+        }
+
+        var serverTarget = project.DeployTargets.FirstOrDefault(t =>
+            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
+            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
+
+        var serviceOperations = _serviceOperationsFactory.GetServiceOperations(databaseTarget.ProviderName);
+
+        var token = await _tokens.GetTokenAsync(databaseTarget.Credential, cancellationToken);
+        var credentials = new ProviderCredentials(token);
+
+        if (serviceOperations is not null)
+        {
+            await serviceOperations.DeleteServiceAsync(
+                credentials,
+                databaseTarget.ProviderProjectId,
+                cancellationToken);
+        }
+
+        if (serverTarget is not null)
+        {
+            var management = _managementFactory.GetManagement(serverTarget.ProviderName);
+            var linkKey = config.DatabaseEngine switch
+            {
+                "postgres" => "ConnectionStrings__DefaultConnection",
+                "redis" => "ConnectionStrings__Redis",
+                _ => null
+            };
+
+            if (!string.IsNullOrWhiteSpace(linkKey))
+            {
+                try
+                {
+                    await management.DeleteEnvVarAsync(
+                        credentials,
+                        serverTarget.ProviderProjectId,
+                        linkKey,
+                        cancellationToken);
+                }
+                catch (DeployAI.Core.Exceptions.DeployAIException)
+                {
+                    // Variable may already be gone.
+                }
+            }
+
+            var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
+            if (string.Equals(config.DatabaseEngine, "postgres", StringComparison.OrdinalIgnoreCase))
+            {
+                serverConfig.IncludePostgres = false;
+            }
+
+            if (string.Equals(config.DatabaseEngine, "redis", StringComparison.OrdinalIgnoreCase))
+            {
+                serverConfig.IncludeRedis = false;
+            }
+
+            var serverConfigJson = serverConfig.ToJson();
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"""UPDATE deploy_targets SET "ConfigJson" = {serverConfigJson} WHERE "Id" = {serverTarget.Id}""",
+                cancellationToken);
+
+            var trackedServer = project.DeployTargets.FirstOrDefault(t => t.Id == serverTarget.Id);
+            if (trackedServer is not null)
+            {
+                trackedServer.ConfigJson = serverConfigJson;
+            }
+        }
+
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM deploy_targets WHERE "Id" = {databaseTarget.Id}""",
+            cancellationToken);
+
+        project.DeployTargets.Remove(databaseTarget);
+        DetachAllDeployTargetChanges();
+    }
+}

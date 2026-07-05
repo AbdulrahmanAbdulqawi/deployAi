@@ -1,0 +1,177 @@
+using DeployAI.Core.Providers;
+
+namespace DeployAI.Providers.Railway;
+
+public sealed partial class RailwayProvider
+{
+    private const string DockerfilePathVariable = "RAILWAY_DOCKERFILE_PATH";
+
+    private static Dictionary<string, object?> BuildSettingsFromEnvironment(IReadOnlyDictionary<string, string> environment)
+    {
+        var input = new Dictionary<string, object?>();
+        var isDotnet = environment.TryGetValue("framework", out var framework) &&
+                       string.Equals(framework, "dotnet", StringComparison.OrdinalIgnoreCase);
+        var isDocker = string.Equals(framework, "docker", StringComparison.OrdinalIgnoreCase);
+        var hasMonorepoDockerfile = environment.TryGetValue("dockerfilePath", out var dockerfilePath) &&
+                                    !string.IsNullOrWhiteSpace(dockerfilePath);
+
+        if (hasMonorepoDockerfile)
+        {
+            input["rootDirectory"] = ".";
+        }
+        else if (isDocker || environment.TryGetValue("rootDirectory", out var rootDirectory))
+        {
+            var resolvedRoot = ResolveRootDirectory(environment);
+            if (!string.IsNullOrWhiteSpace(resolvedRoot))
+            {
+                input["rootDirectory"] = resolvedRoot;
+            }
+        }
+
+        if (!isDotnet && !isDocker &&
+            environment.TryGetValue("buildCommand", out var buildCommand) &&
+            !string.IsNullOrWhiteSpace(buildCommand))
+        {
+            input["buildCommand"] = buildCommand;
+        }
+
+        if (!isDotnet && !isDocker &&
+            environment.TryGetValue("startCommand", out var startCommand) &&
+            !string.IsNullOrWhiteSpace(startCommand))
+        {
+            input["startCommand"] = startCommand;
+        }
+
+        return input;
+    }
+
+    private static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request)
+    {
+        var environment = new Dictionary<string, string>();
+        if (!string.IsNullOrWhiteSpace(request.RootDirectory))
+        {
+            environment["rootDirectory"] = request.RootDirectory;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Framework))
+        {
+            environment["framework"] = request.Framework;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.DockerfilePath))
+        {
+            environment["dockerfilePath"] = request.DockerfilePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BuildCommand))
+        {
+            environment["buildCommand"] = request.BuildCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.InstallCommand))
+        {
+            environment["installCommand"] = request.InstallCommand;
+        }
+
+        return BuildSettingsFromEnvironment(environment);
+    }
+
+    private static string ResolveRootDirectory(IReadOnlyDictionary<string, string> environment)
+    {
+        if (!environment.TryGetValue("rootDirectory", out var rootDirectory) ||
+            string.IsNullOrWhiteSpace(rootDirectory) ||
+            string.Equals(rootDirectory, ".", StringComparison.Ordinal))
+        {
+            return ".";
+        }
+
+        return rootDirectory.Trim().Trim('/');
+    }
+
+    private async Task ApplyBuildConfigurationAsync(
+        ProviderCredentials credentials,
+        string serviceId,
+        string environmentId,
+        IReadOnlyDictionary<string, string> environment,
+        CancellationToken cancellationToken)
+    {
+        var settings = BuildSettingsFromEnvironment(environment);
+        if (settings.Count > 0)
+        {
+            await ApplyServiceSettingsAsync(credentials, serviceId, environmentId, settings, cancellationToken);
+        }
+
+        if (environment.TryGetValue("dockerfilePath", out var dockerfilePath) &&
+            !string.IsNullOrWhiteSpace(dockerfilePath))
+        {
+            await EnsureServiceVariableAsync(
+                credentials,
+                serviceId,
+                environmentId,
+                DockerfilePathVariable,
+                dockerfilePath.Trim().Trim('/'),
+                cancellationToken);
+        }
+    }
+
+    private async Task ApplyServiceSettingsAsync(
+        ProviderCredentials credentials,
+        string serviceId,
+        string environmentId,
+        Dictionary<string, object?> settings,
+        CancellationToken cancellationToken)
+    {
+        if (settings.Count == 0)
+        {
+            return;
+        }
+
+        const string mutation = """
+            mutation UpdateServiceInstance($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
+              serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
+            }
+            """;
+
+        await RailwayApiSupport.ExecuteAsync(
+            _httpClient,
+            credentials.Token,
+            mutation,
+            new { serviceId, environmentId, input = settings },
+            cancellationToken);
+    }
+
+    private async Task EnsureServiceVariableAsync(
+        ProviderCredentials credentials,
+        string serviceId,
+        string environmentId,
+        string name,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
+
+        const string mutation = """
+            mutation VariableUpsert($input: VariableUpsertInput!) {
+              variableUpsert(input: $input)
+            }
+            """;
+
+        await RailwayApiSupport.ExecuteAsync(
+            _httpClient,
+            credentials.Token,
+            mutation,
+            new
+            {
+                input = new
+                {
+                    projectId,
+                    environmentId,
+                    serviceId,
+                    name,
+                    value,
+                    skipDeploys = true
+                }
+            },
+            cancellationToken);
+    }
+}

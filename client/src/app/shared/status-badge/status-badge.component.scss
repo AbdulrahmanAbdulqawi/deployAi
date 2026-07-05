@@ -1,0 +1,13 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.live { background: #dcfce7; color: #166534; }
+.working { background: #dbeafe; color: #1d4ed8; }
+.failed { background: #fee2e2; color: #b91c1c; }
+.attention { background: #fef3c7; color: #b45309; }
+.idle { background: #f3f4f6; color: #4b5563; }

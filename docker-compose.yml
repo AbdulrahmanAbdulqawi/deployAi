@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: deployai-postgres
+    environment:
+      POSTGRES_USER: deployai
+      POSTGRES_PASSWORD: deployai
+      POSTGRES_DB: deployai
+    ports:
+      - "5432:5432"
+    volumes:
+      - deployai_pgdata:/var/lib/postgresql/data
+
+volumes:
+  deployai_pgdata:

@@ -1,0 +1,35 @@
+<div class="picker">
+  <nav class="breadcrumb" aria-label="Folder path">
+    @for (segment of breadcrumbs(); track segment.path; let last = $last) {
+      @if (!last) {
+        <button type="button" class="crumb" (click)="openPath(segment.path)">{{ segment.label }}</button>
+        <span class="sep">›</span>
+      } @else {
+        <span class="current">{{ segment.label }}</span>
+      }
+    }
+  </nav>
+
+  @if (loading()) {
+    <p class="muted">Loading folders…</p>
+  } @else if (error()) {
+    <p class="error">{{ error() }}</p>
+  } @else {
+    <div class="folders">
+      @for (folder of directories(); track folder.path) {
+        <button type="button" class="folder" (click)="openPath(folder.path)">
+          {{ folder.name }}
+        </button>
+      } @empty {
+        <p class="muted">No subfolders here.</p>
+      }
+    </div>
+  }
+
+  <div class="actions">
+    <button type="button" class="secondary" (click)="selectCurrent()">Use this folder</button>
+    @if (selectedPath() !== null) {
+      <p class="selected">Publishing from: {{ selectedPath() || 'your app root' }}</p>
+    }
+  </div>
+</div>

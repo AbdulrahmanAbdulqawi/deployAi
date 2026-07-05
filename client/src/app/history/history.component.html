@@ -1,0 +1,30 @@
+<section>
+  <div class="header">
+    <div>
+      <h1>Your past updates</h1>
+      <p>Review when you published and whether it worked.</p>
+    </div>
+    <button type="button" class="secondary" (click)="back()">Back to app</button>
+  </div>
+
+  @if (loading()) {
+    <p class="muted">One moment…</p>
+  } @else if (deployments().length === 0) {
+    <app-empty-state
+      title="Your updates will show up here once you publish"
+      message="Publish this app once and your history will appear here."
+    />
+  } @else {
+    <div class="list">
+      @for (item of deployments(); track item.id) {
+        <button type="button" class="row" (click)="open(item.id)">
+          <div>
+            <strong>Version {{ item.branch }}</strong>
+            <p>{{ formatWhen(item.completedAt || item.startedAt) }}</p>
+          </div>
+          <app-status-badge [status]="item.status" />
+        </button>
+      }
+    </div>
+  }
+</section>
