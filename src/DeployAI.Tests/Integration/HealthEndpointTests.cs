@@ -26,6 +26,19 @@ public class HealthEndpointTests : IClassFixture<DeployAIWebApplicationFactory>
         var payload = await response.Content.ReadAsStringAsync();
         Assert.Contains("DeployAI", payload);
     }
+
+    [Fact]
+    public async Task DatabaseHealth_ReturnsOk_WithTableCounts()
+    {
+        var response = await _client.GetAsync("/api/health/db");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"status\":\"ok\"", payload);
+        Assert.Contains("migrationsApplied", payload);
+        Assert.Contains("users", payload);
+        Assert.Contains("projects", payload);
+    }
 }
 
 public class DeployAIWebApplicationFactory : WebApplicationFactory<Program>
