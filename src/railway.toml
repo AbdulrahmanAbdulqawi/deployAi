@@ -1,6 +1,3 @@
 [build]
-builder = "RAILPACK"
-buildCommand = "dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out"
-
-[deploy]
-startCommand = "dotnet out/DeployAI.Api.dll"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
