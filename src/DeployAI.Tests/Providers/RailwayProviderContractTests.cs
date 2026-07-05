@@ -264,13 +264,15 @@ public class RailwayProviderContractTests
                 ["rootDirectory"] = "src",
                 ["serviceDirectory"] = "src/DeployAI.Api",
                 ["framework"] = "dotnet",
-                ["buildCommand"] = "dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out"
+                ["buildCommand"] = "dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out",
+                ["startCommand"] = "dotnet out/DeployAI.Api.dll"
             },
             CancellationToken.None);
 
         Assert.NotNull(updateBody);
         Assert.Contains("\"rootDirectory\":\"src\"", updateBody, StringComparison.Ordinal);
         Assert.Contains("DeployAI.Api/DeployAI.Api.csproj", updateBody, StringComparison.Ordinal);
+        Assert.Contains("DeployAI.Api.dll", updateBody, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1103,6 +1105,124 @@ public class RailwayProviderContractTests
         Assert.Contains(volumeMutations, b => b.Contains("volumeInstanceUpdate", StringComparison.Ordinal));
         Assert.Contains(volumeMutations, b => b.Contains("vol_1", StringComparison.Ordinal));
         Assert.Contains(volumeMutations, b => b.Contains("/var/lib/postgresql/data", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task EnsurePostgresAsync_RedeploysOnce_AfterVolumeAndVariableSetup()
+    {
+        var handler = new MockHttpMessageHandler();
+        var deployCalls = 0;
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (body.Contains("serviceInstanceDeployV2", StringComparison.Ordinal))
+                {
+                    deployCalls++;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                if (body.Contains("EnvironmentVolumeInstances", StringComparison.Ordinal) ||
+                    body.Contains("volumeInstances", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """
+                            {
+                              "data": {
+                                "environment": {
+                                  "volumeInstances": {
+                                    "edges": [{
+                                      "node": {
+                                        "id": "vol_inst_1",
+                                        "volumeId": "vol_1",
+                                        "serviceId": "svc_pg",
+                                        "mountPath": ""
+                                      }
+                                    }]
+                                  }
+                                }
+                              }
+                            }
+                            """,
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                if (body.Contains("ServiceContext", StringComparison.Ordinal) ||
+                    body.Contains("ServiceProject", StringComparison.Ordinal) ||
+                    body.Contains("service(id:", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                if (body.Contains("ProjectServices", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """
+                            {
+                              "data": {
+                                "project": {
+                                  "services": {
+                                    "edges": [{
+                                      "node": {
+                                        "id": "svc_pg",
+                                        "name": "Postgres",
+                                        "serviceInstances": {
+                                          "edges": [{
+                                            "node": {
+                                              "environmentId": "env_1",
+                                              "source": { "image": "ghcr.io/railwayapp-templates/postgres-ssl:16" }
+                                            }
+                                          }]
+                                        }
+                                      }
+                                    }]
+                                  }
+                                }
+                              }
+                            }
+                            """,
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                if (body.Contains("variables(", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":{"variables":{}}}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.EnsurePostgresAsync(
+            new ProviderCredentials("token"),
+            "svc_app|env_1",
+            "deployai",
+            CancellationToken.None);
+
+        Assert.Equal(1, deployCalls);
     }
 
     [Fact]

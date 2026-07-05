@@ -56,7 +56,10 @@ public sealed class ProjectsController : ControllerBase
                 name = p.Name,
                 githubRepoFullName = p.GitHubRepoFullName,
                 defaultBranch = p.DefaultBranch,
-                targets = p.DeployTargets.Select(t => new { providerName = t.ProviderName }),
+                targets = p.DeployTargets
+                    .Where(t => DeployTargetConfig.Parse(t.ConfigJson).IsDeployableTarget)
+                    .GroupBy(t => t.ProviderName, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new { providerName = g.Key }),
                 latestDeployment = latestByProject.TryGetValue(p.Id, out var latest)
                     ? new
                     {
@@ -88,12 +91,26 @@ public sealed class ProjectsController : ControllerBase
             throw new DeployAIException("invalid_credential", "One of your hosting connections is missing. Reconnect it in settings.");
         }
 
+        var normalizedRepo = request.GitHubRepoFullName.Trim();
+        var existingProject = await _db.Projects
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                p => p.UserId == userId &&
+                     p.GitHubRepoFullName == normalizedRepo,
+                cancellationToken);
+        if (existingProject is not null)
+        {
+            throw new DeployAIException(
+                "project_already_exists",
+                "You already have an app for this GitHub repo. Open the existing app instead of creating another one.");
+        }
+
         var project = new Project
         {
             Id = Guid.NewGuid(),
             UserId = userId,
             Name = request.Name,
-            GitHubRepoFullName = request.GitHubRepoFullName,
+            GitHubRepoFullName = normalizedRepo,
             DefaultBranch = request.DefaultBranch,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow

@@ -54,7 +54,9 @@ public sealed class RailwayManagementController : ControllerBase
                 null,
                 request.BuildCommand,
                 request.InstallCommand,
-                request.DockerfilePath),
+                request.DockerfilePath,
+                request.ServiceDirectory,
+                request.StartCommand),
             cancellationToken);
 
         return Ok(new { project });
@@ -144,7 +146,9 @@ public sealed class RailwayManagementController : ControllerBase
         string? RootDirectory,
         string? BuildCommand,
         string? InstallCommand,
-        string? DockerfilePath);
+        string? DockerfilePath,
+        string? ServiceDirectory,
+        string? StartCommand);
 
     public sealed record ProvisionRailwayDatabasesRequest(bool Postgres, bool Redis);
 }

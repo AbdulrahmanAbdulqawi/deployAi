@@ -37,6 +37,23 @@ public static class CsprojBuildAnalyzer
         return $"dotnet publish {projectFolder}/{projectFolder}.csproj -c Release -o out";
     }
 
+    public static string? BuildStartCommand(string buildRootDirectory, string serviceDirectory)
+    {
+        if (BuildPublishCommand(buildRootDirectory, serviceDirectory) is null)
+        {
+            return null;
+        }
+
+        var normalizedService = NormalizeDirectory(serviceDirectory);
+        var projectFolder = normalizedService.Split('/').Last();
+        if (string.IsNullOrEmpty(projectFolder))
+        {
+            return null;
+        }
+
+        return $"dotnet out/{projectFolder}.dll";
+    }
+
     private static string NormalizeDirectory(string directory) =>
         string.IsNullOrWhiteSpace(directory) ? string.Empty : directory.Trim().Trim('/');
 }

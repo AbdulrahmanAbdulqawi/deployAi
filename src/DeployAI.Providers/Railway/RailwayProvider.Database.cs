@@ -41,19 +41,24 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
             return null;
         }
 
-        await EnsurePostgresVolumeAsync(
+        var volumeChanged = await EnsurePostgresVolumeAsync(
             credentials,
             service.ProjectId,
             service.EnvironmentId,
             service.ServiceId,
             cancellationToken);
 
-        await EnsurePostgresPluginVariablesAsync(
+        var configChanged = await EnsurePostgresPluginVariablesAsync(
             credentials,
             service.ServiceId,
             service.EnvironmentId,
             postgresDatabaseName,
             cancellationToken);
+
+        if (volumeChanged || configChanged)
+        {
+            await RedeployServiceInstanceAsync(credentials, service.ServiceId, service.EnvironmentId, cancellationToken);
+        }
 
         return service;
     }
@@ -74,18 +79,23 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
             return null;
         }
 
-        await EnsureRedisVolumeAsync(
+        var volumeChanged = await EnsureRedisVolumeAsync(
             credentials,
             service.ProjectId,
             service.EnvironmentId,
             service.ServiceId,
             cancellationToken);
 
-        await EnsureRedisPluginVariablesAsync(
+        var configChanged = await EnsureRedisPluginVariablesAsync(
             credentials,
             service.ServiceId,
             service.EnvironmentId,
             cancellationToken);
+
+        if (volumeChanged || configChanged)
+        {
+            await RedeployServiceInstanceAsync(credentials, service.ServiceId, service.EnvironmentId, cancellationToken);
+        }
 
         return service;
     }

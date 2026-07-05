@@ -125,6 +125,7 @@ public class RepositoryClassifierTests
         Assert.Equal("src/DeployAI.Api", server.ServiceDirectory);
         Assert.Equal("dotnet", server.Framework);
         Assert.Equal("dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out", server.BuildCommand);
+        Assert.Equal("dotnet out/DeployAI.Api.dll", server.StartCommand);
     }
 
     [Fact]

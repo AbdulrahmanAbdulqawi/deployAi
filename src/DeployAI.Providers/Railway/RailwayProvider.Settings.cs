@@ -28,7 +28,7 @@ public sealed partial class RailwayProvider
             }
         }
 
-        if ((!isDotnet || IsDotnetMonorepoLayout(environment)) &&
+        if ((!isDotnet || ShouldApplyDotnetBuildCommands(environment)) &&
             !isDocker &&
             environment.TryGetValue("buildCommand", out var buildCommand) &&
             !string.IsNullOrWhiteSpace(buildCommand))
@@ -36,7 +36,8 @@ public sealed partial class RailwayProvider
             input["buildCommand"] = buildCommand;
         }
 
-        if (!isDotnet && !isDocker &&
+        if ((!isDotnet || ShouldApplyDotnetBuildCommands(environment)) &&
+            !isDocker &&
             environment.TryGetValue("startCommand", out var startCommand) &&
             !string.IsNullOrWhiteSpace(startCommand))
         {
@@ -46,7 +47,7 @@ public sealed partial class RailwayProvider
         return input;
     }
 
-    private static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request)
+    internal static Dictionary<string, string> BuildEnvironmentFromCreateRequest(CreateProviderProjectRequest request)
     {
         var environment = new Dictionary<string, string>();
         if (!string.IsNullOrWhiteSpace(request.RootDirectory))
@@ -74,8 +75,21 @@ public sealed partial class RailwayProvider
             environment["installCommand"] = request.InstallCommand;
         }
 
-        return BuildSettingsFromEnvironment(environment);
+        if (!string.IsNullOrWhiteSpace(request.ServiceDirectory))
+        {
+            environment["serviceDirectory"] = request.ServiceDirectory;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.StartCommand))
+        {
+            environment["startCommand"] = request.StartCommand;
+        }
+
+        return environment;
     }
+
+    private static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request) =>
+        BuildSettingsFromEnvironment(BuildEnvironmentFromCreateRequest(request));
 
     private static string ResolveRootDirectory(IReadOnlyDictionary<string, string> environment)
     {
@@ -100,6 +114,17 @@ public sealed partial class RailwayProvider
         var normalizedService = serviceDirectory.Trim().Trim('/');
         var normalizedRoot = ResolveRootDirectory(environment);
         return !string.Equals(normalizedRoot, normalizedService, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldApplyDotnetBuildCommands(IReadOnlyDictionary<string, string> environment)
+    {
+        if (IsDotnetMonorepoLayout(environment))
+        {
+            return true;
+        }
+
+        return environment.TryGetValue("buildCommand", out var buildCommand) &&
+               buildCommand.Contains("dotnet publish", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task ApplyBuildConfigurationAsync(

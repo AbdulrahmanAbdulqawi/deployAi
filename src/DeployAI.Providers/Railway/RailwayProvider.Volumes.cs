@@ -9,7 +9,7 @@ public sealed partial class RailwayProvider
     internal const string PostgresDataMountPath = "/var/lib/postgresql/data";
     internal const string RedisDataMountPath = "/data";
 
-    private async Task EnsurePostgresVolumeAsync(
+    private async Task<bool> EnsurePostgresVolumeAsync(
         ProviderCredentials credentials,
         string projectId,
         string environmentId,
@@ -23,7 +23,7 @@ public sealed partial class RailwayProvider
             PostgresDataMountPath,
             cancellationToken);
 
-    private async Task EnsureRedisVolumeAsync(
+    private async Task<bool> EnsureRedisVolumeAsync(
         ProviderCredentials credentials,
         string projectId,
         string environmentId,
@@ -37,7 +37,7 @@ public sealed partial class RailwayProvider
             RedisDataMountPath,
             cancellationToken);
 
-    private async Task EnsureServiceVolumeAsync(
+    private async Task<bool> EnsureServiceVolumeAsync(
         ProviderCredentials credentials,
         string projectId,
         string environmentId,
@@ -58,7 +58,7 @@ public sealed partial class RailwayProvider
 
         if (matching.Count > 0)
         {
-            return;
+            return false;
         }
 
         var fixable = instances.FirstOrDefault(instance =>
@@ -73,8 +73,7 @@ public sealed partial class RailwayProvider
                 environmentId,
                 mountPath,
                 cancellationToken);
-            await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
-            return;
+            return true;
         }
 
         var region = await GetServiceInstanceRegionAsync(
@@ -92,7 +91,7 @@ public sealed partial class RailwayProvider
             region,
             cancellationToken);
 
-        await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+        return true;
     }
 
     private async Task<IReadOnlyList<VolumeInstanceInfo>> ListVolumeInstancesAsync(

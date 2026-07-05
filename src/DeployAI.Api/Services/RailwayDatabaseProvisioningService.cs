@@ -253,9 +253,14 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         {
             var postgresHostReference =
                 $"Host=${{{{{postgresServiceName}.RAILWAY_PRIVATE_DOMAIN}}}};Port=5432;Username=${{{{{postgresServiceName}.POSTGRES_USER}}}};Password=${{{{{postgresServiceName}.POSTGRES_PASSWORD}}}}";
+            var defaultDatabaseReference =
+                $"{postgresHostReference};Database=${{{{{postgresServiceName}.POSTGRES_DB}}}}";
+            links.Add(new DatabaseVariableLink(
+                "ConnectionStrings__Default",
+                defaultDatabaseReference));
             links.Add(new DatabaseVariableLink(
                 "ConnectionStrings__DefaultConnection",
-                $"{postgresHostReference};Database=${{{{{postgresServiceName}.POSTGRES_DB}}}}"));
+                defaultDatabaseReference));
             links.Add(new DatabaseVariableLink(
                 "ConnectionStrings__AdminConnection",
                 $"{postgresHostReference};Database=postgres"));
@@ -411,7 +416,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             var management = _managementFactory.GetManagement(serverTarget.ProviderName);
             var linkKey = config.DatabaseEngine switch
             {
-                "postgres" => "ConnectionStrings__DefaultConnection",
+                "postgres" => "ConnectionStrings__Default",
                 "redis" => "ConnectionStrings__Redis",
                 _ => null
             };

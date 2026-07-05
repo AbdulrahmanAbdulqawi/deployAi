@@ -52,12 +52,13 @@ public sealed class ServerBuildDetector : IServerBuildDetector
             }
 
             var buildCommand = CsprojBuildAnalyzer.BuildPublishCommand(buildRootDirectory, serviceDirectory);
+            var startCommand = CsprojBuildAnalyzer.BuildStartCommand(buildRootDirectory, serviceDirectory);
 
             return new ServerBuildProfile(
                 buildRootDirectory,
                 buildCommand,
                 null,
-                null,
+                startCommand,
                 "dotnet",
                 null,
                 serviceDirectory);

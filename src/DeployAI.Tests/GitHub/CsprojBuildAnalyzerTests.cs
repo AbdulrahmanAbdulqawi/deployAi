@@ -35,6 +35,14 @@ public class CsprojBuildAnalyzerTests
     }
 
     [Fact]
+    public void BuildStartCommand_ReturnsDotnetDllPath_ForMonorepoLayout()
+    {
+        var command = CsprojBuildAnalyzer.BuildStartCommand("src", "src/DeployAI.Api");
+
+        Assert.Equal("dotnet out/DeployAI.Api.dll", command);
+    }
+
+    [Fact]
     public void BuildPublishCommand_ReturnsNull_ForStandaloneProject()
     {
         Assert.Null(CsprojBuildAnalyzer.BuildPublishCommand("My.Api", "My.Api"));

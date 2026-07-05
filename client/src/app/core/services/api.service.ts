@@ -233,7 +233,9 @@ export class ApiService {
       buildCommand: profile?.buildCommand,
       installCommand: profile?.installCommand,
       framework: profile?.framework,
-      dockerfilePath: profile?.dockerfilePath
+      dockerfilePath: profile?.dockerfilePath,
+      serviceDirectory: profile?.serviceDirectory,
+      startCommand: profile?.startCommand
     });
   }
 

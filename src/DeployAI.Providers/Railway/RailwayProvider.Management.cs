@@ -81,27 +81,14 @@ public sealed partial class RailwayProvider
         if (!string.IsNullOrWhiteSpace(request.RootDirectory) ||
             !string.IsNullOrWhiteSpace(request.BuildCommand) ||
             !string.IsNullOrWhiteSpace(request.InstallCommand) ||
+            !string.IsNullOrWhiteSpace(request.StartCommand) ||
+            !string.IsNullOrWhiteSpace(request.ServiceDirectory) ||
             !string.IsNullOrWhiteSpace(request.DockerfilePath) ||
             string.Equals(request.Framework, "docker", StringComparison.OrdinalIgnoreCase))
         {
             try
             {
-                var environment = new Dictionary<string, string>();
-                if (!string.IsNullOrWhiteSpace(request.RootDirectory))
-                {
-                    environment["rootDirectory"] = request.RootDirectory;
-                }
-
-                if (!string.IsNullOrWhiteSpace(request.Framework))
-                {
-                    environment["framework"] = request.Framework;
-                }
-
-                if (!string.IsNullOrWhiteSpace(request.DockerfilePath))
-                {
-                    environment["dockerfilePath"] = request.DockerfilePath;
-                }
-
+                var environment = BuildEnvironmentFromCreateRequest(request);
                 await ApplyBuildConfigurationAsync(
                     credentials,
                     serviceId,

@@ -17,6 +17,7 @@ export class ProjectCardComponent {
   @Output() history = new EventEmitter<string>();
 
   get providerNames(): string {
-    return this.project.targets.map(t => t.providerName).join(', ');
+    const providers = [...new Set(this.project.targets.map(t => t.providerName))];
+    return providers.join(', ');
   }
 }

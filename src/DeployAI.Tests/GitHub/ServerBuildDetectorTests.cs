@@ -61,6 +61,7 @@ public class ServerBuildDetectorTests
         Assert.Equal("src", profile.RootDirectory);
         Assert.Equal("src/DeployAI.Api", profile.ServiceDirectory);
         Assert.Equal("dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out", profile.BuildCommand);
+        Assert.Equal("dotnet out/DeployAI.Api.dll", profile.StartCommand);
     }
 
     [Fact]

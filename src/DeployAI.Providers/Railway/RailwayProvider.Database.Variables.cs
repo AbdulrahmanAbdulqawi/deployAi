@@ -7,7 +7,7 @@ namespace DeployAI.Providers.Railway;
 
 public sealed partial class RailwayProvider
 {
-    private async Task EnsurePostgresPluginVariablesAsync(
+    private async Task<bool> EnsurePostgresPluginVariablesAsync(
         ProviderCredentials credentials,
         string serviceId,
         string environmentId,
@@ -33,6 +33,7 @@ public sealed partial class RailwayProvider
 
         if (hasPassword && hasDatabaseUrl)
         {
+            var configChanged = false;
             var currentDbName = await GetServiceVariableValueAsync(
                 credentials,
                 projectId,
@@ -50,7 +51,7 @@ public sealed partial class RailwayProvider
                     "POSTGRES_DB",
                     databaseName,
                     cancellationToken);
-                await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+                configChanged = true;
             }
             else if (!string.Equals(currentDbName, databaseName, StringComparison.Ordinal))
             {
@@ -59,8 +60,12 @@ public sealed partial class RailwayProvider
                     $"PostgreSQL was already initialized with database \"{currentDbName}\". Remove the Postgres service from DeployAI and add it again to use \"{databaseName}\".");
             }
 
-            await EnsurePostgresDataDirectoryAsync(credentials, serviceId, environmentId, cancellationToken);
-            return;
+            configChanged |= await EnsurePostgresDataDirectoryAsync(
+                credentials,
+                serviceId,
+                environmentId,
+                cancellationToken);
+            return configChanged;
         }
 
         var password = GenerateSecretToken();
@@ -75,11 +80,15 @@ public sealed partial class RailwayProvider
             "postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:5432/${{POSTGRES_DB}}",
             cancellationToken);
 
-        await EnsurePostgresDataDirectoryAsync(credentials, serviceId, environmentId, cancellationToken);
-        await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+        await EnsurePostgresDataDirectoryAsync(
+            credentials,
+            serviceId,
+            environmentId,
+            cancellationToken);
+        return true;
     }
 
-    private async Task EnsurePostgresDataDirectoryAsync(
+    private async Task<bool> EnsurePostgresDataDirectoryAsync(
         ProviderCredentials credentials,
         string serviceId,
         string environmentId,
@@ -96,7 +105,7 @@ public sealed partial class RailwayProvider
             cancellationToken);
         if (string.Equals(currentPgData, pgDataPath, StringComparison.Ordinal))
         {
-            return;
+            return false;
         }
 
         await EnsureServiceVariableAsync(
@@ -106,10 +115,10 @@ public sealed partial class RailwayProvider
             "PGDATA",
             pgDataPath,
             cancellationToken);
-        await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+        return true;
     }
 
-    private async Task EnsureRedisPluginVariablesAsync(
+    private async Task<bool> EnsureRedisPluginVariablesAsync(
         ProviderCredentials credentials,
         string serviceId,
         string environmentId,
@@ -118,7 +127,7 @@ public sealed partial class RailwayProvider
         var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
         if (await ServiceHasVariableAsync(credentials, projectId, environmentId, serviceId, "REDIS_URL", cancellationToken))
         {
-            return;
+            return false;
         }
 
         await EnsureServiceVariableAsync(
@@ -129,7 +138,7 @@ public sealed partial class RailwayProvider
             "redis://${{RAILWAY_PRIVATE_DOMAIN}}:6379",
             cancellationToken);
 
-        await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+        return true;
     }
 
     private static string NormalizePostgresDatabaseName(string? name) =>

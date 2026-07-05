@@ -16,7 +16,9 @@ public sealed record CreateProviderProjectRequest(
     string? OutputDirectory = null,
     string? BuildCommand = null,
     string? InstallCommand = null,
-    string? DockerfilePath = null);
+    string? DockerfilePath = null,
+    string? ServiceDirectory = null,
+    string? StartCommand = null);
 
 public sealed record UpsertProviderEnvVarRequest(
     string Key,
