@@ -262,9 +262,13 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
                 return created.Value;
             }
 
-            throw new DeployAIException(
-                "railway_database_provision_failed",
-                $"Railway did not finish creating the {templateCode} service. Try again in a moment.");
+            return await CreateDatabaseServiceViaImageAsync(
+                credentials,
+                projectId,
+                environmentId,
+                serviceName,
+                dockerImage,
+                cancellationToken);
         }
 
         return await CreateDatabaseServiceViaImageAsync(

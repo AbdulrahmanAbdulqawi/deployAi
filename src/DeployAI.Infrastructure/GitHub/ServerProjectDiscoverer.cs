@@ -10,15 +10,53 @@ public static class ServerProjectDiscoverer
         "src"
     ];
 
+    private static readonly string[] FrontendDirectoryNames =
+    [
+        "client",
+        "web",
+        "frontend",
+        "app"
+    ];
+
+    private static readonly string[] ContainerDirectoryNames =
+    [
+        "src",
+        "backend",
+        "server",
+        "apps"
+    ];
+
     public static IReadOnlyList<string> RankCandidates(IEnumerable<string> directoryNames)
     {
         return directoryNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Where(name => !IsKnownFrontendDirectory(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(ScoreDirectoryName)
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    public static IReadOnlyList<string> ExpandNestedCandidates(string parentDirectory, IEnumerable<string> subdirectoryNames)
+    {
+        if (!ShouldScanNestedSubdirectories(parentDirectory))
+        {
+            return [];
+        }
+
+        var normalizedParent = parentDirectory.Trim().Trim('/');
+        return RankCandidates(subdirectoryNames)
+            .Select(name => string.IsNullOrEmpty(normalizedParent) ? name : $"{normalizedParent}/{name}")
+            .ToList();
+    }
+
+    public static bool IsKnownFrontendDirectory(string name) =>
+        FrontendDirectoryNames.Any(frontend =>
+            string.Equals(name, frontend, StringComparison.OrdinalIgnoreCase));
+
+    public static bool ShouldScanNestedSubdirectories(string directoryName) =>
+        ContainerDirectoryNames.Any(container =>
+            string.Equals(directoryName, container, StringComparison.OrdinalIgnoreCase));
 
     public static bool HasServerSignals(IEnumerable<GitHubContentItem> contents)
     {

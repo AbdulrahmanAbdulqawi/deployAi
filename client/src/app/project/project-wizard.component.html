@@ -39,63 +39,96 @@
     }
     @case (3) {
       <div class="card">
-        <h2>What do you want to publish?</h2>
-        <p class="hint">Choose one option, then pick the folder for each part.</p>
+        @if (loadingDeploymentPlan()) {
+          <h2>Looking at your app…</h2>
+          <p class="hint">We're reading your repository to figure out the best way to put it live.</p>
+        } @else if (!showManualOverride() && deploymentPlan()?.confidence === 'high') {
+          <h2>Here's what we found</h2>
+          <p class="plan-summary">{{ deploymentPlan()!.plainSummary }}</p>
 
-        <div class="deployment-choices">
-          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
-            <strong>Website on Vercel</strong>
-            <span>Frontend or static site</span>
-          </button>
-          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
-            <strong>Server on Railway</strong>
-            <span>Backend API or service</span>
-          </button>
-          <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
-            <strong>Both</strong>
-            <span>Website on Vercel and server on Railway</span>
-          </button>
-        </div>
+          <div class="nav plan-actions">
+            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
+            <button type="button" class="link-btn" (click)="showManualConfiguration()">Change how this deploys</button>
+            <button type="button" class="primary" [disabled]="!canAcceptPlan()" (click)="acceptDeploymentPlan()">
+              Yes, deploy it
+            </button>
+          </div>
+        } @else if (!showManualOverride() && deploymentPlan()?.clarifyingQuestion) {
+          <h2>One quick question</h2>
+          <p class="hint">{{ deploymentPlan()!.clarifyingQuestion!.prompt }}</p>
 
-        @if (publishWebsite) {
-          <div class="part-block">
-            <p class="part-label">Website folder</p>
-            <p class="hint">Choose the folder with your website files.</p>
-            @if (repoOwner() && repoName() && selectedBranch()) {
-              <app-repo-folder-picker
-                [owner]="repoOwner()!"
-                [repo]="repoName()!"
-                [gitRef]="selectedBranch()!"
-                [initialPath]="websiteRootPath"
-                (pathSelected)="onWebsiteFolderSelected($event)"
-              />
+          <div class="deployment-choices">
+            @for (option of deploymentPlan()!.clarifyingQuestion!.options; track option.id) {
+              <button type="button" class="deployment-choice" (click)="selectClarifyingOption(option.id)">
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.description }}</span>
+              </button>
             }
           </div>
-        }
 
-        @if (publishServer) {
-          <div class="part-block">
-            <p class="part-label">Server folder</p>
-            <p class="hint">Choose the folder with your server files.</p>
-            @if (repoOwner() && repoName() && selectedBranch()) {
-              <app-repo-folder-picker
-                [owner]="repoOwner()!"
-                [repo]="repoName()!"
-                [gitRef]="selectedBranch()!"
-                [initialPath]="serverRootPath"
-                (pathSelected)="onServerFolderSelected($event)"
-              />
-            }
+          <div class="nav">
+            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
+            <button type="button" class="link-btn" (click)="showManualConfiguration()">Change how this deploys</button>
           </div>
-        }
+        } @else {
+          <h2>What do you want to publish?</h2>
+          <p class="hint">Choose one option, then pick the folder for each part.</p>
 
-        <div class="nav">
-          <button type="button" class="secondary" (click)="step.set(2)">Back</button>
-          @if (partsStepBlockedHint()) {
-            <p class="hint">{{ partsStepBlockedHint() }}</p>
+          <div class="deployment-choices">
+            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
+              <strong>Website</strong>
+              <span>Frontend or static site</span>
+            </button>
+            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
+              <strong>Server</strong>
+              <span>Backend API or service</span>
+            </button>
+            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
+              <strong>Both</strong>
+              <span>Website and server from the same app</span>
+            </button>
+          </div>
+
+          @if (publishWebsite) {
+            <div class="part-block">
+              <p class="part-label">Website folder</p>
+              <p class="hint">Choose the folder with your website files.</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="websiteRootPath"
+                  (pathSelected)="onWebsiteFolderSelected($event)"
+                />
+              }
+            </div>
           }
-          <button type="button" class="primary" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</button>
-        </div>
+
+          @if (publishServer) {
+            <div class="part-block">
+              <p class="part-label">Server folder</p>
+              <p class="hint">Choose the folder with your server files.</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="serverRootPath"
+                  (pathSelected)="onServerFolderSelected($event)"
+                />
+              }
+            </div>
+          }
+
+          <div class="nav">
+            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
+            @if (partsStepBlockedHint()) {
+              <p class="hint">{{ partsStepBlockedHint() }}</p>
+            }
+            <button type="button" class="primary" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</button>
+          </div>
+        }
       </div>
     }
     @case (4) {

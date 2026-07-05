@@ -19,6 +19,33 @@ public class ServerProjectDiscovererTests
     }
 
     [Fact]
+    public void RankCandidates_ExcludesKnownFrontendDirectories()
+    {
+        var ranked = ServerProjectDiscoverer.RankCandidates(["client", "src", "web", "My.Api"]);
+
+        Assert.DoesNotContain(ranked, name => string.Equals(name, "client", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(ranked, name => string.Equals(name, "web", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(ranked, name => string.Equals(name, "My.Api", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExpandNestedCandidates_PrefersApiProjectUnderSrc()
+    {
+        var nested = ServerProjectDiscoverer.ExpandNestedCandidates(
+            "src",
+            ["DeployAI.Core", "DeployAI.Api", "DeployAI.Tests"]);
+
+        Assert.Equal("src/DeployAI.Api", nested[0]);
+    }
+
+    [Fact]
+    public void ShouldScanNestedSubdirectories_ReturnsTrue_ForSrc()
+    {
+        Assert.True(ServerProjectDiscoverer.ShouldScanNestedSubdirectories("src"));
+        Assert.False(ServerProjectDiscoverer.ShouldScanNestedSubdirectories("client"));
+    }
+
+    [Fact]
     public void HasServerSignals_ReturnsTrue_WhenCsprojPresent()
     {
         var contents = new[]

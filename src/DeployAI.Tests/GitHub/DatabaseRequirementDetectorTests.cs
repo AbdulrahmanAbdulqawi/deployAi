@@ -51,6 +51,25 @@ public class DatabaseRequirementDetectorTests
     }
 
     [Fact]
+    public void Detect_ExtractsPostgresDatabaseNameFromCompose_WhenAppsettingsMissing()
+    {
+        const string compose = """
+            services:
+              postgres:
+                image: postgres:16
+                environment:
+                  POSTGRES_USER: deployai
+                  POSTGRES_PASSWORD: deployai
+                  POSTGRES_DB: deployai
+            """;
+
+        var profile = _detector.Detect(compose, null);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.Equal("deployai", profile.PostgresDatabaseName);
+    }
+
+    [Fact]
     public void DetectFromAppsettings_RequiresPostgresForDefaultConnection()
     {
         const string appsettings = """

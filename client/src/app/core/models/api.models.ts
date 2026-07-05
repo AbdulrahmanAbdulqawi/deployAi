@@ -54,6 +54,39 @@ export interface DatabaseRequirementProfile {
   postgresDatabaseName?: string;
 }
 
+export interface DeploymentPlanPart {
+  role: string;
+  providerName: string;
+  rootDirectory?: string;
+  serviceDirectory?: string;
+  buildCommand?: string;
+  installCommand?: string;
+  startCommand?: string;
+  outputDirectory?: string;
+  framework?: string;
+  dockerfilePath?: string;
+  databaseEngine?: string;
+}
+
+export interface ClarifyingQuestionOption {
+  id: string;
+  label: string;
+  description: string;
+  resolvesToParts: DeploymentPlanPart[];
+}
+
+export interface ClarifyingQuestion {
+  prompt: string;
+  options: ClarifyingQuestionOption[];
+}
+
+export interface DeploymentPlan {
+  parts: DeploymentPlanPart[];
+  confidence: 'high' | 'low';
+  plainSummary: string;
+  clarifyingQuestion?: ClarifyingQuestion;
+}
+
 export interface GitHubContentDirectory {
   name: string;
   path: string;

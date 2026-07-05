@@ -5,6 +5,7 @@ import {
   DatabaseRequirementProfile,
   DeploymentDetail,
   DeploymentLogLine,
+  DeploymentPlan,
   DeploymentSummary,
   GitHubBranch,
   GitHubContentDirectory,
@@ -102,6 +103,13 @@ export class ApiService {
     return this.http.get<DatabaseRequirementProfile>(
       `/api/github/repos/${owner}/${repo}/database-requirements`,
       { params }
+    );
+  }
+
+  getDeploymentPlan(owner: string, repo: string, gitRef: string) {
+    return this.http.get<DeploymentPlan>(
+      `/api/github/repos/${owner}/${repo}/deployment-plan`,
+      { params: { ref: gitRef } }
     );
   }
 

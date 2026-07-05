@@ -1,4 +1,11 @@
-h1 { margin: 0; }
+.plan-summary {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+.plan-actions {
+  align-items: center;
+}
 h3 { margin: 0 0 0.75rem; font-size: 1rem; }
 .steps { color: #6b7280; }
 .card {

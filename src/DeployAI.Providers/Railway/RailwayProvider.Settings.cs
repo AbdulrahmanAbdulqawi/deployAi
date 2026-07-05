@@ -28,7 +28,8 @@ public sealed partial class RailwayProvider
             }
         }
 
-        if (!isDotnet && !isDocker &&
+        if ((!isDotnet || IsDotnetMonorepoLayout(environment)) &&
+            !isDocker &&
             environment.TryGetValue("buildCommand", out var buildCommand) &&
             !string.IsNullOrWhiteSpace(buildCommand))
         {
@@ -86,6 +87,19 @@ public sealed partial class RailwayProvider
         }
 
         return rootDirectory.Trim().Trim('/');
+    }
+
+    private static bool IsDotnetMonorepoLayout(IReadOnlyDictionary<string, string> environment)
+    {
+        if (!environment.TryGetValue("serviceDirectory", out var serviceDirectory) ||
+            string.IsNullOrWhiteSpace(serviceDirectory))
+        {
+            return false;
+        }
+
+        var normalizedService = serviceDirectory.Trim().Trim('/');
+        var normalizedRoot = ResolveRootDirectory(environment);
+        return !string.Equals(normalizedRoot, normalizedService, StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task ApplyBuildConfigurationAsync(

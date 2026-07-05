@@ -10,12 +10,25 @@ public interface IFrontendBuildDetector
 
 public sealed class FrontendBuildDetector : IFrontendBuildDetector
 {
+    private static readonly (string Package, string Framework)[] FrameworkPackages =
+    [
+        ("next", "next"),
+        ("nuxt", "nuxt"),
+        ("@nuxt/kit", "nuxt"),
+        ("@sveltejs/kit", "sveltekit"),
+        ("astro", "astro"),
+        ("@angular/core", "angular"),
+        ("vite", "vite"),
+        ("react", "react"),
+        ("react-dom", "react")
+    ];
+
     public FrontendBuildProfile Detect(string rootDirectory, string? angularJson, string? packageJson)
     {
         var normalizedRoot = NormalizeRootDirectory(rootDirectory);
-        var isAngular = IsAngularPackage(packageJson);
+        var framework = DetectFramework(angularJson, packageJson);
         var outputDirectory = TryParseAngularOutputDirectory(angularJson) ??
-                              FallbackOutputDirectory(normalizedRoot);
+                              FallbackOutputDirectory(normalizedRoot, framework);
         var buildCommand = TryParseBuildCommand(packageJson) ?? "npm run build";
 
         return new FrontendBuildProfile(
@@ -23,7 +36,44 @@ public sealed class FrontendBuildDetector : IFrontendBuildDetector
             buildCommand,
             "npm install",
             outputDirectory,
-            isAngular ? "angular" : null);
+            framework);
+    }
+
+    internal static string? DetectFramework(string? angularJson, string? packageJson)
+    {
+        if (!string.IsNullOrWhiteSpace(angularJson) || IsAngularPackage(packageJson))
+        {
+            return "angular";
+        }
+
+        if (string.IsNullOrWhiteSpace(packageJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(packageJson);
+            foreach (var (packageName, framework) in FrameworkPackages)
+            {
+                if (packageName == "@angular/core")
+                {
+                    continue;
+                }
+
+                if (HasDependency(document.RootElement, "dependencies", packageName) ||
+                    HasDependency(document.RootElement, "devDependencies", packageName))
+                {
+                    return framework;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return null;
     }
 
     internal static string? TryParseAngularOutputDirectory(string? angularJson)
@@ -132,8 +182,20 @@ public sealed class FrontendBuildDetector : IFrontendBuildDetector
         return null;
     }
 
-    private static string FallbackOutputDirectory(string rootDirectory)
+    private static string FallbackOutputDirectory(string rootDirectory, string? framework)
     {
+        if (framework is "next" or "nuxt" or "sveltekit" or "astro")
+        {
+            return framework switch
+            {
+                "next" => ".next",
+                "nuxt" => ".output/public",
+                "sveltekit" => "build",
+                "astro" => "dist",
+                _ => "dist"
+            };
+        }
+
         if (string.IsNullOrWhiteSpace(rootDirectory))
         {
             return "dist";

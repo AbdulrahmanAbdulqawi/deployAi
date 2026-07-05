@@ -228,6 +228,52 @@ public class RailwayProviderContractTests
     }
 
     [Fact]
+    public async Task TriggerDeploymentAsync_SendsBuildCommand_ForDotnetMonorepoLayout()
+    {
+        string? updateBody = null;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
+                {
+                    updateBody = body;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
+                        Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.TriggerDeploymentAsync(
+            new ProviderCredentials("token"),
+            "svc_1|env_1",
+            "main",
+            new Dictionary<string, string>
+            {
+                ["rootDirectory"] = "src",
+                ["serviceDirectory"] = "src/DeployAI.Api",
+                ["framework"] = "dotnet",
+                ["buildCommand"] = "dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out"
+            },
+            CancellationToken.None);
+
+        Assert.NotNull(updateBody);
+        Assert.Contains("\"rootDirectory\":\"src\"", updateBody, StringComparison.Ordinal);
+        Assert.Contains("DeployAI.Api/DeployAI.Api.csproj", updateBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TriggerDeploymentAsync_PassesCommitSha_WhenProvided()
     {
         string? deployBody = null;
@@ -1069,6 +1115,54 @@ public class RailwayProviderContractTests
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
                 bodies.Add(body);
+
+                if (body.Contains("ServiceProject", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """{"data":{"service":{"projectId":"proj_1"}}}""",
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                if (body.Contains("EnvironmentVolumeInstances", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(
+                            """
+                            {
+                              "data": {
+                                "environment": {
+                                  "volumeInstances": {
+                                    "edges": [{
+                                      "node": {
+                                        "id": "vol_inst_1",
+                                        "volumeId": "vol_1",
+                                        "serviceId": "svc_app",
+                                        "mountPath": "/var/lib/postgresql/data"
+                                      }
+                                    }]
+                                  }
+                                }
+                              }
+                            }
+                            """,
+                            Encoding.UTF8,
+                            "application/json")
+                    };
+                }
+
+                if (body.Contains("volumeDelete", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("""{"data":{"volumeDelete":true}}""", Encoding.UTF8, "application/json")
+                    };
+                }
+
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent("""{"data":{"serviceDelete":true}}""", Encoding.UTF8, "application/json")
@@ -1081,6 +1175,7 @@ public class RailwayProviderContractTests
             "svc_app|env_1",
             CancellationToken.None);
 
+        Assert.Contains(bodies, b => b.Contains("volumeDelete", StringComparison.Ordinal));
         Assert.Contains(bodies, b => b.Contains("serviceDelete", StringComparison.Ordinal));
     }
 }

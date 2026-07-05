@@ -104,7 +104,19 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
         string providerProjectId,
         CancellationToken cancellationToken)
     {
-        var (serviceId, _) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
+        var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
+        var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
+        var volumes = await ListVolumeInstancesAsync(
+            credentials,
+            projectId,
+            environmentId,
+            serviceId,
+            cancellationToken);
+
+        foreach (var volume in volumes)
+        {
+            await DeleteVolumeAsync(credentials, volume.VolumeId, cancellationToken);
+        }
 
         const string mutation = """
             mutation DeleteService($serviceId: String!) {
@@ -117,6 +129,25 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
             credentials.Token,
             mutation,
             new { serviceId },
+            cancellationToken);
+    }
+
+    private async Task DeleteVolumeAsync(
+        ProviderCredentials credentials,
+        string volumeId,
+        CancellationToken cancellationToken)
+    {
+        const string mutation = """
+            mutation DeleteVolume($volumeId: String!) {
+              volumeDelete(volumeId: $volumeId)
+            }
+            """;
+
+        await RailwayApiSupport.ExecuteAsync(
+            _httpClient,
+            credentials.Token,
+            mutation,
+            new { volumeId },
             cancellationToken);
     }
 

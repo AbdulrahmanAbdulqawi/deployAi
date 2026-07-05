@@ -43,16 +43,33 @@ public sealed class ServerBuildDetector : IServerBuildDetector
 
         if (!string.IsNullOrWhiteSpace(csprojContent))
         {
+            var serviceDirectory = normalizedRoot;
+            var buildRootDirectory = normalizedRoot;
+
+            if (CsprojBuildAnalyzer.HasSiblingProjectReferences(csprojContent))
+            {
+                buildRootDirectory = CsprojBuildAnalyzer.ResolveBuildRootDirectory(normalizedRoot);
+            }
+
+            var buildCommand = CsprojBuildAnalyzer.BuildPublishCommand(buildRootDirectory, serviceDirectory);
+
             return new ServerBuildProfile(
-                normalizedRoot,
+                buildRootDirectory,
+                buildCommand,
                 null,
                 null,
+                "dotnet",
                 null,
-                "dotnet");
+                serviceDirectory);
         }
 
         if (!string.IsNullOrWhiteSpace(packageJson))
         {
+            if (IsFrontendSpaPackageJson(packageJson))
+            {
+                return new ServerBuildProfile(normalizedRoot, null, null, null, null);
+            }
+
             var (buildCommand, startCommand) = ParseNodeScripts(packageJson);
             return new ServerBuildProfile(
                 normalizedRoot,
@@ -63,6 +80,43 @@ public sealed class ServerBuildDetector : IServerBuildDetector
         }
 
         return new ServerBuildProfile(normalizedRoot, null, null, null, null);
+    }
+
+    internal static bool IsFrontendSpaPackageJson(string packageJson)
+    {
+        if (FrontendBuildDetector.DetectFramework(null, packageJson) is not null)
+        {
+            return true;
+        }
+
+        return HasDevOnlyStartScript(packageJson);
+    }
+
+    internal static bool HasDevOnlyStartScript(string packageJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(packageJson);
+            if (!document.RootElement.TryGetProperty("scripts", out var scripts) ||
+                !scripts.TryGetProperty("start", out var startScript))
+            {
+                return false;
+            }
+
+            var start = startScript.GetString();
+            if (string.IsNullOrWhiteSpace(start))
+            {
+                return false;
+            }
+
+            return start.Contains("ng serve", StringComparison.OrdinalIgnoreCase) ||
+                   start.Contains("vite", StringComparison.OrdinalIgnoreCase) ||
+                   start.Contains("next dev", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     internal static (string? BuildCommand, string? StartCommand) ParseNodeScripts(string packageJson)

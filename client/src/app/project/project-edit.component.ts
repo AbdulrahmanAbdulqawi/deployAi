@@ -24,6 +24,9 @@ export class ProjectEditComponent implements OnInit {
   readonly message = signal<string | null>(null);
   readonly isError = signal(false);
   readonly detectingProvider = signal<string | null>(null);
+  readonly autoDetectingServer = signal(false);
+
+  private static readonly FrontendDirectoryNames = ['client', 'web', 'frontend', 'app'];
 
   name = '';
   defaultBranch = '';
@@ -113,6 +116,63 @@ export class ProjectEditComponent implements OnInit {
     this.detectBuildProfile(target.rootDirectory ?? '', target.providerName, true);
   }
 
+  autoDetectServerFolder(): void {
+    const owner = this.repoOwner();
+    const repo = this.repoName();
+    if (!owner || !repo || !this.defaultBranch) {
+      return;
+    }
+
+    this.autoDetectingServer.set(true);
+    this.api.detectServerBuildProfile(owner, repo, '', this.defaultBranch).subscribe({
+      next: (profile) => {
+        const folder = profile.serviceDirectory ?? profile.rootDirectory;
+        if (!folder && !profile.framework) {
+          this.message.set('No server folder found in this repo.');
+          this.isError.set(true);
+          return;
+        }
+
+        this.editableTargets.update(targets =>
+          targets.map(t =>
+            t.providerName === 'railway' ? this.applyServerProfile(t, profile) : t
+          )
+        );
+        this.message.set(
+          folder
+            ? `Detected server folder: ${folder}${profile.framework ? ` (${profile.framework})` : ''}.`
+            : 'Build settings updated.'
+        );
+        this.isError.set(false);
+      },
+      error: (err) => {
+        this.message.set(err?.error?.error?.message ?? 'Could not detect server folder.');
+        this.isError.set(true);
+      },
+      complete: () => {
+        this.autoDetectingServer.set(false);
+      }
+    });
+  }
+
+  isMisconfiguredRailwayTarget(target: TargetConfig): boolean {
+    if (target.providerName !== 'railway') {
+      return false;
+    }
+
+    const folder = (target.serviceDirectory ?? target.rootDirectory ?? '').toLowerCase();
+    const folderName = folder.split('/').pop() ?? folder;
+    const isFrontendFolder = ProjectEditComponent.FrontendDirectoryNames.includes(folderName);
+
+    if (target.framework === 'node' && isFrontendFolder) {
+      return true;
+    }
+
+    return target.framework === 'node' &&
+      target.buildCommand === 'npm run build' &&
+      !target.startCommand;
+  }
+
   private detectBuildProfile(path: string, providerName: string, showSuccessMessage: boolean): void {
     const owner = this.repoOwner();
     const repo = this.repoName();
@@ -188,11 +248,11 @@ export class ProjectEditComponent implements OnInit {
     return {
       ...target,
       rootDirectory: profile.rootDirectory,
-      buildCommand: profile.buildCommand,
-      installCommand: profile.installCommand,
-      startCommand: profile.startCommand,
-      framework: profile.framework,
-      dockerfilePath: profile.dockerfilePath,
+      buildCommand: profile.buildCommand ?? undefined,
+      installCommand: profile.installCommand ?? undefined,
+      startCommand: profile.startCommand ?? undefined,
+      framework: profile.framework ?? undefined,
+      dockerfilePath: profile.dockerfilePath ?? undefined,
       serviceDirectory: profile.serviceDirectory ?? profile.rootDirectory
     };
   }

@@ -21,6 +21,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
         var requiresRedis = requiresRedisFromCompose || requiresRedisFromSettings;
         var postgresDatabaseName = requiresPostgres
             ? ExtractPostgresDatabaseName(appsettingsContent)
+                ?? ExtractPostgresDatabaseNameFromCompose(dockerComposeContent)
             : null;
 
         return new DatabaseRequirementProfile(requiresPostgres, requiresRedis, keys, postgresDatabaseName);
@@ -98,6 +99,17 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
         {
             return (false, false, []);
         }
+    }
+
+    internal static string? ExtractPostgresDatabaseNameFromCompose(string? dockerComposeContent)
+    {
+        if (string.IsNullOrWhiteSpace(dockerComposeContent))
+        {
+            return null;
+        }
+
+        var match = ComposePostgresDbRegex().Match(dockerComposeContent);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
     }
 
     internal static string? ExtractPostgresDatabaseName(string? appsettingsContent)
@@ -202,4 +214,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
     [GeneratedRegex(@"image\s*:\s*['""]?[^\s'""]*redis", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex RedisImageRegex();
+
+    [GeneratedRegex(@"POSTGRES_DB\s*:\s*['""]?([^'""\s#]+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ComposePostgresDbRegex();
 }

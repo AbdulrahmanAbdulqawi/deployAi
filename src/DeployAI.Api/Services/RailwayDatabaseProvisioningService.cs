@@ -134,7 +134,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             branch,
             cancellationToken);
 
-        return _databaseRequirementDetector.Detect(dockerCompose, appsettings);
+        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings);
+        return profile;
     }
 
     private async Task<string?> ReadFirstExistingFileAsync(

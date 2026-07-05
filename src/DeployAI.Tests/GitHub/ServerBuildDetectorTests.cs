@@ -38,8 +38,29 @@ public class ServerBuildDetectorTests
         var profile = _detector.Detect("src/api", false, null, null, "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
 
         Assert.Equal("dotnet", profile.Framework);
+        Assert.Equal("src/api", profile.RootDirectory);
+        Assert.Equal("src/api", profile.ServiceDirectory);
         Assert.Null(profile.BuildCommand);
         Assert.Null(profile.StartCommand);
+    }
+
+    [Fact]
+    public void Detect_UsesBuildRoot_ForDotnetMonorepoWithProjectReferences()
+    {
+        const string csproj = """
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <ItemGroup>
+                <ProjectReference Include="..\DeployAI.Core\DeployAI.Core.csproj" />
+              </ItemGroup>
+            </Project>
+            """;
+
+        var profile = _detector.Detect("src/DeployAI.Api", false, null, null, csproj);
+
+        Assert.Equal("dotnet", profile.Framework);
+        Assert.Equal("src", profile.RootDirectory);
+        Assert.Equal("src/DeployAI.Api", profile.ServiceDirectory);
+        Assert.Equal("dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out", profile.BuildCommand);
     }
 
     [Fact]
@@ -60,5 +81,27 @@ public class ServerBuildDetectorTests
         Assert.Equal("npm run build", profile.BuildCommand);
         Assert.Equal("npm start", profile.StartCommand);
         Assert.Equal("npm install", profile.InstallCommand);
+    }
+
+    [Fact]
+    public void Detect_ReturnsNoFramework_ForAngularPackageJson()
+    {
+        const string packageJson = """
+            {
+              "dependencies": {
+                "@angular/core": "18.0.0"
+              },
+              "scripts": {
+                "start": "ng serve",
+                "build": "ng build"
+              }
+            }
+            """;
+
+        var profile = _detector.Detect("client", false, null, packageJson, null);
+
+        Assert.Null(profile.Framework);
+        Assert.Null(profile.BuildCommand);
+        Assert.Null(profile.StartCommand);
     }
 }

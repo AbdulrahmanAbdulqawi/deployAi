@@ -38,13 +38,29 @@
             />
           }
           @if (target.providerName === 'vercel' || target.providerName === 'railway') {
-            <button
-              type="button"
-              class="secondary"
-              [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
-              (click)="redetectBuildSettings(target)">
-              {{ detectingProvider() === target.providerName ? 'Detecting…' : 'Re-detect build settings' }}
-            </button>
+            @if (target.providerName === 'railway' && isMisconfiguredRailwayTarget(target)) {
+              <p class="warning">
+                This looks like a frontend folder. Use Auto-detect or pick your API folder (e.g. <code>src/DeployAI.Api</code>).
+              </p>
+            }
+            <div class="target-actions">
+              @if (target.providerName === 'railway') {
+                <button
+                  type="button"
+                  class="secondary"
+                  [disabled]="autoDetectingServer() || detectingProvider() === target.providerName"
+                  (click)="autoDetectServerFolder()">
+                  {{ autoDetectingServer() ? 'Detecting…' : 'Auto-detect server folder' }}
+                </button>
+              }
+              <button
+                type="button"
+                class="secondary"
+                [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
+                (click)="redetectBuildSettings(target)">
+                {{ detectingProvider() === target.providerName ? 'Detecting…' : 'Re-detect build settings' }}
+              </button>
+            </div>
             @if (target.outputDirectory || target.buildCommand || target.startCommand || target.framework) {
               <ul class="build-summary">
                 @if (target.outputDirectory) {

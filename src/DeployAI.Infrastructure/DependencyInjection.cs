@@ -29,6 +29,9 @@ public static class DependencyInjection
         services.AddSingleton<IFrontendBuildDetector, FrontendBuildDetector>();
         services.AddSingleton<IServerBuildDetector, ServerBuildDetector>();
         services.AddSingleton<IDatabaseRequirementDetector, DatabaseRequirementDetector>();
+        services.AddScoped<IServerBuildProfileDiscovery, ServerBuildProfileDiscovery>();
+        services.AddScoped<IWebsiteBuildProfileDiscovery, WebsiteBuildProfileDiscovery>();
+        services.AddScoped<IRepositoryClassifier, RepositoryClassifier>();
 
         return services;
     }

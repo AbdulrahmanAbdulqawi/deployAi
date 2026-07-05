@@ -79,4 +79,41 @@ public class FrontendBuildDetectorTests
         Assert.Equal("idaara.client", profile.RootDirectory);
         Assert.Equal("dist/idaara.client", profile.OutputDirectory);
     }
+
+    [Theory]
+    [InlineData("""{ "dependencies": { "next": "14.0.0" } }""", "next", ".next")]
+    [InlineData("""{ "dependencies": { "nuxt": "3.0.0" } }""", "nuxt", ".output/public")]
+    [InlineData("""{ "dependencies": { "@sveltejs/kit": "2.0.0" } }""", "sveltekit", "build")]
+    [InlineData("""{ "dependencies": { "astro": "4.0.0" } }""", "astro", "dist")]
+    [InlineData("""{ "dependencies": { "vite": "5.0.0" } }""", "vite", "dist")]
+    [InlineData("""{ "dependencies": { "react": "18.0.0" } }""", "react", "dist")]
+    public void Detect_RecognizesCommonFrontendFrameworks(string packageJson, string framework, string outputDirectory)
+    {
+        var profile = _detector.Detect(string.Empty, null, packageJson);
+
+        Assert.Equal(framework, profile.Framework);
+        Assert.Equal(outputDirectory, profile.OutputDirectory);
+    }
+
+    [Fact]
+    public void Detect_RecognizesAngular_FromAngularJsonWithoutPackageJson()
+    {
+        const string angularJson = """
+            {
+              "projects": {
+                "app": {
+                  "architect": {
+                    "build": {
+                      "options": { "outputPath": "dist/app" }
+                    }
+                  }
+                }
+              }
+            }
+            """;
+
+        var profile = _detector.Detect(string.Empty, angularJson, null);
+
+        Assert.Equal("angular", profile.Framework);
+    }
 }

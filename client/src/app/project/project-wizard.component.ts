@@ -5,6 +5,8 @@ import { ApiService } from '../core/services/api.service';
 import {
   CredentialSummary,
   DatabaseRequirementProfile,
+  DeploymentPlan,
+  DeploymentPlanPart,
   FrontendBuildProfile,
   ServerBuildProfile,
   GitHubBranch,
@@ -56,6 +58,10 @@ export class ProjectWizardComponent implements OnInit {
   readonly detectingServerProfile = signal(false);
   readonly databaseRequirements = signal<DatabaseRequirementProfile | null>(null);
   readonly detectingDatabaseRequirements = signal(false);
+  readonly deploymentPlan = signal<DeploymentPlan | null>(null);
+  readonly loadingDeploymentPlan = signal(false);
+  readonly showManualOverride = signal(false);
+  readonly activePlanParts = signal<DeploymentPlanPart[]>([]);
 
   search = '';
   projectName = '';
@@ -201,6 +207,129 @@ export class ProjectWizardComponent implements OnInit {
 
   enterPartsStep(): void {
     this.step.set(3);
+    this.showManualOverride.set(false);
+    this.activePlanParts.set([]);
+    this.deploymentPlan.set(null);
+    this.loadDeploymentPlan();
+  }
+
+  loadDeploymentPlan(): void {
+    const owner = this.repoOwner();
+    const name = this.repoName();
+    const branch = this.selectedBranch();
+    if (!owner || !name || !branch) {
+      return;
+    }
+
+    this.loadingDeploymentPlan.set(true);
+    this.error.set(null);
+    this.api.getDeploymentPlan(owner, name, branch).subscribe({
+      next: (plan) => {
+        this.deploymentPlan.set(plan);
+        this.loadingDeploymentPlan.set(false);
+        if (plan.confidence === 'high') {
+          this.activePlanParts.set(plan.parts);
+        }
+      },
+      error: (err) => {
+        this.loadingDeploymentPlan.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not inspect that app.');
+        this.showManualOverride.set(true);
+      }
+    });
+  }
+
+  acceptDeploymentPlan(): void {
+    const parts = this.activePlanParts();
+    if (parts.length === 0) {
+      return;
+    }
+
+    this.applyPlanParts(parts);
+    this.enterHostingStep();
+  }
+
+  selectClarifyingOption(optionId: string): void {
+    const question = this.deploymentPlan()?.clarifyingQuestion;
+    const option = question?.options.find(item => item.id === optionId);
+    if (!option) {
+      return;
+    }
+
+    this.activePlanParts.set(option.resolvesToParts);
+    this.applyPlanParts(option.resolvesToParts);
+    this.enterHostingStep();
+  }
+
+  showManualConfiguration(): void {
+    this.showManualOverride.set(true);
+    this.deploymentMode = null;
+    this.publishWebsite = false;
+    this.publishServer = false;
+    this.websiteRootPath = '';
+    this.serverRootPath = '';
+    this.websiteBuildProfile.set(null);
+    this.serverBuildProfile.set(null);
+    this.databaseRequirements.set(null);
+  }
+
+  canAcceptPlan(): boolean {
+    return this.activePlanParts().length > 0;
+  }
+
+  private applyPlanParts(parts: DeploymentPlanPart[]): void {
+    const websitePart = parts.find(part => part.role === 'website');
+    const serverPart = parts.find(part => part.role === 'server');
+    const databaseParts = parts.filter(part => part.role === 'database');
+
+    if (websitePart && serverPart) {
+      this.deploymentMode = 'both';
+      this.publishWebsite = true;
+      this.publishServer = true;
+    } else if (websitePart) {
+      this.deploymentMode = 'website';
+      this.publishWebsite = true;
+      this.publishServer = false;
+    } else if (serverPart) {
+      this.deploymentMode = 'server';
+      this.publishWebsite = false;
+      this.publishServer = true;
+    }
+
+    if (websitePart) {
+      this.websiteRootPath = websitePart.rootDirectory ?? '';
+      this.websiteBuildProfile.set({
+        rootDirectory: websitePart.rootDirectory ?? '',
+        buildCommand: websitePart.buildCommand ?? 'npm run build',
+        installCommand: websitePart.installCommand ?? 'npm install',
+        outputDirectory: websitePart.outputDirectory ?? 'dist',
+        framework: websitePart.framework
+      });
+    }
+
+    if (serverPart) {
+      const serviceDirectory = serverPart.serviceDirectory ?? serverPart.rootDirectory ?? '';
+      this.serverRootPath = serviceDirectory;
+      this.serverBuildProfile.set({
+        rootDirectory: serverPart.rootDirectory ?? serviceDirectory,
+        buildCommand: serverPart.buildCommand,
+        installCommand: serverPart.installCommand,
+        startCommand: serverPart.startCommand,
+        framework: serverPart.framework,
+        dockerfilePath: serverPart.dockerfilePath,
+        serviceDirectory
+      });
+    }
+
+    if (databaseParts.length > 0) {
+      this.databaseRequirements.set({
+        requiresPostgres: databaseParts.some(part => part.databaseEngine === 'postgres'),
+        requiresRedis: databaseParts.some(part => part.databaseEngine === 'redis'),
+        connectionStringKeys: []
+      });
+    } else if (serverPart) {
+      this.detectDatabaseRequirements(this.serverRootPath);
+    }
   }
 
   setDeploymentMode(mode: DeploymentMode): void {

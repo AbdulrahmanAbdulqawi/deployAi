@@ -19,8 +19,9 @@ public sealed class GitHubController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly IGitHubService _gitHubService;
     private readonly IFrontendBuildDetector _buildDetector;
-    private readonly IServerBuildDetector _serverBuildDetector;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+    private readonly IServerBuildProfileDiscovery _serverBuildProfileDiscovery;
+    private readonly IRepositoryClassifier _repositoryClassifier;
     private readonly IEncryptionService _encryption;
 
     public GitHubController(
@@ -28,16 +29,18 @@ public sealed class GitHubController : ControllerBase
         ICurrentUserService currentUser,
         IGitHubService gitHubService,
         IFrontendBuildDetector buildDetector,
-        IServerBuildDetector serverBuildDetector,
         IDatabaseRequirementDetector databaseRequirementDetector,
+        IServerBuildProfileDiscovery serverBuildProfileDiscovery,
+        IRepositoryClassifier repositoryClassifier,
         IEncryptionService encryption)
     {
         _db = db;
         _currentUser = currentUser;
         _gitHubService = gitHubService;
         _buildDetector = buildDetector;
-        _serverBuildDetector = serverBuildDetector;
         _databaseRequirementDetector = databaseRequirementDetector;
+        _serverBuildProfileDiscovery = serverBuildProfileDiscovery;
+        _repositoryClassifier = repositoryClassifier;
         _encryption = encryption;
     }
     [HttpGet("repos")]
@@ -94,6 +97,63 @@ public sealed class GitHubController : ControllerBase
         }
     }
 
+    [HttpGet("repos/{owner}/{repo}/deployment-plan")]
+    public async Task<IActionResult> GetDeploymentPlan(
+        string owner,
+        string repo,
+        [FromQuery] string? @ref,
+        CancellationToken cancellationToken)
+    {
+        var token = await GetGitHubTokenAsync(cancellationToken);
+        var plan = await _repositoryClassifier.ClassifyAsync(token, owner, repo, @ref, cancellationToken);
+
+        return Ok(new
+        {
+            parts = plan.Parts.Select(part => new
+            {
+                role = part.Role,
+                providerName = part.ProviderName,
+                rootDirectory = part.RootDirectory,
+                serviceDirectory = part.ServiceDirectory,
+                buildCommand = part.BuildCommand,
+                installCommand = part.InstallCommand,
+                startCommand = part.StartCommand,
+                outputDirectory = part.OutputDirectory,
+                framework = part.Framework,
+                dockerfilePath = part.DockerfilePath,
+                databaseEngine = part.DatabaseEngine
+            }),
+            confidence = plan.Confidence,
+            plainSummary = plan.PlainSummary,
+            clarifyingQuestion = plan.ClarifyingQuestion is null
+                ? null
+                : new
+                {
+                    prompt = plan.ClarifyingQuestion.Prompt,
+                    options = plan.ClarifyingQuestion.Options.Select(option => new
+                    {
+                        id = option.Id,
+                        label = option.Label,
+                        description = option.Description,
+                        resolvesToParts = option.ResolvesToParts.Select(part => new
+                        {
+                            role = part.Role,
+                            providerName = part.ProviderName,
+                            rootDirectory = part.RootDirectory,
+                            serviceDirectory = part.ServiceDirectory,
+                            buildCommand = part.BuildCommand,
+                            installCommand = part.InstallCommand,
+                            startCommand = part.StartCommand,
+                            outputDirectory = part.OutputDirectory,
+                            framework = part.Framework,
+                            dockerfilePath = part.DockerfilePath,
+                            databaseEngine = part.DatabaseEngine
+                        })
+                    })
+                }
+        });
+    }
+
     [HttpGet("repos/{owner}/{repo}/build-profile")]
     public async Task<IActionResult> GetBuildProfile(
         string owner,
@@ -131,7 +191,8 @@ public sealed class GitHubController : ControllerBase
     {
         var token = await GetGitHubTokenAsync(cancellationToken);
         var normalizedPath = string.IsNullOrWhiteSpace(path) ? string.Empty : path.Trim().Trim('/');
-        var profile = await DetectServerBuildProfileAsync(token, owner, repo, normalizedPath, @ref, cancellationToken);
+        var profile = await _serverBuildProfileDiscovery.DiscoverAsync(
+            token, owner, repo, normalizedPath, @ref, cancellationToken);
 
         return Ok(new
         {
@@ -202,74 +263,6 @@ public sealed class GitHubController : ControllerBase
         }
 
         return null;
-    }
-
-    private async Task<ServerBuildProfile> DetectServerBuildProfileAsync(
-        string token,
-        string owner,
-        string repo,
-        string normalizedPath,
-        string? gitRef,
-        CancellationToken cancellationToken)
-    {
-        var profile = await BuildServerProfileAtPathAsync(token, owner, repo, normalizedPath, gitRef, cancellationToken);
-        if (profile.Framework is not null || !string.IsNullOrEmpty(normalizedPath))
-        {
-            return profile;
-        }
-
-        var rootContents = await _gitHubService.ListAllContentsAsync(token, owner, repo, string.Empty, gitRef, cancellationToken);
-        var rootDirectories = rootContents
-            .Where(item => string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.Name)
-            .ToList();
-
-        foreach (var candidate in ServerProjectDiscoverer.RankCandidates(rootDirectories))
-        {
-            var candidateProfile = await BuildServerProfileAtPathAsync(token, owner, repo, candidate, gitRef, cancellationToken);
-            if (candidateProfile.Framework is not null)
-            {
-                return candidateProfile;
-            }
-        }
-
-        return profile;
-    }
-
-    private async Task<ServerBuildProfile> BuildServerProfileAtPathAsync(
-        string token,
-        string owner,
-        string repo,
-        string normalizedPath,
-        string? gitRef,
-        CancellationToken cancellationToken)
-    {
-        var contents = await _gitHubService.ListAllContentsAsync(token, owner, repo, normalizedPath, gitRef, cancellationToken);
-        var files = contents
-            .Where(item => string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var hasDockerfile = files.Any(item => string.Equals(item.Name, "Dockerfile", StringComparison.OrdinalIgnoreCase));
-        var dockerfilePath = files.FirstOrDefault(item => string.Equals(item.Name, "Dockerfile", StringComparison.OrdinalIgnoreCase))?.Path;
-        var packagePath = files.FirstOrDefault(item => string.Equals(item.Name, "package.json", StringComparison.OrdinalIgnoreCase))?.Path;
-        var csprojPath = files.FirstOrDefault(item => item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))?.Path;
-
-        var dockerfileContent = dockerfilePath is null
-            ? null
-            : await _gitHubService.GetFileContentAsync(token, owner, repo, dockerfilePath, gitRef, cancellationToken);
-        var packageJson = packagePath is null
-            ? null
-            : await _gitHubService.GetFileContentAsync(token, owner, repo, packagePath, gitRef, cancellationToken);
-        var csprojContent = csprojPath is null
-            ? null
-            : await _gitHubService.GetFileContentAsync(token, owner, repo, csprojPath, gitRef, cancellationToken);
-
-        return _serverBuildDetector.Detect(
-            normalizedPath,
-            hasDockerfile,
-            dockerfileContent,
-            packageJson,
-            csprojContent);
     }
 
     private async Task<string> GetGitHubTokenAsync(CancellationToken cancellationToken)
