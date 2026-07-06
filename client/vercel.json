@@ -2,6 +2,18 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/client/browser",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/api/:path*",
+      "destination": "https://deployai-api-production.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/hubs/:path*",
+      "destination": "https://deployai-api-production.up.railway.app/hubs/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "installCommand": "npm install"
 }
