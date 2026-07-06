@@ -1,0 +1,35 @@
+<article
+  class="provider-card u-card"
+  [class.provider-card--vercel]="providerName === 'vercel'"
+  [class.provider-card--railway]="providerName === 'railway'">
+  <div class="provider-card__header">
+    <div>
+      <strong>{{ roleLabel }}</strong>
+      @if (showProviderName) {
+        <p class="u-text-muted">{{ providerName === 'vercel' ? 'Vercel' : 'Railway' }}</p>
+      }
+    </div>
+    <app-status-badge [status]="status" [live]="status === 'in_progress'" />
+  </div>
+
+  @if (status === 'in_progress' && elapsedLabel) {
+    <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
+  }
+
+  @if (status === 'success' && deployUrl) {
+    <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener">
+      <app-ui-icon name="external" size="sm" statusClass="success" />
+      Open
+    </a>
+  }
+
+  @if (status === 'failed') {
+    <p class="failure">Failed — check logs below.</p>
+    <app-ui-button variant="quiet" icon="info" (click)="toggleFailureDetails()">
+      {{ showFailureDetails ? 'Hide' : 'Details' }}
+    </app-ui-button>
+    @if (showFailureDetails) {
+      <p class="details u-text-muted">See activity panel.</p>
+    }
+  }
+</article>

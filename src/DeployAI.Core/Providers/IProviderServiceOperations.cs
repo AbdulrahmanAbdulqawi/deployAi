@@ -23,6 +23,11 @@ public interface IProviderServiceOperations
         ProviderCredentials credentials,
         string providerProjectId,
         CancellationToken cancellationToken);
+
+    Task RollbackDeploymentAsync(
+        ProviderCredentials credentials,
+        string providerDeploymentId,
+        CancellationToken cancellationToken);
 }
 
 public interface IProviderServiceOperationsFactory

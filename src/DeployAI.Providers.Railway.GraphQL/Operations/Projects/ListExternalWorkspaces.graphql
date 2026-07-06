@@ -1,0 +1,26 @@
+query ListExternalWorkspaces {
+  externalWorkspaces {
+    id
+    name
+    projects {
+      id
+      name
+      environments {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
+      services {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+}

@@ -15,6 +15,7 @@ import {
   ProjectDetail,
   ProjectServicesResponse,
   ProjectServiceStatus,
+  DataServiceInfo,
   ProjectSummary,
   ProviderInfo,
   ProviderProject,
@@ -132,6 +133,30 @@ export class ApiService {
     return this.http.post<ProjectDetail>('/api/projects', payload);
   }
 
+  createProjectFromPlan(payload: {
+    name: string;
+    githubRepoFullName: string;
+    defaultBranch: string;
+    includePostgres?: boolean;
+    includeRedis?: boolean;
+    parts: {
+      role: string;
+      providerName: string;
+      credentialId: string;
+      providerProjectId: string;
+      rootDirectory?: string | null;
+      serviceDirectory?: string | null;
+      buildCommand?: string | null;
+      installCommand?: string | null;
+      startCommand?: string | null;
+      outputDirectory?: string | null;
+      framework?: string | null;
+      dockerfilePath?: string | null;
+    }[];
+  }) {
+    return this.http.post<ProjectDetail>('/api/projects/from-plan', payload);
+  }
+
   updateProject(
     id: string,
     payload: {
@@ -171,6 +196,10 @@ export class ApiService {
     return this.http.delete<ProjectServicesResponse>(`/api/projects/${projectId}/services/${targetId}`);
   }
 
+  getDataServiceInfo(projectId: string, targetId: string) {
+    return this.http.get<DataServiceInfo>(`/api/projects/${projectId}/services/${targetId}/data-info`);
+  }
+
   triggerDeployment(projectId: string, branch?: string) {
     return this.http.post<TriggerDeploymentResponse>(`/api/projects/${projectId}/deployments`, { branch });
   }
@@ -189,6 +218,20 @@ export class ApiService {
   getDeploymentLogs(id: string, target?: string) {
     const params = target ? { target } : undefined;
     return this.http.get<{ logs: DeploymentLogLine[] }>(`/api/deployments/${id}/logs`, { params });
+  }
+
+  restoreDeployment(id: string) {
+    return this.http.post<{
+      deploymentId: string;
+      status: string;
+      targets: { providerName: string; status: string; message?: string | null }[];
+    }>(`/api/deployments/${id}/restore`, {});
+  }
+
+  getProviderHealth() {
+    return this.http.get<{ providers: { name: string; status: string; message?: string | null }[] }>(
+      '/api/health/providers'
+    );
   }
 
   getVercelLoginUrl(returnUrl?: string) {

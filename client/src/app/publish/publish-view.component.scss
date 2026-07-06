@@ -1,11 +1,108 @@
-h1 { margin: 0 0 0.25rem; }
-.meta { color: #6b7280; margin: 0 0 1.5rem; }
-.targets { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
-.target-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fff;
-  padding: 1rem 1.25rem;
+.live-deploy__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  margin-bottom: var(--space-6);
 }
-.row { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
-a { display: inline-block; margin-top: 0.5rem; color: #2563eb; }
+
+h1 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.meta {
+  margin: var(--space-1) 0 0;
+}
+
+.targets {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.restore-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-subtle);
+
+  p {
+    margin: 0;
+    color: var(--text-secondary);
+  }
+}
+
+.celebration {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--brand-emerald) 35%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-emerald) 18%, var(--surface-card)),
+    var(--status-success-bg)
+  );
+  color: var(--status-success);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--brand-emerald) 20%, transparent);
+  animation: celebrate-in var(--motion-normal) var(--motion-ease);
+}
+
+.celebration__links {
+  display: grid;
+  gap: var(--space-2);
+
+  p {
+    margin: 0;
+    font-weight: 600;
+  }
+}
+
+.live-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--status-success);
+  font-weight: 500;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.celebration p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.error-state p {
+  margin: 0;
+  color: var(--status-danger);
+}
+
+@keyframes celebrate-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celebration {
+    animation: none;
+  }
+}

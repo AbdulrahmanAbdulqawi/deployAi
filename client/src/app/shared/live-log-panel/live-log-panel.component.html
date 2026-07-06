@@ -1,16 +1,23 @@
-<section class="panel">
+<section class="panel u-card">
   <button type="button" class="toggle" (click)="expanded = !expanded">
-    {{ expanded ? 'Hide activity' : 'Show activity' }}
+    <app-ui-icon name="log" size="sm" statusClass="muted" />
+    {{ expanded ? 'Hide logs' : 'Logs' }}
   </button>
   @if (expanded) {
     <div class="log" aria-live="polite">
       @for (line of lines; track line.sequence + line.providerName) {
         <div class="line">
-          <span class="provider">{{ line.providerName }}</span>
+          <span class="provider">{{ roleLabel(line.providerName) }}</span>
           <span>{{ line.line }}</span>
         </div>
       } @empty {
-        <p class="placeholder">Getting your app ready…</p>
+        <p class="placeholder u-text-muted">
+          @if (connecting) {
+            Connecting…
+          } @else {
+            Waiting…
+          }
+        </p>
       }
     </div>
   }

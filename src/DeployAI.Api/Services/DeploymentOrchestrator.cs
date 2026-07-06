@@ -76,12 +76,75 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         _db.Deployments.Add(deployment);
         await _db.SaveChangesAsync(cancellationToken);
 
-        foreach (var deploymentTargetId in enqueuedTargetIds)
+        var orderedTargetIds = OrderDeploymentTargetIds(deployment, project, enqueuedTargetIds);
+        string? parentJobId = null;
+        foreach (var deploymentTargetId in orderedTargetIds)
         {
-            _backgroundJobs.Enqueue<DeploymentJobRunner>(runner => runner.RunAsync(deploymentTargetId, CancellationToken.None));
+            if (parentJobId is null)
+            {
+                parentJobId = _backgroundJobs.Enqueue<DeploymentJobRunner>(
+                    runner => runner.RunAsync(deploymentTargetId, CancellationToken.None));
+            }
+            else
+            {
+                parentJobId = _backgroundJobs.ContinueJobWith<DeploymentJobRunner>(
+                    parentJobId,
+                    runner => runner.RunAsync(deploymentTargetId, CancellationToken.None));
+            }
         }
 
         return new TriggerDeploymentResult(deployment.Id, deployment.Status, targetResults);
+    }
+
+    internal static IReadOnlyList<Guid> OrderDeploymentTargetIds(
+        Deployment deployment,
+        Project project,
+        IReadOnlyList<Guid> deploymentTargetIds)
+    {
+        var targetById = deployment.Targets.ToDictionary(t => t.Id);
+        var deployTargetsById = project.DeployTargets.ToDictionary(t => t.Id);
+
+        return deploymentTargetIds
+            .Select(id =>
+            {
+                var deploymentTarget = targetById[id];
+                var deployTarget = deployTargetsById[deploymentTarget.DeployTargetId];
+                var config = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+                return new
+                {
+                    Id = id,
+                    Order = GetDeployOrder(config, deployTarget.ProviderName)
+                };
+            })
+            .OrderBy(x => x.Order)
+            .ThenBy(x => x.Id)
+            .Select(x => x.Id)
+            .ToList();
+    }
+
+    private static int GetDeployOrder(DeployTargetConfig config, string providerName)
+    {
+        if (string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.Equals(config.Role, "website", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        if (string.Equals(providerName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.Equals(providerName, "vercel", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 1;
     }
 }
 
@@ -93,6 +156,7 @@ public sealed class DeploymentJobRunner
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IGitHubService _gitHubService;
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
+    private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly IHubContext<DeploymentHub> _hub;
 
     public DeploymentJobRunner(
@@ -102,6 +166,7 @@ public sealed class DeploymentJobRunner
         IProviderCredentialTokenService tokens,
         IGitHubService gitHubService,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
+        IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IHubContext<DeploymentHub> hub)
     {
         _db = db;
@@ -110,6 +175,7 @@ public sealed class DeploymentJobRunner
         _tokens = tokens;
         _gitHubService = gitHubService;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
+        _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _hub = hub;
     }
 
@@ -126,12 +192,22 @@ public sealed class DeploymentJobRunner
             return;
         }
 
+        if (target.Status == DeploymentStatuses.Cancelled)
+        {
+            return;
+        }
+
         var deployment = target.Deployment;
         var deployTarget = target.DeployTarget;
         var project = await _db.Projects
             .Include(p => p.DeployTargets)
             .ThenInclude(t => t.Credential)
-            .FirstAsync(p => p.Id == deployment.ProjectId, cancellationToken);
+            .FirstOrDefaultAsync(p => p.Id == deployment.ProjectId, cancellationToken);
+
+        if (project is null)
+        {
+            return;
+        }
 
         var targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
         if (targetConfig.IsDatabaseTarget)
@@ -153,6 +229,14 @@ public sealed class DeploymentJobRunner
 
         try
         {
+            if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+            {
+                await _frontendEnvironmentWiring.WireApiUrlForWebsiteTargetAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+            }
+
             var provider = _providerFactory.GetProvider(target.ProviderName);
             var token = await _tokens.GetTokenAsync(deployTarget.Credential, cancellationToken);
             var credentials = new ProviderCredentials(token);
@@ -278,6 +362,14 @@ public sealed class DeploymentJobRunner
 
         if (deployment.Targets.Any(t => t.Status is DeploymentStatuses.Pending or DeploymentStatuses.InProgress))
         {
+            return;
+        }
+
+        if (deployment.Targets.All(t => t.Status == DeploymentStatuses.Cancelled))
+        {
+            deployment.Status = DeploymentStatuses.Cancelled;
+            deployment.CompletedAt = DateTimeOffset.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
             return;
         }
 

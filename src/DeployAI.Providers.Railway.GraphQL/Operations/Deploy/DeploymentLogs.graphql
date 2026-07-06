@@ -1,0 +1,6 @@
+query DeploymentLogs($deploymentId: String!, $limit: Int) {
+  deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
+    message
+    timestamp
+  }
+}

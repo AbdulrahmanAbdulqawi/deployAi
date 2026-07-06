@@ -6,18 +6,25 @@ namespace DeployAI.Infrastructure.GitHub;
 
 public interface IDatabaseRequirementDetector
 {
-    DatabaseRequirementProfile Detect(string? dockerComposeContent, string? appsettingsContent);
+    DatabaseRequirementProfile Detect(
+        string? dockerComposeContent,
+        string? appsettingsContent,
+        string? prismaSchemaContent = null);
 }
 
 public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDetector
 {
-    public DatabaseRequirementProfile Detect(string? dockerComposeContent, string? appsettingsContent)
+    public DatabaseRequirementProfile Detect(
+        string? dockerComposeContent,
+        string? appsettingsContent,
+        string? prismaSchemaContent = null)
     {
         var requiresPostgresFromCompose = DetectPostgresInCompose(dockerComposeContent);
         var requiresRedisFromCompose = DetectRedisInCompose(dockerComposeContent);
         var (requiresPostgresFromSettings, requiresRedisFromSettings, keys) = DetectFromAppsettings(appsettingsContent);
+        var requiresPostgresFromPrisma = DetectPostgresInPrisma(prismaSchemaContent);
 
-        var requiresPostgres = requiresPostgresFromCompose || requiresPostgresFromSettings;
+        var requiresPostgres = requiresPostgresFromCompose || requiresPostgresFromSettings || requiresPostgresFromPrisma;
         var requiresRedis = requiresRedisFromCompose || requiresRedisFromSettings;
         var postgresDatabaseName = requiresPostgres
             ? ExtractPostgresDatabaseName(appsettingsContent)
@@ -76,7 +83,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
                     requiresRedis = true;
                 }
 
-                var value = property.Value.GetString();
+                var value = ReadConnectionStringValue(property.Value);
                 if (string.IsNullOrWhiteSpace(value))
                 {
                     continue;
@@ -133,7 +140,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
             foreach (var property in connectionStrings.EnumerateObject())
             {
-                var value = property.Value.GetString();
+                var value = ReadConnectionStringValue(property.Value);
                 if (string.IsNullOrWhiteSpace(value) ||
                     string.Equals(property.Name, "Redis", StringComparison.OrdinalIgnoreCase))
                 {
@@ -189,6 +196,40 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
         var match = DatabaseNameRegex().Match(connectionString);
         return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    private static string? ReadConnectionStringValue(JsonElement element) =>
+        element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Null => null,
+            JsonValueKind.Object => TryReadNestedConnectionString(element),
+            _ => null
+        };
+
+    private static string? TryReadNestedConnectionString(JsonElement element)
+    {
+        foreach (var propertyName in new[] { "ConnectionString", "connectionString", "Value", "value" })
+        {
+            if (element.TryGetProperty(propertyName, out var nested) &&
+                nested.ValueKind == JsonValueKind.String)
+            {
+                return nested.GetString();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool DetectPostgresInPrisma(string? prismaSchemaContent)
+    {
+        if (string.IsNullOrWhiteSpace(prismaSchemaContent))
+        {
+            return false;
+        }
+
+        return prismaSchemaContent.Contains("provider = \"postgresql\"", StringComparison.OrdinalIgnoreCase) ||
+               prismaSchemaContent.Contains("provider = \"postgres\"", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool LooksLikePostgresConnection(string key, string value)

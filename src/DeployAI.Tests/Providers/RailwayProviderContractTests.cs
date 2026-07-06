@@ -1,7 +1,10 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using DeployAI.Core.Providers;
 using DeployAI.Providers.Railway;
+using DeployAI.Providers.Railway.GraphQL;
+using Microsoft.Extensions.DependencyInjection;
 using RichardSzalay.MockHttp;
 
 namespace DeployAI.Tests.Providers;
@@ -10,13 +13,122 @@ public class RailwayProviderContractTests
 {
     private static RailwayProvider CreateProvider(MockHttpMessageHandler handler)
     {
-        return new RailwayProvider(handler.ToHttpClient());
+        var services = new ServiceCollection();
+        services.AddSingleton<IHttpClientFactory>(new TestHttpClientFactory(handler));
+        var serviceProvider = services.BuildServiceProvider();
+        var graphQlFactory = new RailwayGraphQlClientFactory
+        {
+            TestHttpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>()
+        };
+        return new RailwayProvider(graphQlFactory);
     }
+
+    private sealed class TestHttpClientFactory(MockHttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name)
+        {
+            var client = handler.ToHttpClient();
+            client.BaseAddress = new Uri(RailwayGraphQlClientFactory.GraphQlEndpoint);
+            return client;
+        }
+    }
+
+    private static StringContent GraphQlContent(string responseBody) =>
+        new(RailwayGraphQlTestSupport.EnhanceResponse(responseBody), Encoding.UTF8, "application/json");
+
+    private static HttpResponseMessage VolumeInstancesResponse() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("""{"data":{"environment":{"volumeInstances":{"edges":[]}}}}""")
+        };
+
+    private static HttpResponseMessage VariablesResponse(string variablesJson = "{}") =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("{\"data\":{\"variables\":" + JsonSerializer.Serialize(variablesJson) + "}}")
+        };
+
+    private static bool IsVolumeInstancesRequest(string body) =>
+        body.Contains("EnvironmentVolumeInstances", StringComparison.Ordinal) ||
+        body.Contains("volumeInstances", StringComparison.Ordinal);
+
+    private static bool IsVariablesRequest(string body) =>
+        body.Contains("GetVariables", StringComparison.Ordinal) ||
+        (body.Contains("variables(", StringComparison.Ordinal) && body.Contains("projectId", StringComparison.Ordinal));
+
+    private static bool IsProjectServicesRequest(string body) =>
+        body.Contains("ProjectServices", StringComparison.Ordinal);
+
+    private static bool IsServiceContextRequest(string body) =>
+        body.Contains("ServiceContext", StringComparison.Ordinal) ||
+        body.Contains("ServiceProject", StringComparison.Ordinal);
+
+    private static HttpResponseMessage ServiceContextResponse() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""")
+        };
+
+    private static HttpResponseMessage ServiceInstanceRegionResponse(string region = "us-west1") =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent(
+                "{\"data\":{\"service\":{\"serviceInstances\":{\"edges\":[{\"node\":{\"environmentId\":\"env_1\",\"region\":" +
+                JsonSerializer.Serialize(region) +
+                "}}]}}}}")
+        };
+
+    private static HttpResponseMessage VolumeCreateResponse() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("""{"data":{"volumeCreate":{"id":"vol_new","name":"postgres-data"}}}""")
+        };
+
+    private static HttpResponseMessage MutationSuccessResponse(string field) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent($"{{\"data\":{{\"{field}\":true}}}}")
+        };
+
+    private static HttpResponseMessage RedeployServiceResponse() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
+        };
+
+    private static HttpResponseMessage PostgresProjectServicesResponse(string image, string serviceId = "svc_pg") =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent($$"""
+                {
+                  "data": {
+                    "project": {
+                      "services": {
+                        "edges": [{
+                          "node": {
+                            "id": "{{serviceId}}",
+                            "name": "Postgres",
+                            "serviceInstances": {
+                              "edges": [{
+                                "node": {
+                                  "environmentId": "env_1",
+                                  "source": { "image": "{{image}}" }
+                                }
+                              }]
+                            }
+                          }
+                        }]
+                      }
+                    }
+                  }
+                }
+                """)
+        };
 
     private static void MockGraphQl(MockHttpMessageHandler handler, string responseBody)
     {
         handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
-            .Respond(HttpStatusCode.OK, "application/json", responseBody);
+            .Respond(HttpStatusCode.OK, "application/json", RailwayGraphQlTestSupport.EnhanceResponse(responseBody));
     }
 
     [Fact]
@@ -71,24 +183,19 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (body.Contains("\"projects\"", StringComparison.Ordinal) &&
-                    !body.Contains("WorkspaceProjects", StringComparison.Ordinal))
+                if (body.Contains("ListProjects", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"errors":[{"message":"Not Authorized"}]}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"errors":[{"message":"Not Authorized"}]}""")
                     };
                 }
 
-                if (body.Contains("me", StringComparison.Ordinal) && body.Contains("workspaces", StringComparison.Ordinal))
+                if (body.Contains("ListWorkspaces", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "me": {
@@ -96,16 +203,15 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
-                return new HttpResponseMessage(HttpStatusCode.OK)
+                if (body.Contains("WorkspaceProjects", StringComparison.Ordinal))
                 {
-                    Content = new StringContent(
-                        """
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""
                         {
                           "data": {
                             "workspace": {
@@ -126,9 +232,13 @@ public class RailwayProviderContractTests
                             }
                           }
                         }
-                        """,
-                        Encoding.UTF8,
-                        "application/json")
+                        """)
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = GraphQlContent("""{"data":{"externalWorkspaces":[]}}""")
                 };
             });
 
@@ -154,16 +264,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
-                        Encoding.UTF8,
-                        "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                 };
             });
 
@@ -194,16 +301,13 @@ public class RailwayProviderContractTests
                     updateBody = body;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
-                        Encoding.UTF8,
-                        "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                 };
             });
 
@@ -241,16 +345,13 @@ public class RailwayProviderContractTests
                     updateBody = body;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
-                        Encoding.UTF8,
-                        "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                 };
             });
 
@@ -289,16 +390,13 @@ public class RailwayProviderContractTests
                     deployBody = body;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                 };
             });
 
@@ -332,7 +430,7 @@ public class RailwayProviderContractTests
                     updateBody = body;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                     };
                 }
 
@@ -341,7 +439,7 @@ public class RailwayProviderContractTests
                     variableBody = body;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"variableUpsert":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"variableUpsert":true}}""")
                     };
                 }
 
@@ -349,16 +447,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"service":{"projectId":"proj_1"}}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":{"serviceInstanceDeployV2":"dep_1"}}""",
-                        Encoding.UTF8,
-                        "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                 };
             });
 
@@ -418,8 +513,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "me": {
@@ -429,9 +523,7 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
@@ -439,8 +531,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "projectCreate": {
@@ -451,9 +542,7 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
@@ -461,10 +550,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"data":{"serviceCreate":{"id":"svc_1","name":"my-api"}}}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceCreate":{"id":"svc_1","name":"my-api"}}}""")
                     };
                 }
 
@@ -472,8 +558,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "project": {
@@ -483,15 +568,13 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
                 };
             });
 
@@ -519,16 +602,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"service":{"projectId":"proj_1"}}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """{"data":{"variables":{"API_URL":"https://example.com","API_KEY":"secret-value"}}}""",
-                        Encoding.UTF8,
-                        "application/json")
+                    Content = GraphQlContent("""{"data":{"variables":{"API_URL":"https://example.com","API_KEY":"secret-value"}}}""")
                 };
             });
 
@@ -555,13 +635,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"service":{"projectId":"proj_1"}}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"variableUpsert":true}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"variableUpsert":true}}""")
                 };
             });
 
@@ -589,10 +669,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"data":{"deployment":{"status":"SUCCESS"}}}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"data":{"deployment":{"status":"SUCCESS"}}}""")
                     };
                 }
 
@@ -600,8 +677,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "buildLogs": [
@@ -610,16 +686,13 @@ public class RailwayProviderContractTests
                                 ]
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        """
+                    Content = GraphQlContent("""
                         {
                           "data": {
                             "deploymentLogs": [
@@ -627,9 +700,7 @@ public class RailwayProviderContractTests
                             ]
                           }
                         }
-                        """,
-                        Encoding.UTF8,
-                        "application/json")
+                        """)
                 };
             });
 
@@ -658,10 +729,7 @@ public class RailwayProviderContractTests
                     var status = statusPolls < 2 ? "INITIALIZING" : "SUCCESS";
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            $"{{\"data\":{{\"deployment\":{{\"status\":\"{status}\"}}}}}}",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent($"{{\"data\":{{\"deployment\":{{\"status\":\"{status}\"}}}}}}")
                     };
                 }
 
@@ -669,16 +737,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"errors":[{"message":"Deployment does not have an associated build"}]}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"errors":[{"message":"Deployment does not have an associated build"}]}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"deploymentLogs":[]}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"deploymentLogs":[]}}""")
                 };
             });
 
@@ -701,56 +766,49 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (body.Contains("ServiceContext", StringComparison.Ordinal) ||
-                    body.Contains("ServiceProject", StringComparison.Ordinal) ||
-                    body.Contains("service(id:", StringComparison.Ordinal))
+                if (IsServiceContextRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceContextResponse();
                 }
 
-                if (body.Contains("ProjectServices", StringComparison.Ordinal))
+                if (body.Contains("ServiceInstanceRegion", StringComparison.Ordinal))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """
-                            {
-                              "data": {
-                                "project": {
-                                  "services": {
-                                    "edges": [{
-                                      "node": {
-                                        "id": "svc_pg",
-                                        "name": "Postgres",
-                                        "serviceInstances": {
-                                          "edges": [{
-                                            "node": {
-                                              "environmentId": "env_1",
-                                              "source": { "image": "ghcr.io/railwayapp-templates/postgres-ssl:16" }
-                                            }
-                                          }]
-                                        }
-                                      }
-                                    }]
-                                  }
-                                }
-                              }
-                            }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceInstanceRegionResponse();
+                }
+
+                if (IsProjectServicesRequest(body))
+                {
+                    return PostgresProjectServicesResponse("ghcr.io/railwayapp-templates/postgres-ssl:16");
+                }
+
+                if (body.Contains("VariableUpsert", StringComparison.Ordinal))
+                {
+                    return MutationSuccessResponse("variableUpsert");
+                }
+
+                if (body.Contains("VolumeCreate", StringComparison.Ordinal))
+                {
+                    return VolumeCreateResponse();
+                }
+
+                if (IsVolumeInstancesRequest(body))
+                {
+                    return VolumeInstancesResponse();
+                }
+
+                if (IsVariablesRequest(body))
+                {
+                    return VariablesResponse();
+                }
+
+                if (body.Contains("RedeployService", StringComparison.Ordinal))
+                {
+                    return RedeployServiceResponse();
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -776,65 +834,55 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (body.Contains("ServiceContext", StringComparison.Ordinal) ||
-                    body.Contains("ServiceProject", StringComparison.Ordinal) ||
-                    body.Contains("service(id:", StringComparison.Ordinal))
+                if (IsServiceContextRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceContextResponse();
+                }
+
+                if (body.Contains("ServiceInstanceRegion", StringComparison.Ordinal))
+                {
+                    return ServiceInstanceRegionResponse();
                 }
 
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     updateBodies.Add(body);
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent("""{"data":{"serviceInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
-                    };
+                    return MutationSuccessResponse("serviceInstanceUpdate");
                 }
 
-                if (body.Contains("ProjectServices", StringComparison.Ordinal))
+                if (IsProjectServicesRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """
-                            {
-                              "data": {
-                                "project": {
-                                  "services": {
-                                    "edges": [{
-                                      "node": {
-                                        "id": "svc_pg",
-                                        "name": "Postgres",
-                                        "serviceInstances": {
-                                          "edges": [{
-                                            "node": {
-                                              "environmentId": "env_1",
-                                              "source": { "image": "ghcr.io/railway/postgres:16" }
-                                            }
-                                          }]
-                                        }
-                                      }
-                                    }]
-                                  }
-                                }
-                              }
-                            }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return PostgresProjectServicesResponse("ghcr.io/railway/postgres:16");
+                }
+
+                if (body.Contains("VariableUpsert", StringComparison.Ordinal))
+                {
+                    return MutationSuccessResponse("variableUpsert");
+                }
+
+                if (body.Contains("VolumeCreate", StringComparison.Ordinal))
+                {
+                    return VolumeCreateResponse();
+                }
+
+                if (IsVolumeInstancesRequest(body))
+                {
+                    return VolumeInstancesResponse();
+                }
+
+                if (IsVariablesRequest(body))
+                {
+                    return VariablesResponse();
+                }
+
+                if (body.Contains("RedeployService", StringComparison.Ordinal))
+                {
+                    return RedeployServiceResponse();
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -865,25 +913,21 @@ public class RailwayProviderContractTests
                     upsertBodies.Add(body);
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"variableUpsert":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"variableUpsert":true}}""")
                     };
                 }
 
-                if (body.Contains("ServiceProject", StringComparison.Ordinal) ||
-                    body.Contains("service(id:", StringComparison.Ordinal))
+                if (body.Contains("ServiceProject", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1"}}}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -917,8 +961,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "service": {
@@ -937,15 +980,13 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -971,7 +1012,7 @@ public class RailwayProviderContractTests
                 bodies.Add(body);
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                 };
             });
 
@@ -993,13 +1034,11 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                if (body.Contains("EnvironmentVolumeInstances", StringComparison.Ordinal) ||
-                    body.Contains("volumeInstances", StringComparison.Ordinal))
+                if (IsVolumeInstancesRequest(body))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "environment": {
@@ -1016,9 +1055,7 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
@@ -1027,70 +1064,50 @@ public class RailwayProviderContractTests
                     body.Contains("serviceInstanceDeployV2", StringComparison.Ordinal))
                 {
                     volumeMutations.Add(body);
+                    if (body.Contains("volumeInstanceUpdate", StringComparison.Ordinal))
+                    {
+                        return MutationSuccessResponse("volumeInstanceUpdate");
+                    }
+
+                    if (body.Contains("volumeCreate", StringComparison.Ordinal))
+                    {
+                        return MutationSuccessResponse("volumeCreate");
+                    }
+
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"volumeInstanceUpdate":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                     };
                 }
 
-                if (body.Contains("ServiceContext", StringComparison.Ordinal) ||
-                    body.Contains("ServiceProject", StringComparison.Ordinal) ||
-                    body.Contains("service(id:", StringComparison.Ordinal))
+                if (IsServiceContextRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceContextResponse();
                 }
 
-                if (body.Contains("ProjectServices", StringComparison.Ordinal))
+                if (body.Contains("ServiceInstanceRegion", StringComparison.Ordinal))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """
-                            {
-                              "data": {
-                                "project": {
-                                  "services": {
-                                    "edges": [{
-                                      "node": {
-                                        "id": "svc_pg",
-                                        "name": "Postgres",
-                                        "serviceInstances": {
-                                          "edges": [{
-                                            "node": {
-                                              "environmentId": "env_1",
-                                              "source": { "image": "ghcr.io/railwayapp-templates/postgres-ssl:16" }
-                                            }
-                                          }]
-                                        }
-                                      }
-                                    }]
-                                  }
-                                }
-                              }
-                            }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceInstanceRegionResponse();
                 }
 
-                if (body.Contains("variables(", StringComparison.Ordinal))
+                if (IsProjectServicesRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent("""{"data":{"variables":{}}}""", Encoding.UTF8, "application/json")
-                    };
+                    return PostgresProjectServicesResponse("ghcr.io/railwayapp-templates/postgres-ssl:16");
+                }
+
+                if (body.Contains("VariableUpsert", StringComparison.Ordinal))
+                {
+                    return MutationSuccessResponse("variableUpsert");
+                }
+
+                if (IsVariablesRequest(body))
+                {
+                    return VariablesResponse();
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -1121,17 +1138,15 @@ public class RailwayProviderContractTests
                     deployCalls++;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
                     };
                 }
 
-                if (body.Contains("EnvironmentVolumeInstances", StringComparison.Ordinal) ||
-                    body.Contains("volumeInstances", StringComparison.Ordinal))
+                if (IsVolumeInstancesRequest(body))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "environment": {
@@ -1148,70 +1163,43 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
-                if (body.Contains("ServiceContext", StringComparison.Ordinal) ||
-                    body.Contains("ServiceProject", StringComparison.Ordinal) ||
-                    body.Contains("service(id:", StringComparison.Ordinal))
+                if (body.Contains("volumeInstanceUpdate", StringComparison.Ordinal))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1","project":{"workspaceId":"ws_1"}}}}""",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return MutationSuccessResponse("volumeInstanceUpdate");
                 }
 
-                if (body.Contains("ProjectServices", StringComparison.Ordinal))
+                if (IsServiceContextRequest(body))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(
-                            """
-                            {
-                              "data": {
-                                "project": {
-                                  "services": {
-                                    "edges": [{
-                                      "node": {
-                                        "id": "svc_pg",
-                                        "name": "Postgres",
-                                        "serviceInstances": {
-                                          "edges": [{
-                                            "node": {
-                                              "environmentId": "env_1",
-                                              "source": { "image": "ghcr.io/railwayapp-templates/postgres-ssl:16" }
-                                            }
-                                          }]
-                                        }
-                                      }
-                                    }]
-                                  }
-                                }
-                              }
-                            }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return ServiceContextResponse();
                 }
 
-                if (body.Contains("variables(", StringComparison.Ordinal))
+                if (body.Contains("ServiceInstanceRegion", StringComparison.Ordinal))
                 {
-                    return new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent("""{"data":{"variables":{}}}""", Encoding.UTF8, "application/json")
-                    };
+                    return ServiceInstanceRegionResponse();
+                }
+
+                if (IsProjectServicesRequest(body))
+                {
+                    return PostgresProjectServicesResponse("ghcr.io/railwayapp-templates/postgres-ssl:16");
+                }
+
+                if (body.Contains("VariableUpsert", StringComparison.Ordinal))
+                {
+                    return MutationSuccessResponse("variableUpsert");
+                }
+
+                if (IsVariablesRequest(body))
+                {
+                    return VariablesResponse();
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{}}""")
                 };
             });
 
@@ -1240,10 +1228,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """{"data":{"service":{"projectId":"proj_1"}}}""",
-                            Encoding.UTF8,
-                            "application/json")
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
                     };
                 }
 
@@ -1251,8 +1236,7 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent(
-                            """
+                        Content = GraphQlContent("""
                             {
                               "data": {
                                 "environment": {
@@ -1269,9 +1253,7 @@ public class RailwayProviderContractTests
                                 }
                               }
                             }
-                            """,
-                            Encoding.UTF8,
-                            "application/json")
+                            """)
                     };
                 }
 
@@ -1279,13 +1261,13 @@ public class RailwayProviderContractTests
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new StringContent("""{"data":{"volumeDelete":true}}""", Encoding.UTF8, "application/json")
+                        Content = GraphQlContent("""{"data":{"volumeDelete":true}}""")
                     };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"data":{"serviceDelete":true}}""", Encoding.UTF8, "application/json")
+                    Content = GraphQlContent("""{"data":{"serviceDelete":true}}""")
                 };
             });
 
@@ -1297,5 +1279,27 @@ public class RailwayProviderContractTests
 
         Assert.Contains(bodies, b => b.Contains("volumeDelete", StringComparison.Ordinal));
         Assert.Contains(bodies, b => b.Contains("serviceDelete", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DeleteProjectAsync_UsesProjectDeleteMutation()
+    {
+        var handler = new MockHttpMessageHandler();
+        var bodies = new List<string>();
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                bodies.Add(body);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = GraphQlContent("""{"data":{"projectDelete":true}}""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.DeleteProjectAsync(new ProviderCredentials("token"), "proj_1", CancellationToken.None);
+
+        Assert.Contains(bodies, b => b.Contains("projectDelete", StringComparison.Ordinal));
     }
 }

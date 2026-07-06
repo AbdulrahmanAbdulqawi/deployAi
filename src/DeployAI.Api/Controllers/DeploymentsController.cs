@@ -5,6 +5,7 @@ using DeployAI.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace DeployAI.Api.Controllers;
 
@@ -127,6 +128,26 @@ public sealed class DeploymentsController : ControllerBase
             .ToListAsync(cancellationToken);
 
         return Ok(new { logs });
+    }
+
+    [HttpPost("deployments/{id:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var restoreService = HttpContext.RequestServices.GetRequiredService<IDeploymentRestoreService>();
+        var result = await restoreService.RestorePreviousAsync(id, userId, cancellationToken);
+
+        return Ok(new
+        {
+            deploymentId = result.DeploymentId,
+            status = result.Status,
+            targets = result.Targets.Select(t => new
+            {
+                providerName = t.ProviderName,
+                status = t.Status,
+                message = t.Message
+            })
+        });
     }
 
     private Guid RequireUserId()

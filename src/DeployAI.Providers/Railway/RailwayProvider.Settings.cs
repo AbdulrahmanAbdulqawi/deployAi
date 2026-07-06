@@ -1,4 +1,5 @@
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -165,18 +166,13 @@ public sealed partial class RailwayProvider
             return;
         }
 
-        const string mutation = """
-            mutation UpdateServiceInstance($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-              serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { serviceId, environmentId, input = settings },
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.UpdateServiceInstance.ExecuteAsync(
+            serviceId,
+            environmentId,
+            RailwayGraphQlMapping.ToServiceInstanceUpdateInput(settings),
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private async Task EnsureServiceVariableAsync(
@@ -189,28 +185,18 @@ public sealed partial class RailwayProvider
     {
         var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
 
-        const string mutation = """
-            mutation VariableUpsert($input: VariableUpsertInput!) {
-              variableUpsert(input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.VariableUpsert.ExecuteAsync(
+            new VariableUpsertInput
             {
-                input = new
-                {
-                    projectId,
-                    environmentId,
-                    serviceId,
-                    name,
-                    value,
-                    skipDeploys = true
-                }
+                ProjectId = projectId,
+                EnvironmentId = environmentId,
+                ServiceId = serviceId,
+                Name = name,
+                Value = value,
+                SkipDeploys = true
             },
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 }

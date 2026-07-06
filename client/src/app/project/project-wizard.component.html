@@ -1,6 +1,12 @@
 <section>
-  <h1>Add your app</h1>
-  <p class="steps">Step {{ step() }} of 5</p>
+  <h1 class="u-brand-text">Add app</h1>
+  <p class="page-intro">We'll figure out where your code should live.</p>
+  <div class="steps" role="status" [attr.aria-label]="'Step ' + step() + ' of ' + stepTotal()">
+    <div class="steps__track">
+      <div class="steps__fill" [style.width.%]="(step() / stepTotal()) * 100"></div>
+    </div>
+    <span class="steps__label">Step {{ step() }} of {{ stepTotal() }}</span>
+  </div>
 
   @if (error()) {
     <p class="error">{{ error() }}</p>
@@ -9,8 +15,8 @@
   @switch (step()) {
     @case (1) {
       <div class="card">
-        <h2>Which app?</h2>
-        <input type="search" [(ngModel)]="search" (ngModelChange)="loadRepos()" placeholder="Search your GitHub apps" />
+        <h2>Repository</h2>
+        <input type="search" [(ngModel)]="search" (ngModelChange)="loadRepos()" placeholder="Search repos" />
         <div class="options">
           @for (repo of repos(); track repo.fullName) {
             <button type="button" class="option" [class.selected]="selectedRepo()?.fullName === repo.fullName" (click)="selectRepo(repo)">
@@ -18,12 +24,12 @@
             </button>
           }
         </div>
-        <button type="button" class="primary" [disabled]="!selectedRepo()" (click)="nextFromRepo()">Continue</button>
+        <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedRepo()" (click)="nextFromRepo()">Continue</app-ui-button>
       </div>
     }
     @case (2) {
       <div class="card">
-        <h2>Which version?</h2>
+        <h2>Branch</h2>
         <div class="options">
           @for (branch of branches(); track branch.name) {
             <button type="button" class="option" [class.selected]="selectedBranch() === branch.name" (click)="selectedBranch.set(branch.name)">
@@ -32,67 +38,42 @@
           }
         </div>
         <div class="nav">
-          <button type="button" class="secondary" (click)="step.set(1)">Back</button>
-          <button type="button" class="primary" [disabled]="!selectedBranch()" (click)="enterPartsStep()">Continue</button>
+          <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(1)">Back</app-ui-button>
+          <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedBranch()" (click)="enterPartsStep()">Continue</app-ui-button>
         </div>
       </div>
     }
     @case (3) {
       <div class="card">
-        @if (loadingDeploymentPlan()) {
-          <h2>Looking at your app…</h2>
-          <p class="hint">We're reading your repository to figure out the best way to put it live.</p>
-        } @else if (!showManualOverride() && deploymentPlan()?.confidence === 'high') {
-          <h2>Here's what we found</h2>
-          <p class="plan-summary">{{ deploymentPlan()!.plainSummary }}</p>
-
-          <div class="nav plan-actions">
-            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
-            <button type="button" class="link-btn" (click)="showManualConfiguration()">Change how this deploys</button>
-            <button type="button" class="primary" [disabled]="!canAcceptPlan()" (click)="acceptDeploymentPlan()">
-              Yes, deploy it
-            </button>
-          </div>
-        } @else if (!showManualOverride() && deploymentPlan()?.clarifyingQuestion) {
-          <h2>One quick question</h2>
-          <p class="hint">{{ deploymentPlan()!.clarifyingQuestion!.prompt }}</p>
-
-          <div class="deployment-choices">
-            @for (option of deploymentPlan()!.clarifyingQuestion!.options; track option.id) {
-              <button type="button" class="deployment-choice" (click)="selectClarifyingOption(option.id)">
-                <strong>{{ option.label }}</strong>
-                <span>{{ option.description }}</span>
-              </button>
-            }
-          </div>
-
-          <div class="nav">
-            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
-            <button type="button" class="link-btn" (click)="showManualConfiguration()">Change how this deploys</button>
-          </div>
-        } @else {
-          <h2>What do you want to publish?</h2>
-          <p class="hint">Choose one option, then pick the folder for each part.</p>
+        <app-deploy-plan
+          [loading]="loadingDeploymentPlan()"
+          [plan]="deploymentPlan()"
+          [activeParts]="activePlanParts()"
+          [showManualOverride]="showManualOverride()"
+          [deploying]="saving()"
+          [missingConnections]="missingConnections()"
+          (accept)="acceptDeploymentPlan()"
+          (override)="showManualConfiguration()"
+          (selectOption)="selectClarifyingOption($event)"
+          (connectProviders)="goToConnections()"
+          (back)="step.set(2)">
+          <h2>What to deploy</h2>
 
           <div class="deployment-choices">
             <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
               <strong>Website</strong>
-              <span>Frontend or static site</span>
             </button>
             <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
               <strong>Server</strong>
-              <span>Backend API or service</span>
             </button>
             <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
               <strong>Both</strong>
-              <span>Website and server from the same app</span>
             </button>
           </div>
 
           @if (publishWebsite) {
             <div class="part-block">
               <p class="part-label">Website folder</p>
-              <p class="hint">Choose the folder with your website files.</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"
@@ -108,7 +89,6 @@
           @if (publishServer) {
             <div class="part-block">
               <p class="part-label">Server folder</p>
-              <p class="hint">Choose the folder with your server files.</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"
@@ -122,35 +102,34 @@
           }
 
           <div class="nav">
-            <button type="button" class="secondary" (click)="step.set(2)">Back</button>
+            <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(2)">Back</app-ui-button>
             @if (partsStepBlockedHint()) {
               <p class="hint">{{ partsStepBlockedHint() }}</p>
             }
-            <button type="button" class="primary" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</button>
+            <app-ui-button variant="primary" icon="arrow-right" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</app-ui-button>
           </div>
-        }
+        </app-deploy-plan>
       </div>
     }
     @case (4) {
       <div class="card">
-        <h2>Where should it live?</h2>
+        <h2>Hosting setup</h2>
 
         @if (publishWebsite) {
           <section class="host-block">
-            <h3>Website on Vercel</h3>
+            <h3>Your site</h3>
             @if (loadingCredentials()) {
-              <p class="muted">One moment…</p>
+              <p class="muted">Loading…</p>
             } @else if (vercelCredentials().length === 0) {
               <div class="callout">
-                <p>Connect Vercel first so we know where to publish your website.</p>
-                <button type="button" class="primary" [disabled]="connectingVercelOAuth()" (click)="connectWithVercel()">
-                  {{ connectingVercelOAuth() ? 'One moment…' : 'Connect with Vercel' }}
-                </button>
-                <button type="button" class="link-btn" (click)="goToConnections()">Or open Connections settings</button>
+                <app-ui-button variant="primary" icon="link" [disabled]="connectingVercelOAuth()" [loading]="connectingVercelOAuth()" (click)="connectWithVercel()">
+                  Connect hosting
+                </app-ui-button>
+                <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Settings</app-ui-button>
               </div>
             } @else {
               <label>
-                Vercel connection
+                Connection
                 <select [(ngModel)]="selectedVercelCredentialId" (ngModelChange)="onVercelCredentialChange()">
                   @for (cred of vercelCredentials(); track cred.id) {
                     <option [value]="cred.id">{{ cred.label }}</option>
@@ -163,7 +142,7 @@
               </div>
               @if (vercelHostingMode() === 'existing') {
                 @if (loadingVercelProjects()) {
-                  <p class="muted">Loading your Vercel apps…</p>
+                  <p class="muted">Loading…</p>
                 } @else {
                   <div class="options">
                     @for (project of vercelProjects(); track project.id) {
@@ -175,12 +154,12 @@
                 }
               } @else {
                 <label>
-                  New app name on Vercel
+                  New app name
                   <input type="text" [(ngModel)]="newVercelProjectName" placeholder="my-app" />
                 </label>
-                <button type="button" class="secondary" [disabled]="!newVercelProjectName || creatingVercelProject()" (click)="createVercelProject()">
-                  {{ creatingVercelProject() ? 'Creating…' : 'Create on Vercel' }}
-                </button>
+                <app-ui-button variant="secondary" icon="plus" [disabled]="!newVercelProjectName || creatingVercelProject()" [loading]="creatingVercelProject()" (click)="createVercelProject()">
+                  Create
+                </app-ui-button>
               }
             }
           </section>
@@ -188,20 +167,19 @@
 
         @if (publishServer) {
           <section class="host-block">
-            <h3>Server on Railway</h3>
+            <h3>Your API</h3>
             @if (loadingCredentials()) {
-              <p class="muted">One moment…</p>
+              <p class="muted">Loading…</p>
             } @else if (railwayCredentials().length === 0) {
               <div class="callout">
-                <p>Connect Railway first so we know where to publish your server.</p>
-                <button type="button" class="primary" [disabled]="connectingRailwayOAuth()" (click)="connectWithRailway()">
-                  {{ connectingRailwayOAuth() ? 'One moment…' : 'Connect with Railway' }}
-                </button>
-                <button type="button" class="link-btn" (click)="goToConnections()">Or open Connections settings</button>
+                <app-ui-button variant="primary" icon="link" [disabled]="connectingRailwayOAuth()" [loading]="connectingRailwayOAuth()" (click)="connectWithRailway()">
+                  Connect hosting
+                </app-ui-button>
+                <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Settings</app-ui-button>
               </div>
             } @else {
               <label>
-                Railway connection
+                Connection
                 <select [(ngModel)]="selectedRailwayCredentialId" (ngModelChange)="onRailwayCredentialChange()">
                   @for (cred of railwayCredentials(); track cred.id) {
                     <option [value]="cred.id">{{ cred.label }}</option>
@@ -214,7 +192,7 @@
               </div>
               @if (railwayHostingMode() === 'existing') {
                 @if (loadingRailwayProjects()) {
-                  <p class="muted">Loading your Railway services…</p>
+                  <p class="muted">Loading…</p>
                 } @else {
                   <div class="options">
                     @for (project of railwayProjects(); track project.id) {
@@ -226,16 +204,16 @@
                 }
               } @else {
                 <label>
-                  New service name on Railway
+                  New service name
                   <input type="text" [(ngModel)]="newRailwayProjectName" placeholder="my-api" />
                 </label>
-                <button type="button" class="secondary" [disabled]="!newRailwayProjectName || creatingRailwayProject()" (click)="createRailwayProject()">
-                  {{ creatingRailwayProject() ? 'Creating…' : 'Create on Railway' }}
-                </button>
+                <app-ui-button variant="secondary" icon="plus" [disabled]="!newRailwayProjectName || creatingRailwayProject()" [loading]="creatingRailwayProject()" (click)="createRailwayProject()">
+                  Create
+                </app-ui-button>
               }
 
               @if (detectingDatabaseRequirements()) {
-                <p class="muted">Checking database requirements…</p>
+                <p class="muted">Checking DB…</p>
               } @else if (detectedDatabaseSummary()) {
                 <p class="hint detected">{{ detectedDatabaseSummary() }}</p>
               }
@@ -244,9 +222,9 @@
         }
 
         <div class="nav">
-          <button type="button" class="secondary" (click)="step.set(3)">Back</button>
+          <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(3)">Back</app-ui-button>
           @if (canContinueFromHostingStep()) {
-            <button type="button" class="primary" (click)="step.set(5)">Continue</button>
+            <app-ui-button variant="primary" icon="arrow-right" (click)="step.set(5)">Continue</app-ui-button>
           } @else {
             <p class="hint inline">{{ hostingStepBlockedHint() }}</p>
           }
@@ -255,7 +233,7 @@
     }
     @case (5) {
       <div class="card">
-        <h2>Ready to save?</h2>
+        <h2>Review</h2>
         <label>
           App name
           <input type="text" [(ngModel)]="projectName" />
@@ -264,13 +242,13 @@
           <li>App: {{ selectedRepo()?.fullName }}</li>
           <li>Version: {{ selectedBranch() }}</li>
           @if (publishWebsite) {
-            <li>Website: {{ websiteRootPath || 'app root' }} → Vercel</li>
+            <li>Site: {{ websiteRootPath || 'app root' }}</li>
             @if (websiteBuildProfile()) {
               <li class="detected">Build output: {{ websiteBuildProfile()!.outputDirectory }}</li>
             }
           }
               @if (publishServer) {
-                <li>Server: {{ serverRootPath || 'app root' }} → Railway</li>
+                <li>API: {{ serverRootPath || 'app root' }}</li>
                 @if (detectedDatabaseSummary()) {
                   <li class="detected">{{ detectedDatabaseSummary() }}</li>
                 }
@@ -282,27 +260,26 @@
 
         @if (publishWebsite) {
           <button type="button" class="link-btn" (click)="showAdvancedEnv.set(!showAdvancedEnv())">
-            {{ showAdvancedEnv() ? 'Hide advanced settings' : 'Advanced settings for website (optional)' }}
+            {{ showAdvancedEnv() ? 'Hide env vars' : 'Env vars' }}
           </button>
           @if (showAdvancedEnv()) {
             <div class="advanced">
-              <p class="hint">Add settings on Vercel before your first publish.</p>
               @for (row of envRows; track $index) {
                 <div class="env-row">
                   <input type="text" [(ngModel)]="row.key" placeholder="Setting name" />
                   <input type="password" [(ngModel)]="row.value" placeholder="Value" />
                 </div>
               }
-              <button type="button" class="secondary" (click)="addEnvRow()">Add another setting</button>
+              <app-ui-button variant="secondary" icon="plus" (click)="addEnvRow()">Add row</app-ui-button>
             </div>
           }
         }
 
         <div class="nav">
-          <button type="button" class="secondary" (click)="step.set(4)">Back</button>
-          <button type="button" class="primary" [disabled]="saving() || !projectName" (click)="create()">
-            {{ saving() ? 'One moment…' : 'Save app' }}
-          </button>
+          <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(4)">Back</app-ui-button>
+          <app-ui-button variant="primary" tone="success" icon="check" [disabled]="saving() || !projectName" [loading]="saving()" (click)="create()">
+            Save
+          </app-ui-button>
         </div>
       </div>
     }

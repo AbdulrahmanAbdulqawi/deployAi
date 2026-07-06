@@ -1,6 +1,6 @@
-using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -33,32 +33,15 @@ public sealed partial class RailwayProvider
             return workspaceIdHint;
         }
 
-        const string projectQuery = """
-            query ProjectWorkspace($id: String!) {
-              project(id: $id) {
-                workspaceId
-              }
-            }
-            """;
-
         try
         {
-            using var document = await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                projectQuery,
-                new { id = projectId },
-                cancellationToken);
-
-            if (document.RootElement.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("project", out var projectNode) &&
-                projectNode.TryGetProperty("workspaceId", out var workspaceNode))
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.ProjectWorkspace.ExecuteAsync(projectId, cancellationToken);
+            var data = RailwayApiSupport.TryGetData(result, static _ => false);
+            var workspaceId = data?.Project.WorkspaceId;
+            if (!string.IsNullOrWhiteSpace(workspaceId))
             {
-                var workspaceId = workspaceNode.GetString();
-                if (!string.IsNullOrWhiteSpace(workspaceId))
-                {
-                    return workspaceId;
-                }
+                return workspaceId;
             }
         }
         catch (DeployAIException ex) when (RailwayApiSupport.IsAuthorizationError(ex.Message))
@@ -84,47 +67,19 @@ public sealed partial class RailwayProvider
         string projectId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query WorkspaceProject($workspaceId: String!) {
-              workspace(workspaceId: $workspaceId) {
-                projects {
-                  edges {
-                    node {
-                      id
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
         try
         {
-            using var document = await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                query,
-                new { workspaceId },
-                cancellationToken);
-
-            if (!document.RootElement.TryGetProperty("data", out var data) ||
-                !data.TryGetProperty("workspace", out var workspaceNode) ||
-                !workspaceNode.TryGetProperty("projects", out var projectsNode) ||
-                !projectsNode.TryGetProperty("edges", out var projectEdges) ||
-                projectEdges.ValueKind != JsonValueKind.Array)
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.WorkspaceProjectIds.ExecuteAsync(workspaceId, cancellationToken);
+            var data = RailwayApiSupport.TryGetData(result, static _ => false);
+            if (data?.Workspace?.Projects?.Edges is null)
             {
                 return false;
             }
 
-            foreach (var projectEdge in projectEdges.EnumerateArray())
+            foreach (var projectEdge in data.Workspace.Projects.Edges)
             {
-                if (!projectEdge.TryGetProperty("node", out var projectNode))
-                {
-                    continue;
-                }
-
-                var id = projectNode.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-                if (string.Equals(id, projectId, StringComparison.Ordinal))
+                if (string.Equals(projectEdge.Node?.Id, projectId, StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -142,27 +97,12 @@ public sealed partial class RailwayProvider
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query {
-              me {
-                workspaces {
-                  id
-                  name
-                }
-              }
-            }
-            """;
-
         try
         {
-            using var document = await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                query,
-                null,
-                cancellationToken);
-
-            var workspaceIds = ExtractWorkspaceIds(document.RootElement).ToList();
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.ListWorkspaces.ExecuteAsync(cancellationToken);
+            var data = RailwayApiSupport.TryGetData(result, static _ => false);
+            var workspaceIds = RailwayGraphQlMapping.ExtractWorkspaceIds(data).ToList();
             if (workspaceIds.Count > 0)
             {
                 return workspaceIds;
@@ -170,75 +110,9 @@ public sealed partial class RailwayProvider
         }
         catch (DeployAIException)
         {
-            // Fall back to connection-shaped workspace query.
+            // No alternate query shape in the committed schema.
         }
 
-        const string connectionQuery = """
-            query {
-              me {
-                workspaces {
-                  edges {
-                    node {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var connectionDocument = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            connectionQuery,
-            null,
-            cancellationToken);
-
-        return ExtractWorkspaceIds(connectionDocument.RootElement).ToList();
-    }
-
-    private static IEnumerable<string> ExtractWorkspaceIds(JsonElement root)
-    {
-        if (!root.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("me", out var me) ||
-            !me.TryGetProperty("workspaces", out var workspacesNode))
-        {
-            yield break;
-        }
-
-        if (workspacesNode.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var workspace in workspacesNode.EnumerateArray())
-            {
-                var workspaceId = workspace.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-                if (!string.IsNullOrWhiteSpace(workspaceId))
-                {
-                    yield return workspaceId;
-                }
-            }
-
-            yield break;
-        }
-
-        if (!workspacesNode.TryGetProperty("edges", out var edges) ||
-            edges.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var edge in edges.EnumerateArray())
-        {
-            if (!edge.TryGetProperty("node", out var node))
-            {
-                continue;
-            }
-
-            var workspaceId = node.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-            if (!string.IsNullOrWhiteSpace(workspaceId))
-            {
-                yield return workspaceId;
-            }
-        }
+        return [];
     }
 }

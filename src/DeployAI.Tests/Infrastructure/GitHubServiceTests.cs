@@ -60,4 +60,19 @@ public class GitHubServiceTests
         Assert.Single(items);
         Assert.Equal("client/src", items[0].Path);
     }
+
+    [Fact]
+    public async Task GetFileContentAsync_ThrowsFriendlyError_WhenUnauthorized()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, "https://api.github.com/repos/owner/repo/contents/docker-compose.yml")
+            .Respond(HttpStatusCode.Unauthorized);
+
+        var service = CreateService(handler);
+
+        var exception = await Assert.ThrowsAsync<DeployAI.Core.Exceptions.DeployAIException>(() =>
+            service.GetFileContentAsync("bad-token", "owner", "repo", "docker-compose.yml", null, CancellationToken.None));
+
+        Assert.Equal("github_auth_expired", exception.ErrorCode);
+    }
 }

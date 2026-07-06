@@ -264,4 +264,63 @@ public class DeploymentOrchestratorTests
         Assert.Single(saved.Targets);
         Assert.Equal(serverTargetId, saved.Targets.First().DeployTargetId);
     }
+
+    [Fact]
+    public void OrderDeploymentTargetIds_PlacesServerBeforeWebsite()
+    {
+        var projectId = Guid.NewGuid();
+        var vercelTargetId = Guid.NewGuid();
+        var railwayTargetId = Guid.NewGuid();
+        var vercelDeploymentTargetId = Guid.NewGuid();
+        var railwayDeploymentTargetId = Guid.NewGuid();
+
+        var project = new Project
+        {
+            Id = projectId,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = vercelTargetId,
+                    ProviderName = "vercel",
+                    ConfigJson = """{"role":"website"}"""
+                },
+                new DeployTarget
+                {
+                    Id = railwayTargetId,
+                    ProviderName = "railway",
+                    ConfigJson = """{"role":"server"}"""
+                }
+            ]
+        };
+
+        var deployment = new Deployment
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = projectId,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = vercelDeploymentTargetId,
+                    DeployTargetId = vercelTargetId,
+                    ProviderName = "vercel"
+                },
+                new DeploymentTarget
+                {
+                    Id = railwayDeploymentTargetId,
+                    DeployTargetId = railwayTargetId,
+                    ProviderName = "railway"
+                }
+            ]
+        };
+
+        var ordered = DeploymentOrchestrator.OrderDeploymentTargetIds(
+            deployment,
+            project,
+            [vercelDeploymentTargetId, railwayDeploymentTargetId]);
+
+        Assert.Equal(railwayDeploymentTargetId, ordered[0]);
+        Assert.Equal(vercelDeploymentTargetId, ordered[1]);
+    }
 }

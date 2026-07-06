@@ -1,30 +1,52 @@
 <section>
   <div class="header">
     <div>
-      <h1>Your past updates</h1>
-      <p>Review when you published and whether it worked.</p>
+      <h1 class="u-brand-text">History</h1>
+      <p class="page-intro header__intro">Past deploys for this app. Select one to replay logs.</p>
     </div>
-    <button type="button" class="secondary" (click)="back()">Back to app</button>
+    <app-ui-button variant="secondary" icon="arrow-left" (click)="back()">Back</app-ui-button>
   </div>
 
   @if (loading()) {
-    <p class="muted">One moment…</p>
+    <div class="u-skeleton skeleton-row"></div>
   } @else if (deployments().length === 0) {
-    <app-empty-state
-      title="Your updates will show up here once you publish"
-      message="Publish this app once and your history will appear here."
-    />
+    <app-empty-state title="No deploys yet" />
   } @else {
     <div class="list">
       @for (item of deployments(); track item.id) {
-        <button type="button" class="row" (click)="open(item.id)">
+        <button type="button" class="row u-card" [class.row--selected]="selectedId() === item.id" (click)="open(item.id)">
           <div>
             <strong>Version {{ item.branch }}</strong>
-            <p>{{ formatWhen(item.completedAt || item.startedAt) }}</p>
+            <p class="u-text-muted">{{ formatWhen(item.completedAt || item.startedAt) }} · {{ whereLabel(item) }}</p>
           </div>
           <app-status-badge [status]="item.status" />
         </button>
       }
     </div>
+
+    @if (selectedId() && deploymentStore.deployment()) {
+      <section class="replay u-card">
+        <div class="replay__header">
+          <h2>Replay</h2>
+          <app-ui-button variant="quiet" icon="x" (click)="closeReplay()">Close</app-ui-button>
+        </div>
+        <div class="targets">
+          @for (target of deploymentStore.deployment()!.targets; track target.id) {
+            <app-provider-status-card
+              [roleLabel]="roleLabel(target.providerName)"
+              [providerName]="target.providerName"
+              [status]="target.status"
+              [deployUrl]="target.deployUrl"
+              [startedAt]="target.startedAt"
+            />
+          }
+        </div>
+        <app-live-log-panel
+          [lines]="deploymentStore.activity()"
+          [connecting]="deploymentStore.connectingLogs()"
+          [readOnly]="true"
+        />
+      </section>
+    }
   }
 </section>

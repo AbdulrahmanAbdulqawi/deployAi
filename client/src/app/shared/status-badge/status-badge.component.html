@@ -1,1 +1,8 @@
-<span class="badge" [class]="statusClass">{{ label }}</span>
+<span
+  class="badge"
+  [class]="statusClass"
+  [attr.role]="isLive ? 'status' : null"
+  [attr.aria-live]="isLive ? 'polite' : null">
+  <app-ui-icon [name]="iconName" size="sm" [statusClass]="iconStatusClass" />
+  {{ label }}
+</span>

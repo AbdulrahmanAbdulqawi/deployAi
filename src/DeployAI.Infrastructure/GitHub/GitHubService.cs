@@ -1,9 +1,10 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using DeployAI.Core.Exceptions;
 
 namespace DeployAI.Infrastructure.GitHub;
-
 public sealed record GitHubUserProfile(
     [property: JsonPropertyName("id")] long Id,
     [property: JsonPropertyName("login")] string Login,
@@ -94,9 +95,9 @@ public sealed class GitHubService : IGitHubService
     {
         using var request = CreateAuthorizedRequest(HttpMethod.Get, "https://api.github.com/user", accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
-        var profile = await response.Content.ReadFromJsonAsync<GitHubUserProfile>(cancellationToken);
-        return profile ?? throw new InvalidOperationException("GitHub profile response was empty.");
+        var profile = await response.Content.ReadFromJsonAsync<GitHubUserProfile>(cancellationToken);        return profile ?? throw new InvalidOperationException("GitHub profile response was empty.");
     }
 
     public async Task<IReadOnlyList<GitHubRepo>> ListReposAsync(string accessToken, int page, int perPage, string? search, CancellationToken cancellationToken)
@@ -104,9 +105,9 @@ public sealed class GitHubService : IGitHubService
         var url = $"https://api.github.com/user/repos?sort=updated&per_page={perPage}&page={page}";
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
-        var repos = await response.Content.ReadFromJsonAsync<List<GitHubRepo>>(cancellationToken) ?? [];
-        if (!string.IsNullOrWhiteSpace(search))
+        var repos = await response.Content.ReadFromJsonAsync<List<GitHubRepo>>(cancellationToken) ?? [];        if (!string.IsNullOrWhiteSpace(search))
         {
             repos = repos
                 .Where(r => r.FullName.Contains(search, StringComparison.OrdinalIgnoreCase))
@@ -121,9 +122,9 @@ public sealed class GitHubService : IGitHubService
         var url = $"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100";
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<List<GitHubBranch>>(cancellationToken) ?? [];
-    }
+        return await response.Content.ReadFromJsonAsync<List<GitHubBranch>>(cancellationToken) ?? [];    }
 
     public async Task<IReadOnlyList<GitHubContentItem>> ListContentsAsync(
         string accessToken,
@@ -150,16 +151,16 @@ public sealed class GitHubService : IGitHubService
             return [];
         }
 
-        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            throw new InvalidOperationException("GitHub is busy right now. Wait a moment and try again.");
+            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
         }
 
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<List<GitHubContentItem>>(cancellationToken) ?? [];
         return payload
-            .Where(item => string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase))
-            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(item => string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase))            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -188,16 +189,16 @@ public sealed class GitHubService : IGitHubService
             return [];
         }
 
-        if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            throw new InvalidOperationException("GitHub is busy right now. Wait a moment and try again.");
+            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
         }
 
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<List<GitHubContentItem>>(cancellationToken) ?? [];
         return payload
-            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)            .ToList();
     }
 
     public async Task<string?> GetFileContentAsync(
@@ -221,11 +222,17 @@ public sealed class GitHubService : IGitHubService
 
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }
 
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
+        }
+
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
         var payload = await response.Content.ReadFromJsonAsync<GitHubFileContent>(cancellationToken);
         if (payload is null || !string.Equals(payload.Encoding, "base64", StringComparison.OrdinalIgnoreCase))
@@ -252,14 +259,14 @@ public sealed class GitHubService : IGitHubService
         var url = $"https://api.github.com/repos/{owner}/{repo}/commits/{Uri.EscapeDataString(branch.Trim())}";
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound)
         {
             return null;
         }
 
+        EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
-        var commit = await response.Content.ReadFromJsonAsync<GitHubCommitHead>(cancellationToken);
-        return string.IsNullOrWhiteSpace(commit?.Sha) ? null : commit.Sha;
+        var commit = await response.Content.ReadFromJsonAsync<GitHubCommitHead>(cancellationToken);        return string.IsNullOrWhiteSpace(commit?.Sha) ? null : commit.Sha;
     }
 
     private static string NormalizeContentPath(string? path)
@@ -270,6 +277,23 @@ public sealed class GitHubService : IGitHubService
         }
 
         return path.Trim().Trim('/');
+    }
+
+    private static void EnsureGitHubAuthorized(HttpResponseMessage response)
+    {
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new DeployAIException(
+                "github_auth_expired",
+                "Your GitHub connection expired. Sign in again.");
+        }
+
+        if (response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            throw new DeployAIException(
+                "github_access_denied",
+                "DeployAI can't access this repository. Check that your GitHub account still has access.");
+        }
     }
 
     private static HttpRequestMessage CreateAuthorizedRequest(HttpMethod method, string url, string accessToken)

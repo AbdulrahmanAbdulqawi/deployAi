@@ -1,32 +1,70 @@
 import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/guards/auth.guard';
 import { AppShellComponent } from './shared/app-shell/app-shell.component';
-import { LoginComponent } from './auth/login/login.component';
-import { AuthCallbackComponent } from './auth/callback/auth-callback.component';
-import { DashboardComponent } from './dashboard/dashboard.component';
-import { SettingsComponent } from './settings/settings.component';
-import { ProjectWizardComponent } from './project/project-wizard.component';
-import { ProjectDetailComponent } from './project/project-detail.component';
-import { ProjectEditComponent } from './project/project-edit.component';
-import { PublishViewComponent } from './publish/publish-view.component';
-import { HistoryComponent } from './history/history.component';
 
 export const routes: Routes = [
-  { path: 'login', component: LoginComponent, canActivate: [guestGuard] },
-  { path: 'auth/callback', component: AuthCallbackComponent },
+  {
+    path: 'login',
+    loadComponent: () => import('./auth/login/login.component').then(m => m.LoginComponent),
+    canActivate: [guestGuard]
+  },
+  {
+    path: 'auth/callback',
+    loadComponent: () => import('./auth/callback/auth-callback.component').then(m => m.AuthCallbackComponent)
+  },
   {
     path: '',
     component: AppShellComponent,
     canActivate: [authGuard],
     children: [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
-      { path: 'dashboard', component: DashboardComponent },
-      { path: 'settings', component: SettingsComponent },
-      { path: 'projects/new', component: ProjectWizardComponent },
-      { path: 'projects/:id/edit', component: ProjectEditComponent },
-      { path: 'projects/:id', component: ProjectDetailComponent },
-      { path: 'projects/:id/history', component: HistoryComponent },
-      { path: 'publish/:id', component: PublishViewComponent }
+      {
+        path: 'dashboard',
+        loadComponent: () => import('./dashboard/dashboard.component').then(m => m.DashboardComponent)
+      },
+      {
+        path: 'settings',
+        loadComponent: () => import('./settings/settings-shell.component').then(m => m.SettingsShellComponent),
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'connections' },
+          {
+            path: 'connections',
+            loadComponent: () => import('./settings/connections/connections.component').then(m => m.ConnectionsComponent)
+          },
+          {
+            path: 'notifications',
+            loadComponent: () => import('./settings/notifications/notifications.component').then(m => m.NotificationsComponent)
+          },
+          {
+            path: 'account',
+            loadComponent: () => import('./settings/account/account.component').then(m => m.AccountComponent)
+          }
+        ]
+      },
+      {
+        path: 'projects/new',
+        loadComponent: () => import('./project/project-wizard.component').then(m => m.ProjectWizardComponent)
+      },
+      {
+        path: 'projects/:id/edit',
+        loadComponent: () => import('./project/project-edit.component').then(m => m.ProjectEditComponent)
+      },
+      {
+        path: 'projects/:id/history',
+        loadComponent: () => import('./history/history.component').then(m => m.HistoryComponent)
+      },
+      {
+        path: 'projects/:projectId/deploy/:deploymentId',
+        loadComponent: () => import('./publish/publish-view.component').then(m => m.PublishViewComponent)
+      },
+      {
+        path: 'projects/:id',
+        loadComponent: () => import('./project/project-detail.component').then(m => m.ProjectDetailComponent)
+      },
+      {
+        path: 'publish/:id',
+        loadComponent: () => import('./publish/publish-redirect.component').then(m => m.PublishRedirectComponent)
+      }
     ]
   },
   { path: '**', redirectTo: 'dashboard' }

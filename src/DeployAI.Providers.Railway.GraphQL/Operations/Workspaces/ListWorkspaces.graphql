@@ -1,0 +1,8 @@
+query ListWorkspaces {
+  me {
+    workspaces {
+      id
+      name
+    }
+  }
+}

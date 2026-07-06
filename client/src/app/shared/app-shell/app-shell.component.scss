@@ -1,25 +1,95 @@
-.shell { min-height: 100vh; background: #f8fafc; }
+.shell {
+  min-height: 100vh;
+}
+
 .topbar {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 1rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-default);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--brand-indigo) 12%, transparent);
 }
-.brand { font-weight: 700; color: #111827; text-decoration: none; font-size: 1.125rem; }
-nav { display: flex; gap: 1rem; flex: 1; }
+
+.brand {
+  font-weight: 600;
+  text-decoration: none;
+  font-size: var(--font-size-lg);
+  background: var(--brand-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  letter-spacing: -0.02em;
+}
+
+nav {
+  display: flex;
+  gap: var(--space-4);
+  flex: 1;
+}
+
 nav a {
-  color: #6b7280;
+  color: var(--text-muted);
   text-decoration: none;
   font-weight: 500;
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
 }
-nav a.active { color: #2563eb; }
-.text-btn {
-  background: none;
-  border: none;
-  color: #6b7280;
+
+nav a.active {
+  color: var(--brand-indigo);
+  background: var(--status-accent-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-indigo) 25%, transparent);
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
   cursor: pointer;
-  font-weight: 500;
+  color: var(--brand-indigo);
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    background: var(--status-accent-bg);
+    box-shadow: var(--glow-accent);
+  }
 }
-main { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  nav {
+    order: 3;
+    width: 100%;
+  }
+
+  main {
+    padding: var(--space-6) var(--space-4);
+  }
+}

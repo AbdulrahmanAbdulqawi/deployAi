@@ -267,4 +267,15 @@ public class VercelProviderContractTests
         var provider = CreateProvider(handler);
         await provider.DeleteEnvVarAsync(new ProviderCredentials("token"), "prj_1", "env_1", CancellationToken.None);
     }
+
+    [Fact]
+    public async Task DeleteProjectAsync_SendsDeleteRequest()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Delete, "https://api.vercel.com/v9/projects/prj_1")
+            .Respond(HttpStatusCode.OK);
+
+        var provider = CreateProvider(handler);
+        await provider.DeleteProjectAsync(new ProviderCredentials("token"), "prj_1", CancellationToken.None);
+    }
 }

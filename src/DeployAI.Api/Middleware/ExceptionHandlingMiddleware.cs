@@ -25,7 +25,7 @@ public sealed class ExceptionHandlingMiddleware
         {
             context.Response.StatusCode = ex.ErrorCode switch
             {
-                "unauthorized" => (int)HttpStatusCode.Unauthorized,
+                "unauthorized" or "github_auth_expired" => (int)HttpStatusCode.Unauthorized,
                 "project_not_found" or "not_found" => (int)HttpStatusCode.NotFound,
                 "provider_token_invalid" or "invalid_credential" => (int)HttpStatusCode.BadRequest,
                 "credential_in_use" => (int)HttpStatusCode.Conflict,

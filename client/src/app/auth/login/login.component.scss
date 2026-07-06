@@ -2,26 +2,27 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 2rem;
-  background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+  padding: var(--space-8);
+  background: var(--page-bg);
+  background-attachment: fixed;
 }
-.card {
+
+.login__card {
   max-width: 420px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 2rem;
   text-align: center;
 }
-h1 { margin: 0 0 0.75rem; font-size: 1.75rem; line-height: 1.2; }
-p { margin: 0 0 1.5rem; color: #6b7280; }
-.primary {
-  width: 100%;
-  border: none;
-  border-radius: 999px;
-  padding: 0.875rem 1.25rem;
-  background: #2563eb;
-  color: #fff;
+
+h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-xl);
   font-weight: 600;
-  cursor: pointer;
+  letter-spacing: -0.02em;
+  background: var(--brand-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+p {
+  margin: 0 0 var(--space-6);
 }

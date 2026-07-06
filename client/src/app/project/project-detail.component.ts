@@ -2,8 +2,10 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
+import { ProjectsStore } from '../core/stores/projects.store';
 import {
   DatabaseRequirementProfile,
+  DataServiceInfo,
   ProjectDetail,
   ProjectServiceView,
   ProjectServicesResponse,
@@ -12,21 +14,25 @@ import {
 import {
   databaseEngineLabel,
   parseTargetConfig,
+  plainTargetSummary,
   providerLabel,
   serviceStatusLabel
 } from '../core/utils/target-config';
+import { ButtonComponent } from '../shared/ui/button/button.component';
+import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
+import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/dropdown-menu.component';
+import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 
 @Component({
   selector: 'app-project-detail',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ButtonComponent, StatusBadgeComponent, DropdownMenuComponent, ConfirmDialogComponent],
   templateUrl: './project-detail.component.html',
   styleUrl: './project-detail.component.scss'
 })
 export class ProjectDetailComponent implements OnInit {
   readonly project = signal<ProjectDetail | null>(null);
   readonly services = signal<ProjectServicesResponse | null>(null);
-  readonly publishing = signal(false);
   readonly message = signal<string | null>(null);
   readonly envVars = signal<Record<string, ProviderEnvVar[]>>({});
   readonly loadingEnv = signal<Record<string, boolean>>({});
@@ -38,6 +44,12 @@ export class ProjectDetailComponent implements OnInit {
   readonly detectingRequirements = signal(false);
   readonly databaseRequirements = signal<DatabaseRequirementProfile | null>(null);
   readonly expandedEnv = signal<Record<string, boolean>>({});
+  readonly dataServiceInfo = signal<Record<string, DataServiceInfo | null>>({});
+  readonly loadingDataInfo = signal<Record<string, boolean>>({});
+  readonly expandedDataInfo = signal<Record<string, boolean>>({});
+  readonly showAdvanced = signal(false);
+  readonly showDeleteConfirm = signal(false);
+  readonly deleting = signal(false);
 
   setupPostgres = true;
   setupRedis = true;
@@ -50,7 +62,8 @@ export class ProjectDetailComponent implements OnInit {
   constructor(
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly api: ApiService
+    private readonly api: ApiService,
+    readonly projectsStore: ProjectsStore
   ) {}
 
   ngOnInit(): void {
@@ -72,10 +85,15 @@ export class ProjectDetailComponent implements OnInit {
       return '';
     }
 
-    const labels = project.targets
-      .filter(target => parseTargetConfig(target.config).role !== 'database')
-      .map(target => providerLabel(target.providerName));
-    return labels.length ? `publishes to ${labels.join(' + ')}` : 'no destinations yet';
+    const deployable = project.targets.filter(
+      target => parseTargetConfig(target.config).role !== 'database'
+    );
+    const summary = plainTargetSummary(deployable);
+    return summary === 'App' ? 'ready to publish' : summary;
+  }
+
+  toggleAdvanced(): void {
+    this.showAdvanced.update(open => !open);
   }
 
   hasPostgresService(): boolean {
@@ -244,14 +262,7 @@ export class ProjectDetailComponent implements OnInit {
   }
 
   publish(): void {
-    this.publishing.set(true);
-    this.api.triggerDeployment(this.projectId).subscribe({
-      next: (response) => void this.router.navigate(['/publish', response.deploymentId]),
-      error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Publishing did not start.');
-        this.publishing.set(false);
-      }
-    });
+    this.projectsStore.triggerDeploy(this.projectId);
   }
 
   openHistory(): void {
@@ -272,7 +283,166 @@ export class ProjectDetailComponent implements OnInit {
       return null;
     }
 
-    return 'Linked to app as database connection';
+    return `Linked to app as ${service.linkedConnectionKeys.join(', ')}`;
+  }
+
+  dataInfoFor(serviceId: string): DataServiceInfo | null {
+    return this.dataServiceInfo()[serviceId] ?? null;
+  }
+
+  isDataInfoExpanded(serviceId: string): boolean {
+    return this.expandedDataInfo()[serviceId] ?? false;
+  }
+
+  toggleDataInfoPanel(service: ProjectServiceView): void {
+    const targetId = service.id;
+    const nextExpanded = !this.isDataInfoExpanded(targetId);
+    this.expandedDataInfo.update(state => ({ ...state, [targetId]: nextExpanded }));
+    if (nextExpanded && !this.dataInfoFor(targetId)) {
+      this.loadDataServiceInfo(service);
+    }
+  }
+
+  refreshDataServiceInfo(service: ProjectServiceView): void {
+    this.loadDataServiceInfo(service);
+  }
+
+  loadDataServiceInfo(service: ProjectServiceView): void {
+    const targetId = service.id;
+    this.loadingDataInfo.update(state => ({ ...state, [targetId]: true }));
+    this.api.getDataServiceInfo(this.projectId, targetId).subscribe({
+      next: (info) => {
+        this.dataServiceInfo.update(state => ({ ...state, [targetId]: info }));
+        this.loadingDataInfo.update(state => ({ ...state, [targetId]: false }));
+      },
+      error: (err) => {
+        this.dataServiceInfo.update(state => ({ ...state, [targetId]: null }));
+        this.loadingDataInfo.update(state => ({ ...state, [targetId]: false }));
+        this.message.set(err?.error?.error?.message ?? 'Could not load database details.');
+      }
+    });
+  }
+
+  dataServiceSummary(service: ProjectServiceView): string | null {
+    const info = this.dataInfoFor(service.id);
+    if (!info) {
+      return null;
+    }
+
+    const parts: string[] = [];
+    if (info.metadata.databaseName) {
+      parts.push(`Database: ${info.metadata.databaseName}`);
+    }
+    if (info.metadata.volumeMountPath) {
+      parts.push(`Volume: ${info.metadata.volumeMountPath}`);
+    }
+    if (info.connectionSummary) {
+      parts.push(info.connectionSummary);
+    }
+
+    return parts.length ? parts.join(' · ') : null;
+  }
+
+  tableCount(serviceId: string): number {
+    return this.dataInfoFor(serviceId)?.inspection?.tables.length ?? 0;
+  }
+
+  connectionStatusLabel(serviceId: string): string | null {
+    const inspection = this.dataInfoFor(serviceId)?.inspection;
+    if (!inspection) {
+      return null;
+    }
+
+    return inspection.connected ? 'OK' : 'Unreachable';
+  }
+
+  connectionStatusClass(serviceId: string): string {
+    const inspection = this.dataInfoFor(serviceId)?.inspection;
+    if (!inspection) {
+      return 'unknown';
+    }
+
+    return inspection.connected ? 'running' : 'failed';
+  }
+
+  readonly headerMenuItems: DropdownMenuItem[] = [
+    { id: 'edit', label: 'Edit', icon: 'pencil' },
+    { id: 'history', label: 'History', icon: 'clock' }
+  ];
+
+  onHeaderMenuAction(action: string): void {
+    switch (action) {
+      case 'edit':
+        this.openEdit();
+        break;
+      case 'history':
+        this.openHistory();
+        break;
+      default:
+        break;
+    }
+  }
+
+  removeApp(): void {
+    this.showDeleteConfirm.set(true);
+  }
+
+  confirmRemoveApp(): void {
+    this.deleting.set(true);
+    this.showDeleteConfirm.set(false);
+    this.api.deleteProject(this.projectId).subscribe({
+      next: () => void this.router.navigate(['/dashboard']),
+      error: (err) => {
+        this.message.set(err?.error?.error?.message ?? 'Could not remove that app.');
+        this.deleting.set(false);
+      }
+    });
+  }
+
+  dataServiceMenuItems(service: ProjectServiceView): DropdownMenuItem[] {
+    const acting = this.actingOnService()[service.id];
+    const items: DropdownMenuItem[] = [];
+    const railwayUrl = this.dataInfoFor(service.id)?.railwayUrl;
+
+    if (railwayUrl) {
+      items.push({ id: 'railway', label: 'Railway', icon: 'external', href: railwayUrl });
+    }
+
+    items.push(
+      { id: 'restart', label: 'Restart', icon: 'refresh', disabled: acting, loading: acting },
+      { id: 'remove', label: 'Remove', icon: 'trash', destructive: true, disabled: acting },
+      {
+        id: 'db-info',
+        label: this.isDataInfoExpanded(service.id) ? 'Hide DB' : 'DB info',
+        icon: 'info'
+      },
+      {
+        id: 'env',
+        label: this.isEnvExpanded(service.id) ? 'Hide env' : 'Env vars',
+        icon: 'settings'
+      }
+    );
+
+    return items;
+  }
+
+  onDataServiceMenuAction(service: ProjectServiceView, action: string): void {
+    switch (action) {
+      case 'restart':
+        this.redeployService(service);
+        break;
+      case 'remove':
+        this.removeService(service);
+        break;
+      case 'db-info':
+        this.toggleDataInfoPanel(service);
+        break;
+      case 'env':
+        this.toggleEnvPanel(service);
+        break;
+      default:
+        break;
+    }
   }
 
   private loadProject(): void {
@@ -294,6 +464,9 @@ export class ProjectDetailComponent implements OnInit {
           this.newEnvValue[service.id] = '';
           if (service.canManage) {
             this.loadServiceStatus(service);
+          }
+          if (service.databaseEngine) {
+            this.loadDataServiceInfo(service);
           }
         }
 
@@ -345,6 +518,7 @@ export class ProjectDetailComponent implements OnInit {
           if (service.canManage) {
             this.loadServiceStatus(service);
           }
+          this.loadDataServiceInfo(service);
         }
       }
     });

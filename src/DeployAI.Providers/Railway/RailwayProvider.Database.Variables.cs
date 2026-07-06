@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 
@@ -170,33 +169,11 @@ public sealed partial class RailwayProvider
         string name,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query Variables($projectId: String!, $environmentId: String!, $serviceId: String!) {
-              variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { projectId, environmentId, serviceId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("variables", out var variablesNode) ||
-            variablesNode.ValueKind != JsonValueKind.Object ||
-            !variablesNode.TryGetProperty(name, out var valueNode))
-        {
-            return null;
-        }
-
-        return valueNode.ValueKind switch
-        {
-            JsonValueKind.String => valueNode.GetString(),
-            JsonValueKind.Null => null,
-            _ => valueNode.ToString()
-        };
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.GetVariables.ExecuteAsync(projectId, environmentId, serviceId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        var variables = RailwayGraphQlMapping.ParseVariablesJson(data?.Variables);
+        return variables.TryGetValue(name, out var value) ? value : null;
     }
 
     private async Task RedeployServiceInstanceAsync(
@@ -205,18 +182,9 @@ public sealed partial class RailwayProvider
         string environmentId,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation RedeployService($serviceId: String!, $environmentId: String!) {
-              serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { serviceId, environmentId },
-            cancellationToken);
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.RedeployService.ExecuteAsync(serviceId, environmentId, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private static string GenerateSecretToken() =>

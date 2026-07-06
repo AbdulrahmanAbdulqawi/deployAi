@@ -5,13 +5,15 @@ import { ApiService } from '../core/services/api.service';
 import { GitHubBranch, FrontendBuildProfile, ServerBuildProfile, ProjectDetail, ProjectTarget } from '../core/models/api.models';
 import { parseTargetConfig, providerLabel } from '../core/utils/target-config';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
+import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
+import { ButtonComponent } from '../shared/ui/button/button.component';
 
 type TargetConfig = ReturnType<typeof parseTargetConfig> & ProjectTarget;
 
 @Component({
   selector: 'app-project-edit',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, ConfirmDialogComponent, ButtonComponent],
   templateUrl: './project-edit.component.html',
   styleUrl: './project-edit.component.scss'
 })
@@ -21,6 +23,7 @@ export class ProjectEditComponent implements OnInit {
   readonly editableTargets = signal<TargetConfig[]>([]);
   readonly saving = signal(false);
   readonly deleting = signal(false);
+  readonly showDeleteConfirm = signal(false);
   readonly message = signal<string | null>(null);
   readonly isError = signal(false);
   readonly detectingProvider = signal<string | null>(null);
@@ -288,11 +291,12 @@ export class ProjectEditComponent implements OnInit {
   }
 
   remove(): void {
-    if (!confirm('Remove this app from DeployAI? Your hosting destinations will stay as they are.')) {
-      return;
-    }
+    this.showDeleteConfirm.set(true);
+  }
 
+  confirmRemove(): void {
     this.deleting.set(true);
+    this.showDeleteConfirm.set(false);
     this.api.deleteProject(this.projectId).subscribe({
       next: () => void this.router.navigate(['/dashboard']),
       error: (err) => {

@@ -1,18 +1,19 @@
-<article class="card">
-  <div class="header">
-    <div>
+<article class="project-card u-card">
+  <div class="project-card__header">
+    <div class="project-card__title">
       <h3>{{ project.name }}</h3>
-      <p class="meta">{{ project.githubRepoFullName }} · {{ providerNames }}</p>
+      <p class="meta u-text-muted">{{ project.githubRepoFullName }} · {{ targetSummary }}</p>
     </div>
     @if (project.latestDeployment) {
-      <app-status-badge [status]="project.latestDeployment.status" />
+      <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
     } @else {
       <app-status-badge status="idle" />
     }
   </div>
-  <div class="actions">
-    <button type="button" class="primary" (click)="publish.emit(project.id)">Publish</button>
-    <button type="button" class="secondary" (click)="open.emit(project.id)">Open</button>
-    <button type="button" class="secondary" (click)="history.emit(project.id)">Past updates</button>
+  <div class="project-card__actions">
+    <app-ui-button variant="primary" [disabled]="publishing" [loading]="publishing" icon="upload" (click)="publish.emit(project.id)">
+      Publish
+    </app-ui-button>
+    <app-ui-dropdown [items]="moreItems" (select)="onMoreAction($event)" />
   </div>
 </article>

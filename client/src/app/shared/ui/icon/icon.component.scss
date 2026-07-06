@@ -1,0 +1,53 @@
+:host {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  line-height: 0;
+  flex-shrink: 0;
+}
+
+:host.icon-success {
+  color: var(--status-success);
+}
+
+:host.icon-accent {
+  color: var(--status-accent);
+}
+
+:host.icon-danger {
+  color: var(--status-danger);
+}
+
+:host.icon-warning {
+  color: var(--status-warning);
+}
+
+:host.icon-muted {
+  color: var(--text-muted);
+}
+
+.ui-icon {
+  display: block;
+  overflow: visible;
+}
+
+.ui-icon--spin {
+  animation: icon-spin 1s linear infinite;
+  transform-origin: center;
+}
+
+@keyframes icon-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-icon--spin {
+    animation: none;
+  }
+}

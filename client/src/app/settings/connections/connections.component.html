@@ -1,0 +1,185 @@
+<section class="connections settings-page">
+  <p class="page-intro">DeployAI connects two types of hosting behind the scenes. Connect each once to deploy any app.</p>
+
+  @if (healthAlert(); as alert) {
+    <div class="health-banner" role="status">
+      <strong>Hosting notice:</strong>
+      {{ alert.name }} is reporting {{ alert.status }}.
+      @if (alert.message) {
+        {{ alert.message }}
+      }
+    </div>
+  }
+
+  @if (store.loading() && store.credentials().length === 0) {
+    <div class="providers" aria-busy="true" aria-label="Loading connections">
+      <div class="provider-card u-card u-skeleton skeleton-card"></div>
+      <div class="provider-card u-card u-skeleton skeleton-card"></div>
+    </div>
+  } @else if (store.error()) {
+    <p class="error">{{ store.error() }}</p>
+  }
+
+  <div class="providers">
+    <article class="provider-card u-card provider-card--vercel">
+      <header class="provider-card__header">
+        <div>
+          <h2>Vercel</h2>
+          <p class="provider-card__desc">Frontends and serverless apps</p>
+        </div>
+        @if (statusFor(vercelCredential()); as badge) {
+          <app-status-badge [status]="badge.status" [labelOverride]="badge.label" />
+        }
+      </header>
+
+      @if (vercelCredential(); as cred) {
+        <dl class="provider-card__meta">
+          <div>
+            <dt>Account</dt>
+            <dd>{{ cred.label }}</dd>
+          </div>
+          @if (formatValidated(cred.lastValidatedAt); as validated) {
+            <div>
+              <dt>Last checked</dt>
+              <dd>{{ validated }}</dd>
+            </div>
+          }
+        </dl>
+        @if (!cred.isValid) {
+          <p class="provider-card__notice">Token expired or revoked. Reconnect or update your token.</p>
+        }
+      }
+
+      <div class="provider-card__actions">
+        <app-ui-button
+          [variant]="vercelConnected() || vercelCredential() ? 'secondary' : 'primary'"
+          [icon]="oauthIcon(!!vercelCredential(), vercelConnected())"
+          [disabled]="connectingOAuth()"
+          [loading]="connectingOAuth()"
+          (click)="connectWithVercel()">
+          {{ oauthLabel(!!vercelCredential(), vercelConnected()) }}
+        </app-ui-button>
+
+        <app-ui-button variant="quiet" (click)="toggleToken('vercel')">
+          {{ tokenToggleLabel(!!vercelCredential(), showAdvanced()) }}
+        </app-ui-button>
+
+        @if (vercelCredential(); as cred) {
+          <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove</app-ui-button>
+        }
+      </div>
+
+      @if (showAdvanced()) {
+        <div class="token-panel">
+          <p class="token-panel__help">
+            Paste an access token from
+            <a href="https://vercel.com/account/tokens" target="_blank" rel="noopener">Vercel account tokens</a>.
+          </p>
+          <label>
+            Access token
+            <app-ui-input type="password" [(ngModel)]="token" placeholder="vercel_…" />
+          </label>
+          <label>
+            Label
+            <app-ui-input [(ngModel)]="label" placeholder="Personal" />
+          </label>
+          <app-ui-button
+            variant="secondary"
+            tone="success"
+            icon="check"
+            [disabled]="!token || saving()"
+            [loading]="saving()"
+            (click)="connectWithToken()">
+            {{ tokenSaveLabel(!!vercelCredential()) }}
+          </app-ui-button>
+        </div>
+      }
+    </article>
+
+    <article class="provider-card u-card provider-card--railway">
+      <header class="provider-card__header">
+        <div>
+          <h2>Railway</h2>
+          <p class="provider-card__desc">Databases and backend services</p>
+        </div>
+        @if (statusFor(railwayCredential()); as badge) {
+          <app-status-badge [status]="badge.status" [labelOverride]="badge.label" />
+        }
+      </header>
+
+      @if (railwayCredential(); as cred) {
+        <dl class="provider-card__meta">
+          <div>
+            <dt>Account</dt>
+            <dd>{{ cred.label }}</dd>
+          </div>
+          @if (formatValidated(cred.lastValidatedAt); as validated) {
+            <div>
+              <dt>Last checked</dt>
+              <dd>{{ validated }}</dd>
+            </div>
+          }
+        </dl>
+        @if (!cred.isValid) {
+          <p class="provider-card__notice">Token expired or revoked. Reconnect or update your token.</p>
+        }
+      }
+
+      <div class="provider-card__actions">
+        <app-ui-button
+          [variant]="railwayConnected() || railwayCredential() ? 'secondary' : 'primary'"
+          [icon]="oauthIcon(!!railwayCredential(), railwayConnected())"
+          [disabled]="connectingRailwayOAuth()"
+          [loading]="connectingRailwayOAuth()"
+          (click)="connectWithRailway()">
+          {{ oauthLabel(!!railwayCredential(), railwayConnected()) }}
+        </app-ui-button>
+
+        <app-ui-button variant="quiet" (click)="toggleToken('railway')">
+          {{ tokenToggleLabel(!!railwayCredential(), showAdvancedRailway()) }}
+        </app-ui-button>
+
+        @if (railwayCredential(); as cred) {
+          <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove</app-ui-button>
+        }
+      </div>
+
+      @if (showAdvancedRailway()) {
+        <div class="token-panel">
+          <p class="token-panel__help">
+            Paste an access token from
+            <a href="https://railway.com/account/tokens" target="_blank" rel="noopener">Railway account tokens</a>.
+          </p>
+          <label>
+            Access token
+            <app-ui-input type="password" [(ngModel)]="railwayToken" placeholder="railway_…" />
+          </label>
+          <label>
+            Label
+            <app-ui-input [(ngModel)]="railwayLabel" placeholder="Personal" />
+          </label>
+          <app-ui-button
+            variant="secondary"
+            tone="success"
+            icon="check"
+            [disabled]="!railwayToken || savingRailway()"
+            [loading]="savingRailway()"
+            (click)="connectRailwayWithToken()">
+            {{ tokenSaveLabel(!!railwayCredential()) }}
+          </app-ui-button>
+        </div>
+      }
+    </article>
+  </div>
+</section>
+
+@if (confirmRemoveId()) {
+  <app-confirm-dialog
+    title="Remove connection?"
+    message="DeployAI will stop using this connection."
+    confirmLabel="Remove"
+    [destructive]="true"
+    (confirm)="confirmRemove()"
+    (cancel)="confirmRemoveId.set(null)"
+  />
+}

@@ -1,6 +1,8 @@
+using DeployAI.Api.Services;
 using DeployAI.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace DeployAI.Api.Controllers;
@@ -22,6 +24,22 @@ public sealed class HealthController : ControllerBase
     public IActionResult Health()
     {
         return Ok(new { status = "ok", service = "DeployAI" });
+    }
+
+    [HttpGet("health/providers")]
+    public async Task<IActionResult> ProviderHealth(CancellationToken cancellationToken)
+    {
+        var healthService = HttpContext.RequestServices.GetRequiredService<IProviderHealthService>();
+        var summary = await healthService.GetSummaryAsync(cancellationToken);
+        return Ok(new
+        {
+            providers = summary.Providers.Select(p => new
+            {
+                name = p.Name,
+                status = p.Status,
+                message = p.Message
+            })
+        });
     }
 
     [HttpGet("health/db")]

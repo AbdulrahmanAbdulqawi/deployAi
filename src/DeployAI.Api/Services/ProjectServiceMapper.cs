@@ -101,7 +101,7 @@ public static class ProjectServiceMapper
     private static IReadOnlyList<string> GetLinkedConnectionKeys(string? engine) =>
         engine switch
         {
-            "postgres" => ["ConnectionStrings__DefaultConnection"],
+            "postgres" => ["ConnectionStrings__Default", "ConnectionStrings__DefaultConnection"],
             "redis" => ["ConnectionStrings__Redis"],
             _ => []
         };

@@ -1,0 +1,31 @@
+<section class="settings-page">
+  <p class="page-intro">Manage your sign-in and active session.</p>
+
+  <article class="settings-panel u-card settings-panel--github">
+    <header class="settings-panel__header">
+      <div>
+        <h2>GitHub</h2>
+        <p class="settings-panel__desc">Sign-in and repository access</p>
+      </div>
+      <app-status-badge
+        [status]="session.user()?.githubConnected ? 'success' : 'idle'"
+        [labelOverride]="session.user()?.githubConnected ? 'Connected' : 'Not connected'"
+      />
+    </header>
+
+    <dl class="settings-panel__meta">
+      <div>
+        <dt>Method</dt>
+        <dd>GitHub OAuth</dd>
+      </div>
+      <div>
+        <dt>Session</dt>
+        <dd>{{ session.user()?.githubConnected ? 'Active' : 'None' }}</dd>
+      </div>
+    </dl>
+
+    <div class="settings-panel__actions">
+      <app-ui-button variant="secondary" icon="x" (click)="signOut()">Sign out</app-ui-button>
+    </div>
+  </article>
+</section>

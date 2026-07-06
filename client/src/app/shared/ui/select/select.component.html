@@ -1,0 +1,14 @@
+<select
+  [id]="id"
+  class="ui-select"
+  [disabled]="disabled"
+  [ngModel]="value"
+  (ngModelChange)="onSelect($event)"
+  (blur)="onBlur()">
+  @if (placeholder) {
+    <option value="" disabled>{{ placeholder }}</option>
+  }
+  @for (option of options; track option.value) {
+    <option [value]="option.value">{{ option.label }}</option>
+  }
+</select>

@@ -1,12 +1,12 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { AuthService } from '../services/auth.service';
+import { SessionStore } from '../stores/session.store';
 
 export const authGuard: CanActivateFn = () => {
-  const auth = inject(AuthService);
+  const session = inject(SessionStore);
   const router = inject(Router);
 
-  if (auth.isAuthenticated()) {
+  if (session.isAuthenticated()) {
     return true;
   }
 
@@ -14,10 +14,10 @@ export const authGuard: CanActivateFn = () => {
 };
 
 export const guestGuard: CanActivateFn = () => {
-  const auth = inject(AuthService);
+  const session = inject(SessionStore);
   const router = inject(Router);
 
-  if (!auth.isAuthenticated()) {
+  if (!session.isAuthenticated()) {
     return true;
   }
 

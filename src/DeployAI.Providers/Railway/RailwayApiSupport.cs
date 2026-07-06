@@ -1,102 +1,49 @@
-using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
+using StrawberryShake;
 
 namespace DeployAI.Providers.Railway;
 
 internal static class RailwayApiSupport
 {
-    public static async Task<JsonDocument> ExecuteAsync(
-        HttpClient httpClient,
-        string token,
-        string query,
-        object? variables,
-        CancellationToken cancellationToken)
+    public static T EnsureData<T>(IOperationResult<T> result)
+        where T : class
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://backboard.railway.com/graphql/v2");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { query, variables }),
-            Encoding.UTF8,
-            "application/json");
+        EnsureSuccess(result);
+        return result.Data!;
+    }
 
-        var response = await httpClient.SendAsync(request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+    public static void EnsureSuccess<T>(IOperationResult<T> result)
+        where T : class
+    {
+        if (result.Errors.Count > 0)
         {
-            throw new DeployAIException(
-                "railway_api_error",
-                ParseErrorMessage(body) ?? "Railway did not respond. Try again in a moment.");
-        }
-
-        var document = JsonDocument.Parse(body);
-        if (document.RootElement.TryGetProperty("errors", out var errors) &&
-            errors.ValueKind == JsonValueKind.Array &&
-            errors.GetArrayLength() > 0)
-        {
-            var message = errors[0].TryGetProperty("message", out var messageElement)
-                ? messageElement.GetString()
-                : null;
+            var message = result.Errors[0].Message;
             throw new DeployAIException("railway_api_error", message ?? "Railway returned an error.");
         }
 
-        return document;
+        if (result.Data is null)
+        {
+            throw new DeployAIException("railway_api_error", "Railway returned an empty response.");
+        }
     }
 
-    public static async Task<JsonDocument?> TryExecuteAsync(
-        HttpClient httpClient,
-        string token,
-        string query,
-        object? variables,
-        Func<string?, bool> ignoreError,
-        CancellationToken cancellationToken)
+    public static T? TryGetData<T>(IOperationResult<T> result, Func<string?, bool> ignoreError)
+        where T : class
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://backboard.railway.com/graphql/v2");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Content = new StringContent(
-            JsonSerializer.Serialize(new { query, variables }),
-            Encoding.UTF8,
-            "application/json");
-
-        var response = await httpClient.SendAsync(request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
+        if (result.Errors.Count > 0)
         {
-            var message = ParseErrorMessage(body);
+            var message = result.Errors[0].Message;
             if (ignoreError(message))
             {
-                return null;
-            }
-
-            throw new DeployAIException(
-                "railway_api_error",
-                message ?? "Railway did not respond. Try again in a moment.");
-        }
-
-        var document = JsonDocument.Parse(body);
-        if (document.RootElement.TryGetProperty("errors", out var errors) &&
-            errors.ValueKind == JsonValueKind.Array &&
-            errors.GetArrayLength() > 0)
-        {
-            var message = errors[0].TryGetProperty("message", out var messageElement)
-                ? messageElement.GetString()
-                : null;
-            if (ignoreError(message))
-            {
-                document.Dispose();
                 return null;
             }
 
             throw new DeployAIException("railway_api_error", message ?? "Railway returned an error.");
         }
 
-        return document;
+        return result.Data;
     }
-
     public static bool IsBuildNotReadyError(string? message) =>
         !string.IsNullOrWhiteSpace(message) &&
         message.Contains("associated build", StringComparison.OrdinalIgnoreCase);
@@ -167,11 +114,5 @@ internal static class RailwayApiSupport
                normalizedName.Contains("TOKEN", StringComparison.Ordinal) ||
                normalizedName.Contains("KEY", StringComparison.Ordinal) ||
                value.Length >= 32;
-    }
-
-    internal sealed class GraphQlData<T>
-    {
-        [JsonPropertyName("data")]
-        public T? Data { get; set; }
     }
 }

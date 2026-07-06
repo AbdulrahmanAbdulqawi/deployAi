@@ -69,6 +69,10 @@ public static class ServerProjectDiscoverer
 
             if (string.Equals(item.Name, "Dockerfile", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(item.Name, "package.json", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, "requirements.txt", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, "pyproject.toml", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, "go.mod", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(item.Name, "Cargo.toml", StringComparison.OrdinalIgnoreCase) ||
                 item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
             {
                 return true;

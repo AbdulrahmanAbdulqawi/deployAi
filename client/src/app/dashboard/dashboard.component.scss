@@ -1,22 +1,56 @@
 .header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
+  gap: var(--space-4);
+  align-items: center;
+  margin-bottom: var(--space-6);
 }
-h1 { margin: 0; }
-p { margin: 0.25rem 0 0; color: #6b7280; }
-.primary {
-  border: none;
-  border-radius: 999px;
-  padding: 0.75rem 1.25rem;
-  background: #2563eb;
-  color: #fff;
+
+h1 {
+  margin: 0;
   font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
 }
-.grid { display: grid; gap: 1rem; }
-.muted, .error { color: #6b7280; }
-.error { color: #b91c1c; }
+
+p {
+  margin: var(--space-1) 0 0;
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.skeleton-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.skeleton-card {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.skeleton-title {
+  height: 1.25rem;
+  width: 60%;
+}
+
+.skeleton-line {
+  height: 0.875rem;
+  width: 80%;
+}
+
+.skeleton-btn {
+  height: 2.75rem;
+  width: 120px;
+}
+
+.error-state {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.error-state p {
+  margin: 0;
+  color: var(--status-danger);
+}

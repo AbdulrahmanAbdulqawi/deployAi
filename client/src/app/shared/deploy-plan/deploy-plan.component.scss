@@ -1,0 +1,124 @@
+.plan-state h2 {
+  margin: 0 0 var(--space-3);
+  font-weight: 500;
+}
+
+.hint,
+.plan-summary {
+  margin: 0 0 var(--space-4);
+}
+
+.plan-summary {
+  font-size: 1.0625rem;
+  line-height: 1.5;
+}
+
+.destinations {
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.destinations li {
+  padding: var(--space-3) var(--space-4);
+  padding-left: calc(var(--space-4) + 4px);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  border-left: 4px solid var(--brand-indigo);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brand-cyan) 8%, transparent);
+}
+
+.destinations strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  color: var(--brand-indigo);
+}
+
+.connection-notice {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.plan-actions {
+  margin-top: var(--space-4);
+  justify-content: space-between;
+  width: 100%;
+}
+
+.plan-actions__end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.override-link {
+  background: none;
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-link);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.deployment-choices {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.deployment-choice {
+  display: grid;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+
+  &:hover:not(:disabled) {
+    border-color: var(--border-accent);
+    box-shadow: var(--glow-accent);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  strong {
+    font-weight: 500;
+  }
+
+  span {
+    color: var(--text-muted);
+    font-size: 0.9375rem;
+  }
+}

@@ -36,6 +36,22 @@ public class DatabaseRequirementDetectorTests
     }
 
     [Fact]
+    public void Detect_FindsPostgres_FromPrismaSchema()
+    {
+        const string prisma = """
+            datasource db {
+              provider = "postgresql"
+              url      = env("DATABASE_URL")
+            }
+            """;
+
+        var profile = _detector.Detect(null, null, prisma);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.False(profile.RequiresRedis);
+    }
+
+    [Fact]
     public void DetectPostgresInCompose_MatchesPostgresImage()
     {
         const string compose = """

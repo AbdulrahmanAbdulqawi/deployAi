@@ -1,25 +1,76 @@
-.card {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 1.25rem;
-  background: #fff;
+.project-card {
+  display: grid;
+  gap: var(--space-4);
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-card-hover);
+    transform: translateY(-1px);
+  }
 }
-.header {
+
+.project-card__header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
   align-items: flex-start;
-  margin-bottom: 1rem;
+  gap: var(--space-4);
 }
-h3 { margin: 0 0 0.25rem; font-size: 1.125rem; }
-.meta { margin: 0; color: #6b7280; font-size: 0.875rem; }
-.actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-.primary, .secondary {
-  border-radius: 999px;
-  padding: 0.625rem 1.25rem;
+
+.project-card__title {
+  min-width: 0;
+  flex: 1;
+}
+
+.project-card__title h3 {
+  margin: 0;
+  font-size: var(--font-size-lg);
   font-weight: 600;
-  cursor: pointer;
-  border: none;
+  letter-spacing: -0.01em;
+  background: linear-gradient(
+    90deg,
+    var(--text-primary),
+    color-mix(in srgb, var(--brand-indigo) 70%, var(--text-primary))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.primary { background: #2563eb; color: #fff; }
-.secondary { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+
+.meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-default);
+
+  app-ui-dropdown {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .project-card__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .project-card__actions {
+    flex-wrap: wrap;
+  }
+
+  .project-card__actions app-ui-dropdown {
+    margin-left: 0;
+  }
+}

@@ -1,0 +1,40 @@
+<section class="settings-page">
+  <p class="page-intro">Choose when DeployAI notifies you about deploy activity.</p>
+
+  <article class="settings-panel u-card">
+    <header class="settings-panel__header">
+      <div>
+        <h2>Email</h2>
+        <p class="settings-panel__desc">Sent to the address linked to your GitHub account</p>
+      </div>
+    </header>
+
+    <div class="settings-toggle-list">
+      <label class="settings-toggle">
+        <span class="settings-toggle__text">
+          <strong>Deploy succeeded</strong>
+          <span class="settings-toggle__hint">When all targets finish successfully</span>
+        </span>
+        <input
+          type="checkbox"
+          [checked]="prefs().emailOnComplete"
+          (change)="setPref('emailOnComplete', $any($event.target).checked)"
+        />
+      </label>
+
+      <label class="settings-toggle">
+        <span class="settings-toggle__text">
+          <strong>Deploy failed</strong>
+          <span class="settings-toggle__hint">When a target fails or the deploy is partial</span>
+        </span>
+        <input
+          type="checkbox"
+          [checked]="prefs().emailOnFailure"
+          (change)="setPref('emailOnFailure', $any($event.target).checked)"
+        />
+      </label>
+    </div>
+
+    <p class="settings-panel__footnote u-text-muted">Push and Slack notifications are coming soon.</p>
+  </article>
+</section>

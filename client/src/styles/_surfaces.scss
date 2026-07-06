@@ -1,0 +1,29 @@
+// Ambient backgrounds, brand accents, and interactive surface polish.
+
+body {
+  background: var(--page-bg);
+  background-attachment: fixed;
+}
+
+.u-brand-text {
+  background: var(--brand-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.u-card {
+  transition:
+    border-color var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    border-color: var(--border-accent);
+    box-shadow: var(--shadow-card-hover);
+  }
+}
+
+section > h1 {
+  letter-spacing: -0.02em;
+}

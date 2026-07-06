@@ -1,0 +1,6 @@
+query Template($code: String!) {
+  template(code: $code) {
+    id
+    serializedConfig
+  }
+}

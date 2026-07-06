@@ -1,0 +1,19 @@
+query ProjectServicesByName($id: String!) {
+  project(id: $id) {
+    services {
+      edges {
+        node {
+          id
+          name
+          serviceInstances {
+            edges {
+              node {
+                environmentId
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

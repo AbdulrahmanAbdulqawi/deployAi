@@ -1,0 +1,14 @@
+query EnvironmentVolumeInstances($projectId: String!, $environmentId: String!) {
+  environment(id: $environmentId, projectId: $projectId) {
+    volumeInstances {
+      edges {
+        node {
+          id
+          volumeId
+          serviceId
+          mountPath
+        }
+      }
+    }
+  }
+}

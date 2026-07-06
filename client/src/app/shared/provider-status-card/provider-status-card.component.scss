@@ -1,0 +1,82 @@
+.provider-card {
+  border-left: 4px solid var(--border-default);
+}
+
+.provider-card--vercel {
+  border-left-color: var(--provider-vercel);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--provider-vercel) 4%, var(--surface-card)),
+    var(--surface-card)
+  );
+}
+
+.provider-card--railway {
+  border-left-color: var(--provider-railway);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--provider-railway) 8%, var(--surface-card)),
+    var(--surface-card)
+  );
+}
+
+.provider-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.provider-card__header strong {
+  font-weight: 500;
+}
+
+.provider-card--vercel .provider-card__header strong {
+  color: var(--provider-vercel);
+}
+
+.provider-card--railway .provider-card__header strong {
+  color: var(--provider-railway);
+}
+
+.provider-card__header p {
+  margin: var(--space-1) 0 0;
+  font-size: 0.875rem;
+}
+
+.progress {
+  margin: var(--space-3) 0 0;
+  font-size: 0.875rem;
+}
+
+.live-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-emerald) 12%, var(--surface-card)),
+    var(--status-success-bg)
+  );
+  color: var(--status-success);
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--status-success) 30%, transparent);
+
+  &:hover {
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--status-success) 25%, transparent);
+  }
+}
+
+.failure {
+  margin: var(--space-3) 0 0;
+  color: var(--status-danger);
+}
+
+.details {
+  margin: var(--space-2) 0 0;
+  font-size: 0.875rem;
+}

@@ -161,6 +161,33 @@ export interface ProjectServiceStatus {
   lastDeployedAt?: string;
 }
 
+export interface DataServiceTableInfo {
+  name: string;
+  rowCount: number;
+}
+
+export interface DataServiceInfo {
+  engine: string;
+  metadata: {
+    databaseName?: string;
+    host?: string;
+    port?: number;
+    volumeMountPath?: string;
+    railwayServiceId?: string;
+    railwayProjectId?: string;
+    railwayEnvironmentId?: string;
+  };
+  linkedConnectionKeys: string[];
+  connectionSummary?: string;
+  railwayUrl?: string;
+  inspection?: {
+    connected: boolean;
+    message?: string;
+    tables: DataServiceTableInfo[];
+    migrationsApplied: string[];
+  };
+}
+
 export interface DeploymentSummary {
   id: string;
   branch: string;

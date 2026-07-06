@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
@@ -64,27 +63,10 @@ public sealed partial class RailwayProvider
         string deploymentId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query DeploymentStatus($id: String!) {
-              deployment(id: $id) {
-                status
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = deploymentId },
-            cancellationToken);
-
-        return document.RootElement
-            .GetProperty("data")
-            .GetProperty("deployment")
-            .GetProperty("status")
-            .GetString()
-            ?.ToUpperInvariant();
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeploymentStatus.ExecuteAsync(deploymentId, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        return RailwayGraphQlMapping.NormalizeDeploymentStatus(data.Deployment.Status);
     }
 
     private async Task<IReadOnlyList<string>> FetchBuildLogLinesAsync(
@@ -93,34 +75,17 @@ public sealed partial class RailwayProvider
         HashSet<string> seen,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query BuildLogs($deploymentId: String!, $limit: Int) {
-              buildLogs(deploymentId: $deploymentId, limit: $limit) {
-                message
-                timestamp
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.TryExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { deploymentId, limit = 500 },
-            RailwayApiSupport.IsBuildNotReadyError,
-            cancellationToken);
-
-        if (document is null)
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.BuildLogs.ExecuteAsync(deploymentId, 500, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, RailwayApiSupport.IsBuildNotReadyError);
+        if (data?.BuildLogs is null)
         {
             return [];
         }
 
-        if (!document.RootElement.GetProperty("data").TryGetProperty("buildLogs", out var buildLogsNode))
-        {
-            return [];
-        }
-
-        return CollectLogLines(buildLogsNode, seen);
+        return RailwayGraphQlMapping.CollectLogLines(
+            data.BuildLogs.Select(log => (log.Message, log.Timestamp)),
+            seen);
     }
 
     private async Task<IReadOnlyList<string>> FetchDeploymentLogLinesAsync(
@@ -129,30 +94,17 @@ public sealed partial class RailwayProvider
         HashSet<string> seen,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query DeploymentLogs($deploymentId: String!, $limit: Int) {
-              deploymentLogs(deploymentId: $deploymentId, limit: $limit) {
-                message
-                timestamp
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.TryExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { deploymentId, limit = 500 },
-            static _ => false,
-            cancellationToken);
-
-        if (document is null ||
-            !document.RootElement.GetProperty("data").TryGetProperty("deploymentLogs", out var deploymentLogsNode))
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeploymentLogs.ExecuteAsync(deploymentId, 500, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.DeploymentLogs is null)
         {
             return [];
         }
 
-        return CollectLogLines(deploymentLogsNode, seen);
+        return RailwayGraphQlMapping.CollectLogLines(
+            data.DeploymentLogs.Select(log => (log.Message, log.Timestamp)),
+            seen);
     }
 
     private static bool IsTerminalStatus(string? status) =>
@@ -160,33 +112,4 @@ public sealed partial class RailwayProvider
 
     private static bool IsWaitingForBuild(string? status) =>
         status is "INITIALIZING" or "QUEUED" or "WAITING";
-
-    private static IReadOnlyList<string> CollectLogLines(JsonElement logsNode, HashSet<string> seen)
-    {
-        if (logsNode.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var batch = new List<string>();
-        foreach (var logEntry in logsNode.EnumerateArray())
-        {
-            var message = logEntry.TryGetProperty("message", out var messageNode) ? messageNode.GetString() : null;
-            if (string.IsNullOrWhiteSpace(message))
-            {
-                continue;
-            }
-
-            var timestamp = logEntry.TryGetProperty("timestamp", out var timestampNode) ? timestampNode.GetString() : null;
-            var key = string.IsNullOrWhiteSpace(timestamp) ? message : $"{timestamp}|{message}";
-            if (!seen.Add(key))
-            {
-                continue;
-            }
-
-            batch.Add(message);
-        }
-
-        return batch;
-    }
 }

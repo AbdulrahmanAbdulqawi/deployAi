@@ -1,35 +1,55 @@
 <section>
   <div class="header">
-    <div>
-      <h1>Your apps</h1>
-      <p>Publish and check status from one calm home screen.</p>
-    </div>
-    <button type="button" class="primary" (click)="createProject()">
-      {{ projects().length === 0 ? 'Add your first app' : 'Add app' }}
-    </button>
+    <h1 class="u-brand-text">Apps</h1>
+    @if (store.hasProjects() || store.loading()) {
+      <app-ui-button variant="primary" icon="plus" (click)="createProject()">Add app</app-ui-button>
+    }
   </div>
 
-  @if (loading()) {
-    <p class="muted">One moment…</p>
-  } @else if (error()) {
-    <p class="error">{{ error() }}</p>
-  } @else if (projects().length === 0) {
+  @if (store.loading() && !store.hasProjects()) {
+    <div class="skeleton-grid" aria-busy="true" aria-label="Loading your apps">
+      @for (item of [1, 2, 3]; track item) {
+        <div class="skeleton-card u-card">
+          <div class="u-skeleton skeleton-title"></div>
+          <div class="u-skeleton skeleton-line"></div>
+          <div class="u-skeleton skeleton-btn"></div>
+        </div>
+      }
+    </div>
+  } @else if (store.error()) {
+    <div class="u-card error-state">
+      <p>{{ store.error() }}</p>
+      <app-ui-button variant="secondary" icon="refresh" (click)="retry()">Try again</app-ui-button>
+    </div>
+  } @else if (store.isEmpty()) {
     <app-empty-state
-      title="Add your first app to get started"
-      message="Pick a GitHub app, choose where it lives, and publish when you're ready."
-      actionLabel="Add your first app"
+      title="No apps yet"
+      actionLabel="Add app"
       [actionClick]="createProject.bind(this)"
     />
   } @else {
     <div class="grid">
-      @for (project of projects(); track project.id) {
+      @for (project of store.projects(); track project.id) {
         <app-project-card
           [project]="project"
+          [publishing]="store.deployingProjectId() === project.id"
           (publish)="publish($event)"
           (open)="openProject($event)"
           (history)="openHistory($event)"
+          (delete)="requestDelete($event)"
         />
       }
     </div>
   }
 </section>
+
+@if (showDeleteConfirm()) {
+  <app-confirm-dialog
+    title="Delete app?"
+    [message]="'This permanently removes ' + deleteProjectName() + ' from DeployAI, deletes all deployment history, and removes hosting on Railway and Vercel. This cannot be undone.'"
+    confirmLabel="Delete"
+    [destructive]="true"
+    (confirm)="confirmDelete()"
+    (cancel)="cancelDelete()"
+  />
+}

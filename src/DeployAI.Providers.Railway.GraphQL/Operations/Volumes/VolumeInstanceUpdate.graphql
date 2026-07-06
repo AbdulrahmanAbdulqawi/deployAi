@@ -1,0 +1,3 @@
+mutation VolumeInstanceUpdate($volumeId: String!, $environmentId: String!, $input: VolumeInstanceUpdateInput!) {
+  volumeInstanceUpdate(volumeId: $volumeId, environmentId: $environmentId, input: $input)
+}

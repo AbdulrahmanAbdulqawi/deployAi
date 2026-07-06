@@ -1,0 +1,6 @@
+mutation TemplateDeploy($input: TemplateDeployV2Input!) {
+  templateDeployV2(input: $input) {
+    projectId
+    workflowId
+  }
+}

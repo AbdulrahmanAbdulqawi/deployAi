@@ -1,4 +1,5 @@
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DeployAI.Providers;
@@ -74,6 +75,19 @@ public sealed class ProviderServiceOperationsFactory : IProviderServiceOperation
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceInspectionFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderDataServiceInspection> _providers;
+
+    public ProviderDataServiceInspectionFactory(IEnumerable<IProviderDataServiceInspection> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderDataServiceInspection? GetInspection(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public static class ProviderDependencyInjection
 {
     public static IServiceCollection AddDeploymentProviders(this IServiceCollection services)
@@ -82,14 +96,20 @@ public static class ProviderDependencyInjection
         services.AddSingleton<Vercel.VercelProvider>();
         services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
-        services.AddHttpClient<Railway.RailwayProvider>();
+        services.AddHttpClient(RailwayClient.ClientName, client =>
+        {
+            client.BaseAddress = new Uri(Railway.RailwayGraphQlClientFactory.GraphQlEndpoint);
+        });
+        services.AddSingleton<Railway.RailwayGraphQlClientFactory>();
         services.AddSingleton<Railway.RailwayProvider>();
         services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
+        services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
+        services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
         return services;

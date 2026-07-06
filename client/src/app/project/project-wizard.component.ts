@@ -1,6 +1,7 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
+import { forkJoin, map, Observable, of, switchMap, throwError } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 import {
   CredentialSummary,
@@ -8,12 +9,16 @@ import {
   DeploymentPlan,
   DeploymentPlanPart,
   FrontendBuildProfile,
+  ProjectDetail,
   ServerBuildProfile,
   GitHubBranch,
   GitHubRepo,
   ProviderProject
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
+import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
+import { ButtonComponent } from '../shared/ui/button/button.component';
+import { ProjectsStore } from '../core/stores/projects.store';
 
 interface EnvRow {
   key: string;
@@ -25,7 +30,7 @@ type DeploymentMode = 'website' | 'server' | 'both';
 @Component({
   selector: 'app-project-wizard',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, ButtonComponent],
   templateUrl: './project-wizard.component.html',
   styleUrl: './project-wizard.component.scss'
 })
@@ -63,6 +68,13 @@ export class ProjectWizardComponent implements OnInit {
   readonly showManualOverride = signal(false);
   readonly activePlanParts = signal<DeploymentPlanPart[]>([]);
 
+  readonly stepTotal = computed(() => {
+    if (this.showManualOverride() || this.step() > 3) {
+      return 5;
+    }
+    return 3;
+  });
+
   search = '';
   projectName = '';
   newVercelProjectName = '';
@@ -79,7 +91,8 @@ export class ProjectWizardComponent implements OnInit {
   constructor(
     private readonly api: ApiService,
     private readonly router: Router,
-    private readonly route: ActivatedRoute
+    private readonly route: ActivatedRoute,
+    private readonly projectsStore: ProjectsStore
   ) {}
 
   ngOnInit(): void {
@@ -154,9 +167,20 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   goToConnections(): void {
-    void this.router.navigate(['/settings'], {
-      queryParams: { returnUrl: '/projects/new', step: 4 }
+    void this.router.navigate(['/settings/connections'], {
+      queryParams: { returnUrl: '/projects/new', step: 3 }
     });
+  }
+
+  missingConnections(): string[] {
+    const missing: string[] = [];
+    if (this.publishWebsite && this.vercelCredentials().length === 0) {
+      missing.push('Vercel');
+    }
+    if (this.publishServer && this.railwayCredentials().length === 0) {
+      missing.push('Railway');
+    }
+    return missing;
   }
 
   vercelCredentials(): CredentialSummary[] {
@@ -246,7 +270,7 @@ export class ProjectWizardComponent implements OnInit {
     }
 
     this.applyPlanParts(parts);
-    this.enterHostingStep();
+    this.deployFromPlan();
   }
 
   selectClarifyingOption(optionId: string): void {
@@ -258,7 +282,7 @@ export class ProjectWizardComponent implements OnInit {
 
     this.activePlanParts.set(option.resolvesToParts);
     this.applyPlanParts(option.resolvesToParts);
-    this.enterHostingStep();
+    this.deployFromPlan();
   }
 
   showManualConfiguration(): void {
@@ -275,6 +299,184 @@ export class ProjectWizardComponent implements OnInit {
 
   canAcceptPlan(): boolean {
     return this.activePlanParts().length > 0;
+  }
+
+  deployFromPlan(): void {
+    if (this.missingConnections().length > 0) {
+      return;
+    }
+
+    this.saving.set(true);
+    this.error.set(null);
+
+    this.ensureProviderProjects().pipe(
+      switchMap(() => this.createProjectFromPlanRequest()),
+      switchMap(project =>
+        this.api.triggerDeployment(project.id).pipe(
+          map(response => ({ project, response }))
+        )
+      )
+    ).subscribe({
+      next: ({ project, response }) => {
+        this.saving.set(false);
+        this.projectsStore.refresh();
+        void this.router.navigate(['/projects', project.id, 'deploy', response.deploymentId]);
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.error.set(err?.error?.error?.message ?? err?.message ?? 'Could not deploy your app.');
+      }
+    });
+  }
+
+  private ensureProviderProjects(): Observable<void> {
+    const tasks: Observable<unknown>[] = [];
+
+    if (this.publishWebsite && !this.selectedVercelProjectId()) {
+      tasks.push(this.createVercelProjectRequest());
+    }
+    if (this.publishServer && !this.selectedRailwayProjectId()) {
+      tasks.push(this.createRailwayProjectRequest());
+    }
+
+    if (tasks.length === 0) {
+      return of(undefined);
+    }
+
+    return forkJoin(tasks).pipe(map(() => undefined));
+  }
+
+  private createProjectFromPlanRequest(): Observable<ProjectDetail> {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch) {
+      return throwError(() => new Error('Choose an app and version first.'));
+    }
+
+    const parts = this.activePlanParts()
+      .filter(part => part.role !== 'database')
+      .map(part => {
+        const isWebsite = part.role === 'website';
+        const credentialId = isWebsite ? this.selectedVercelCredentialId : this.selectedRailwayCredentialId;
+        const providerProjectId = isWebsite ? this.selectedVercelProjectId() : this.selectedRailwayProjectId();
+        if (!credentialId || !providerProjectId) {
+          return null;
+        }
+
+        return {
+          role: part.role,
+          providerName: part.providerName,
+          credentialId,
+          providerProjectId,
+          rootDirectory: part.rootDirectory,
+          serviceDirectory: part.serviceDirectory,
+          buildCommand: part.buildCommand,
+          installCommand: part.installCommand,
+          startCommand: part.startCommand,
+          outputDirectory: part.outputDirectory,
+          framework: part.framework,
+          dockerfilePath: part.dockerfilePath
+        };
+      })
+      .filter((part): part is NonNullable<typeof part> => part !== null);
+
+    if (parts.length === 0) {
+      return throwError(() => new Error('Hosting setup is incomplete.'));
+    }
+
+    const dbProfile = this.databaseRequirements();
+    return this.api.createProjectFromPlan({
+      name: this.projectName,
+      githubRepoFullName: repo.fullName,
+      defaultBranch: branch,
+      includePostgres: dbProfile?.requiresPostgres,
+      includeRedis: dbProfile?.requiresRedis,
+      parts
+    });
+  }
+
+  private createProjectWithTargets(): Observable<ProjectDetail> {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch) {
+      return throwError(() => new Error('Choose an app and version first.'));
+    }
+
+    const targets: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[] = [];
+
+    if (this.publishWebsite) {
+      const vercelProjectId = this.selectedVercelProjectId();
+      if (!vercelProjectId || !this.selectedVercelCredentialId) {
+        return throwError(() => new Error('Vercel setup is incomplete.'));
+      }
+      targets.push({
+        providerName: 'vercel',
+        credentialId: this.selectedVercelCredentialId,
+        providerProjectId: vercelProjectId,
+        config: this.buildWebsiteTargetConfig()
+      });
+    }
+
+    if (this.publishServer) {
+      const railwayProjectId = this.selectedRailwayProjectId();
+      if (!railwayProjectId || !this.selectedRailwayCredentialId) {
+        return throwError(() => new Error('Railway setup is incomplete.'));
+      }
+      targets.push({
+        providerName: 'railway',
+        credentialId: this.selectedRailwayCredentialId,
+        providerProjectId: railwayProjectId,
+        config: this.buildServerTargetConfig()
+      });
+    }
+
+    const dbProfile = this.databaseRequirements();
+    return this.api.createProject({
+      name: this.projectName,
+      githubRepoFullName: repo.fullName,
+      defaultBranch: branch,
+      includePostgres: dbProfile?.requiresPostgres,
+      includeRedis: dbProfile?.requiresRedis,
+      targets
+    });
+  }
+
+  private createVercelProjectRequest(): Observable<{ project: ProviderProject }> {
+    const repo = this.selectedRepo();
+    if (!repo || !this.selectedVercelCredentialId || !this.newVercelProjectName) {
+      return throwError(() => new Error('Missing Vercel connection.'));
+    }
+
+    return this.api.createVercelProject(
+      this.selectedVercelCredentialId,
+      this.newVercelProjectName,
+      repo.fullName,
+      this.websiteBuildProfile() ?? undefined
+    ).pipe(
+      map(response => {
+        this.selectedVercelProjectId.set(response.project.id);
+        return response;
+      })
+    );
+  }
+
+  private createRailwayProjectRequest(): Observable<{ project: ProviderProject }> {
+    const repo = this.selectedRepo();
+    if (!repo || !this.selectedRailwayCredentialId || !this.newRailwayProjectName) {
+      return throwError(() => new Error('Missing Railway connection.'));
+    }
+
+    return this.api.createRailwayProject(
+      this.selectedRailwayCredentialId,
+      this.newRailwayProjectName,
+      repo.fullName,
+      this.serverBuildProfile() ?? undefined
+    ).pipe(
+      map(response => {
+        this.selectedRailwayProjectId.set(response.project.id);
+        return response;
+      })
+    );
   }
 
   private applyPlanParts(parts: DeploymentPlanPart[]): void {

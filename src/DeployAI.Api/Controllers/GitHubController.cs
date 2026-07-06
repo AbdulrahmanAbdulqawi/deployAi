@@ -234,8 +234,21 @@ public sealed class GitHubController : ControllerBase
             appsettingsPath,
             @ref,
             cancellationToken);
+        var prismaPaths = new List<string> { "prisma/schema.prisma" };
+        if (!string.IsNullOrEmpty(normalizedPath))
+        {
+            prismaPaths.Add($"{normalizedPath}/prisma/schema.prisma");
+        }
 
-        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings);
+        var prismaSchema = await ReadFirstExistingFileAsync(
+            token,
+            owner,
+            repo,
+            prismaPaths,
+            @ref,
+            cancellationToken);
+
+        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings, prismaSchema);
         return Ok(new
         {
             requiresPostgres = profile.RequiresPostgres,

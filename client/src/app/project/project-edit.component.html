@@ -1,7 +1,7 @@
 @if (project()) {
   <section>
-    <h1>Edit your app</h1>
-    <p class="intro">Update how this app is saved. Your GitHub app stays the same.</p>
+    <h1 class="u-brand-text">Edit app</h1>
+    <p class="page-intro">{{ project()!.name }} · {{ project()!.githubRepoFullName }}</p>
 
     @if (message()) {
       <p class="message" [class.error]="isError()">{{ message() }}</p>
@@ -14,7 +14,7 @@
       </label>
 
       <label>
-        Version to publish
+        Version
         <select [(ngModel)]="defaultBranch">
           @for (branch of branches(); track branch.name) {
             <option [value]="branch.name">{{ branch.name }}</option>
@@ -22,12 +22,11 @@
         </select>
       </label>
 
-      <p class="readonly">GitHub app: {{ project()!.githubRepoFullName }}</p>
+      <p class="readonly">{{ project()!.githubRepoFullName }}</p>
 
       @for (target of editableTargets(); track target.providerName) {
         <div class="target-block">
           <h2>{{ targetLabel(target) }}</h2>
-          <p class="hint">Hosted on {{ providerLabel(target.providerName) }}</p>
           @if (repoOwner() && repoName()) {
             <app-repo-folder-picker
               [owner]="repoOwner()!"
@@ -40,26 +39,28 @@
           @if (target.providerName === 'vercel' || target.providerName === 'railway') {
             @if (target.providerName === 'railway' && isMisconfiguredRailwayTarget(target)) {
               <p class="warning">
-                This looks like a frontend folder. Use Auto-detect or pick your API folder (e.g. <code>src/DeployAI.Api</code>).
+                Looks like a frontend folder. Pick your API folder.
               </p>
             }
             <div class="target-actions">
               @if (target.providerName === 'railway') {
-                <button
-                  type="button"
-                  class="secondary"
+                <app-ui-button
+                  variant="secondary"
+                  icon="refresh"
                   [disabled]="autoDetectingServer() || detectingProvider() === target.providerName"
+                  [loading]="autoDetectingServer()"
                   (click)="autoDetectServerFolder()">
-                  {{ autoDetectingServer() ? 'Detecting…' : 'Auto-detect server folder' }}
-                </button>
+                  Auto-detect
+                </app-ui-button>
               }
-              <button
-                type="button"
-                class="secondary"
+              <app-ui-button
+                variant="secondary"
+                icon="refresh"
                 [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
+                [loading]="detectingProvider() === target.providerName"
                 (click)="redetectBuildSettings(target)">
-                {{ detectingProvider() === target.providerName ? 'Detecting…' : 'Re-detect build settings' }}
-              </button>
+                Re-detect
+              </app-ui-button>
             </div>
             @if (target.outputDirectory || target.buildCommand || target.startCommand || target.framework) {
               <ul class="build-summary">
@@ -82,25 +83,36 @@
       }
 
       @if (hasRailwayTarget()) {
-        <p class="hint">Manage PostgreSQL and Redis on the app overview page under Services.</p>
+        <p class="hint">DBs: manage on app overview → Services.</p>
       }
 
       <div class="nav">
-        <button type="button" class="secondary" (click)="cancel()">Cancel</button>
-        <button type="button" class="primary" [disabled]="saving() || !name || !defaultBranch" (click)="save()">
-          {{ saving() ? 'Saving…' : 'Save changes' }}
-        </button>
+        <app-ui-button variant="secondary" icon="x" (click)="cancel()">Cancel</app-ui-button>
+        <app-ui-button variant="primary" tone="success" icon="check" [disabled]="saving() || !name || !defaultBranch" [loading]="saving()" (click)="save()">
+          Save
+        </app-ui-button>
       </div>
     </div>
 
     <div class="danger-zone">
-      <h2>Remove this app</h2>
-      <p class="hint">This removes the app from DeployAI. It does not delete anything on Vercel or Railway.</p>
-      <button type="button" class="danger" [disabled]="deleting()" (click)="remove()">
-        {{ deleting() ? 'Removing…' : 'Remove app' }}
-      </button>
+      <h2>Delete</h2>
+      <p class="hint">Permanently removes this app from DeployAI, deletes all deployment history, and removes hosting on Railway and Vercel.</p>
+      <app-ui-button variant="primary" icon="trash" [disabled]="deleting()" [loading]="deleting()" (click)="remove()">
+        Delete
+      </app-ui-button>
     </div>
+
+    @if (showDeleteConfirm()) {
+      <app-confirm-dialog
+        title="Delete app?"
+        message="This permanently removes the app, all deployment history, and hosting on Railway and Vercel. This cannot be undone."
+        confirmLabel="Delete"
+        [destructive]="true"
+        (confirm)="confirmRemove()"
+        (cancel)="showDeleteConfirm.set(false)"
+      />
+    }
   </section>
 } @else {
-  <p>One moment…</p>
+  <p>Loading…</p>
 }

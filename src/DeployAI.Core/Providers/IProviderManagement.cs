@@ -25,6 +25,11 @@ public interface IProviderManagement
         string providerProjectId,
         string envVarId,
         CancellationToken cancellationToken);
+
+    Task DeleteProjectAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken);
 }
 
 public interface IProviderManagementFactory

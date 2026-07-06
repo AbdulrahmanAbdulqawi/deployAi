@@ -18,15 +18,18 @@ public sealed class ProjectsController : ControllerBase
     private readonly DeployAIDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
+    private readonly IProjectTeardownService _projectTeardown;
 
     public ProjectsController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
-        IRailwayDatabaseProvisioningService railwayDatabaseProvisioning)
+        IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
+        IProjectTeardownService projectTeardown)
     {
         _db = db;
         _currentUser = currentUser;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
+        _projectTeardown = projectTeardown;
     }
 
     [HttpGet]
@@ -148,6 +151,31 @@ public sealed class ProjectsController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         return Created($"/api/projects/{project.Id}", await MapProjectAsync(project.Id, cancellationToken));
+    }
+
+    [HttpPost("from-plan")]
+    public async Task<IActionResult> CreateFromPlan(
+        [FromBody] CreateProjectFromPlanRequest request,
+        CancellationToken cancellationToken)
+    {
+        var targets = request.Parts
+            .Where(part => !string.Equals(part.Role, "database", StringComparison.OrdinalIgnoreCase))
+            .Select(part => new ProjectTargetRequest(
+                part.ProviderName,
+                part.CredentialId,
+                part.ProviderProjectId,
+                BuildConfigFromPlanPart(part)))
+            .ToList();
+
+        var createRequest = new CreateProjectRequest(
+            request.Name,
+            request.GitHubRepoFullName,
+            request.DefaultBranch,
+            targets,
+            request.IncludePostgres ?? false,
+            request.IncludeRedis ?? false);
+
+        return await Create(createRequest, cancellationToken);
     }
 
     [HttpGet("{id:guid}")]
@@ -311,14 +339,7 @@ public sealed class ProjectsController : ControllerBase
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
         var userId = RequireUserId();
-        var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId, cancellationToken);
-        if (project is null)
-        {
-            return NotFound(new { error = new { code = "not_found", message = "We couldn't find that app." } });
-        }
-
-        _db.Projects.Remove(project);
-        await _db.SaveChangesAsync(cancellationToken);
+        await _projectTeardown.TeardownAsync(id, userId, cancellationToken);
         return NoContent();
     }
 
@@ -363,6 +384,32 @@ public sealed class ProjectsController : ControllerBase
         return _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
     }
 
+    private static string BuildConfigFromPlanPart(PlanPartTargetRequest part)
+    {
+        if (string.Equals(part.Role, "website", StringComparison.OrdinalIgnoreCase))
+        {
+            return DeployTargetConfig.FromProfile(
+                new FrontendBuildProfile(
+                    part.RootDirectory ?? string.Empty,
+                    part.BuildCommand ?? string.Empty,
+                    part.InstallCommand ?? string.Empty,
+                    part.OutputDirectory ?? string.Empty,
+                    part.Framework),
+                "website").ToJson();
+        }
+
+        return DeployTargetConfig.FromServerProfile(
+            new ServerBuildProfile(
+                part.RootDirectory ?? string.Empty,
+                part.BuildCommand,
+                part.InstallCommand,
+                part.StartCommand,
+                part.Framework,
+                part.DockerfilePath,
+                part.ServiceDirectory ?? part.RootDirectory),
+            "server").ToJson();
+    }
+
     public sealed record CreateProjectRequest(
         string Name,
         string GitHubRepoFullName,
@@ -370,6 +417,28 @@ public sealed class ProjectsController : ControllerBase
         List<ProjectTargetRequest> Targets,
         bool IncludePostgres = false,
         bool IncludeRedis = false);
+
+    public sealed record CreateProjectFromPlanRequest(
+        string Name,
+        string GitHubRepoFullName,
+        string DefaultBranch,
+        List<PlanPartTargetRequest> Parts,
+        bool? IncludePostgres = null,
+        bool? IncludeRedis = null);
+
+    public sealed record PlanPartTargetRequest(
+        string Role,
+        string ProviderName,
+        Guid CredentialId,
+        string ProviderProjectId,
+        string? RootDirectory = null,
+        string? ServiceDirectory = null,
+        string? BuildCommand = null,
+        string? InstallCommand = null,
+        string? StartCommand = null,
+        string? OutputDirectory = null,
+        string? Framework = null,
+        string? DockerfilePath = null);
 
     public sealed record UpdateProjectRequest(
         string? Name,

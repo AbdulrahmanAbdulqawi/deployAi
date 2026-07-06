@@ -1,0 +1,8 @@
+query ServiceContext($id: String!) {
+  service(id: $id) {
+    projectId
+    project {
+      workspaceId
+    }
+  }
+}

@@ -39,6 +39,26 @@ export function providerLabel(providerName: string): string {
   return providerName;
 }
 
+export function roleLabelForProvider(providerName: string): string {
+  if (providerName === 'vercel') return 'Your site';
+  if (providerName === 'railway') return 'Your API';
+  return providerName;
+}
+
+export function plainTargetSummary(targets: { providerName: string }[]): string {
+  const parts: string[] = [];
+  if (targets.some(t => t.providerName === 'vercel')) {
+    parts.push('Site');
+  }
+  if (targets.some(t => t.providerName === 'railway')) {
+    parts.push('API');
+  }
+  const other = targets
+    .filter(t => t.providerName !== 'vercel' && t.providerName !== 'railway')
+    .map(t => t.providerName);
+  return [...parts, ...other].join(' + ') || 'App';
+}
+
 export function serviceStatusLabel(status?: string): string {
   switch (status) {
     case 'running':

@@ -2,10 +2,19 @@
   <header class="topbar">
     <a routerLink="/dashboard" class="brand">DeployAI</a>
     <nav>
-      <a routerLink="/dashboard" routerLinkActive="active">Your apps</a>
-      <a routerLink="/settings" routerLinkActive="active">Connections</a>
+      <a routerLink="/dashboard" routerLinkActive="active">Apps</a>
+      <a routerLink="/settings" routerLinkActive="active">Settings</a>
     </nav>
-    <button type="button" class="text-btn" (click)="signOut()">Sign out</button>
+    <div class="topbar__actions">
+      <button type="button" class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="theme.mode() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
+        @if (theme.mode() === 'dark') {
+          <app-ui-icon name="sun" size="sm" statusClass="muted" />
+        } @else {
+          <app-ui-icon name="moon" size="sm" statusClass="muted" />
+        }
+      </button>
+      <app-ui-button variant="quiet" icon="x" (click)="signOut()">Sign out</app-ui-button>
+    </div>
   </header>
   <main>
     <router-outlet />

@@ -1,0 +1,13 @@
+mutation CreateProject($name: String!, $workspaceId: String!) {
+  projectCreate(input: { name: $name, workspaceId: $workspaceId }) {
+    id
+    environments {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+}

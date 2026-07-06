@@ -138,6 +138,16 @@ public sealed partial class VercelProvider
         await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
     }
 
+    public async Task DeleteProjectAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Delete, $"v9/projects/{providerProjectId}", credentials.Token);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
+    }
+
     private static bool ShouldHideValue(string? type) =>
         string.Equals(type, "secret", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(type, "sensitive", StringComparison.OrdinalIgnoreCase);

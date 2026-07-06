@@ -10,7 +10,11 @@ public interface IServerBuildDetector
         bool hasDockerfile,
         string? dockerfileContent,
         string? packageJson,
-        string? csprojContent);
+        string? csprojContent,
+        string? requirementsTxt = null,
+        string? pyprojectToml = null,
+        string? goMod = null,
+        string? cargoToml = null);
 }
 
 public sealed class ServerBuildDetector : IServerBuildDetector
@@ -20,7 +24,11 @@ public sealed class ServerBuildDetector : IServerBuildDetector
         bool hasDockerfile,
         string? dockerfileContent,
         string? packageJson,
-        string? csprojContent)
+        string? csprojContent,
+        string? requirementsTxt = null,
+        string? pyprojectToml = null,
+        string? goMod = null,
+        string? cargoToml = null)
     {
         var normalizedRoot = NormalizeRootDirectory(rootDirectory);
 
@@ -80,7 +88,82 @@ public sealed class ServerBuildDetector : IServerBuildDetector
                 "node");
         }
 
+        if (!string.IsNullOrWhiteSpace(requirementsTxt) || !string.IsNullOrWhiteSpace(pyprojectToml))
+        {
+            var installCommand = !string.IsNullOrWhiteSpace(requirementsTxt)
+                ? "pip install -r requirements.txt"
+                : "pip install .";
+            var startCommand = InferPythonStartCommand(requirementsTxt, pyprojectToml);
+            return new ServerBuildProfile(
+                normalizedRoot,
+                null,
+                installCommand,
+                startCommand,
+                "python");
+        }
+
+        if (!string.IsNullOrWhiteSpace(goMod))
+        {
+            return new ServerBuildProfile(
+                normalizedRoot,
+                "go build -o app .",
+                null,
+                "./app",
+                "go");
+        }
+
+        if (!string.IsNullOrWhiteSpace(cargoToml))
+        {
+            var binaryName = ExtractCargoBinaryName(cargoToml);
+            var startCommand = string.IsNullOrWhiteSpace(binaryName)
+                ? "./target/release/app"
+                : $"./target/release/{binaryName}";
+            return new ServerBuildProfile(
+                normalizedRoot,
+                "cargo build --release",
+                null,
+                startCommand,
+                "rust");
+        }
+
         return new ServerBuildProfile(normalizedRoot, null, null, null, null);
+    }
+
+    internal static string InferPythonStartCommand(string? requirementsTxt, string? pyprojectToml)
+    {
+        var haystack = $"{requirementsTxt}\n{pyprojectToml}";
+        if (haystack.Contains("uvicorn", StringComparison.OrdinalIgnoreCase))
+        {
+            return "uvicorn main:app --host 0.0.0.0 --port $PORT";
+        }
+
+        if (haystack.Contains("gunicorn", StringComparison.OrdinalIgnoreCase))
+        {
+            return "gunicorn main:app --bind 0.0.0.0:$PORT";
+        }
+
+        if (haystack.Contains("flask", StringComparison.OrdinalIgnoreCase))
+        {
+            return "python -m flask run --host 0.0.0.0 --port $PORT";
+        }
+
+        return "python main.py";
+    }
+
+    internal static string? ExtractCargoBinaryName(string cargoToml)
+    {
+        foreach (var line in cargoToml.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("name", StringComparison.OrdinalIgnoreCase) &&
+                trimmed.Contains('='))
+            {
+                var value = trimmed[(trimmed.IndexOf('=') + 1)..].Trim().Trim('"', '\'');
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+
+        return null;
     }
 
     internal static bool IsFrontendSpaPackageJson(string packageJson)

@@ -32,6 +32,11 @@ public interface IRailwayDatabaseProvisioningService
         Project project,
         DeployTarget databaseTarget,
         CancellationToken cancellationToken);
+
+    Task TeardownDatabaseServiceOnProviderAsync(
+        Project project,
+        DeployTarget databaseTarget,
+        CancellationToken cancellationToken);
 }
 
 public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisioningService
@@ -394,6 +399,27 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             throw new InvalidOperationException("Only database services can be removed through this method.");
         }
 
+        await TeardownDatabaseServiceOnProviderAsync(project, databaseTarget, cancellationToken);
+
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""DELETE FROM deploy_targets WHERE "Id" = {databaseTarget.Id}""",
+            cancellationToken);
+
+        project.DeployTargets.Remove(databaseTarget);
+        DetachAllDeployTargetChanges();
+    }
+
+    public async Task TeardownDatabaseServiceOnProviderAsync(
+        Project project,
+        DeployTarget databaseTarget,
+        CancellationToken cancellationToken)
+    {
+        var config = DeployTargetConfig.Parse(databaseTarget.ConfigJson);
+        if (!config.IsDatabaseTarget)
+        {
+            throw new InvalidOperationException("Only database services can be removed through this method.");
+        }
+
         var serverTarget = project.DeployTargets.FirstOrDefault(t =>
             string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
             !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
@@ -403,7 +429,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         var token = await _tokens.GetTokenAsync(databaseTarget.Credential, cancellationToken);
         var credentials = new ProviderCredentials(token);
 
-        if (serviceOperations is not null)
+        if (serviceOperations is not null &&
+            !string.IsNullOrWhiteSpace(databaseTarget.ProviderProjectId))
         {
             await serviceOperations.DeleteServiceAsync(
                 credentials,
@@ -421,7 +448,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 _ => null
             };
 
-            if (!string.IsNullOrWhiteSpace(linkKey))
+            if (!string.IsNullOrWhiteSpace(linkKey) &&
+                !string.IsNullOrWhiteSpace(serverTarget.ProviderProjectId))
             {
                 try
                 {
@@ -459,12 +487,5 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 trackedServer.ConfigJson = serverConfigJson;
             }
         }
-
-        await _db.Database.ExecuteSqlInterpolatedAsync(
-            $"""DELETE FROM deploy_targets WHERE "Id" = {databaseTarget.Id}""",
-            cancellationToken);
-
-        project.DeployTargets.Remove(databaseTarget);
-        DetachAllDeployTargetChanges();
     }
 }

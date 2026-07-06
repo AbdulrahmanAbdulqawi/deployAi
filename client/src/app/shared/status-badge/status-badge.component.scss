@@ -1,13 +1,64 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  font-size: 0.875rem;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
   font-weight: 500;
+  border: 1px solid transparent;
+
+  app-ui-icon {
+    color: inherit;
+  }
 }
-.live { background: #dcfce7; color: #166534; }
-.working { background: #dbeafe; color: #1d4ed8; }
-.failed { background: #fee2e2; color: #b91c1c; }
-.attention { background: #fef3c7; color: #b45309; }
-.idle { background: #f3f4f6; color: #4b5563; }
+
+.live {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-emerald) 12%, var(--surface-card)),
+    var(--status-success-bg)
+  );
+  color: var(--status-success);
+  border-color: color-mix(in srgb, var(--status-success) 35%, transparent);
+}
+
+.working {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand-indigo) 10%, var(--surface-card)),
+    var(--status-accent-bg)
+  );
+  color: var(--status-accent);
+  border-color: color-mix(in srgb, var(--status-accent) 35%, transparent);
+}
+
+.failed {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--status-danger) 10%, var(--surface-card)),
+    var(--status-danger-bg)
+  );
+  color: var(--status-danger);
+  border-color: var(--status-danger-border);
+}
+
+.attention {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--status-warning) 10%, var(--surface-card)),
+    var(--status-warning-bg)
+  );
+  color: var(--status-warning);
+  border-color: var(--status-warning-border);
+}
+
+.idle {
+  background: linear-gradient(
+    135deg,
+    var(--surface-subtle),
+    var(--surface-chip)
+  );
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+}

@@ -20,19 +20,22 @@ public sealed class ProjectServicesController : ControllerBase
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
+    private readonly IDataServiceInspectionService _dataServiceInspection;
 
     public ProjectServicesController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IProviderCredentialTokenService tokens,
-        IProviderServiceOperationsFactory serviceOperationsFactory)
+        IProviderServiceOperationsFactory serviceOperationsFactory,
+        IDataServiceInspectionService dataServiceInspection)
     {
         _db = db;
         _currentUser = currentUser;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _tokens = tokens;
         _serviceOperationsFactory = serviceOperationsFactory;
+        _dataServiceInspection = dataServiceInspection;
     }
 
     [HttpGet]
@@ -108,6 +111,30 @@ public sealed class ProjectServicesController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(MapServicesResponse(project));
+    }
+
+    [HttpGet("{targetId:guid}/data-info")]
+    public async Task<IActionResult> GetDataInfo(
+        Guid projectId,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var config = DeployTargetConfig.Parse(target.ConfigJson);
+
+        if (!config.IsDatabaseTarget)
+        {
+            throw new DeployAIException("invalid_target", "Only data services expose database information.");
+        }
+
+        var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+        var info = await _dataServiceInspection.GetDataServiceInfoAsync(
+            target,
+            new ProviderCredentials(token),
+            cancellationToken);
+
+        return Ok(info);
     }
 
     private static object MapServicesResponse(Project project)

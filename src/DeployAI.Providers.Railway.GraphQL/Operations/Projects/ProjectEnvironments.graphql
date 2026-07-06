@@ -1,0 +1,12 @@
+query ProjectEnvironments($id: String!) {
+  project(id: $id) {
+    environments {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+}

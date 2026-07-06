@@ -34,9 +34,15 @@ builder.Services.AddDeploymentProviders();
 builder.Services.AddSingleton<IOAuthStateStore, InMemoryOAuthStateStore>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IProviderCredentialTokenService, ProviderCredentialTokenService>();
+builder.Services.AddScoped<IFrontendEnvironmentWiringService, FrontendEnvironmentWiringService>();
+builder.Services.AddScoped<IDeploymentRestoreService, DeploymentRestoreService>();
+builder.Services.AddSingleton<IProviderHealthService, ProviderHealthService>();
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<IDeploymentOrchestrator, DeploymentOrchestrator>();
 builder.Services.AddScoped<DeploymentJobRunner>();
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
+builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();
+builder.Services.AddScoped<IDataServiceInspectionService, DataServiceInspectionService>();
 
 var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

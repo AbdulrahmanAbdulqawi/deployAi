@@ -1,6 +1,6 @@
-using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -178,7 +178,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
             workspaceIdHint,
             cancellationToken);
 
-        (string Id, JsonElement SerializedConfig)? template = null;
+        (string Id, string SerializedConfig)? template = null;
         try
         {
             template = await GetTemplateAsync(credentials, templateCode, cancellationToken);
@@ -217,7 +217,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
     private async Task<(string ServiceId, string ServiceName)> ProvisionDatabaseServiceAsync(
         ProviderCredentials credentials,
         string templateCode,
-        (string Id, JsonElement SerializedConfig)? template,
+        (string Id, string SerializedConfig)? template,
         string projectId,
         string environmentId,
         string workspaceId,
@@ -328,36 +328,21 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         string dockerImage,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation CreateDatabaseService($input: ServiceCreateInput!) {
-              serviceCreate(input: $input) {
-                id
-                name
-              }
-            }
-            """;
-
         try
         {
-            using var document = await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                mutation,
-                new
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.CreateDatabaseService.ExecuteAsync(
+                new ServiceCreateInput
                 {
-                    input = new
-                    {
-                        projectId,
-                        environmentId,
-                        name = serviceName,
-                        source = new { image = dockerImage }
-                    }
+                    ProjectId = projectId,
+                    EnvironmentId = environmentId,
+                    Name = serviceName,
+                    Source = new ServiceSourceInput { Image = dockerImage }
                 },
                 cancellationToken);
-
-            var serviceNode = document.RootElement.GetProperty("data").GetProperty("serviceCreate");
-            var serviceId = serviceNode.GetProperty("id").GetString();
-            var createdName = serviceNode.GetProperty("name").GetString();
+            var data = RailwayApiSupport.EnsureData(result);
+            var serviceId = data.ServiceCreate.Id;
+            var createdName = data.ServiceCreate.Name;
             if (string.IsNullOrWhiteSpace(serviceId) || string.IsNullOrWhiteSpace(createdName))
             {
                 throw new DeployAIException(
@@ -397,81 +382,48 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         }
     }
 
-    private async Task<(string Id, JsonElement SerializedConfig)> GetTemplateAsync(
+    private async Task<(string Id, string SerializedConfig)> GetTemplateAsync(
         ProviderCredentials credentials,
         string templateCode,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query Template($code: String!) {
-              template(code: $code) {
-                id
-                serializedConfig
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { code = templateCode },
-            cancellationToken);
-
-        var template = document.RootElement.GetProperty("data").GetProperty("template");
-        var id = template.GetProperty("id").GetString();
-        if (string.IsNullOrWhiteSpace(id))
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.Template.ExecuteAsync(templateCode, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        var id = data.Template.Id;
+        var serializedConfig = data.Template.SerializedConfig;
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(serializedConfig))
         {
             throw new DeployAIException("railway_api_error", $"Railway did not return a {templateCode} template.");
         }
 
-        return (id, template.GetProperty("serializedConfig").Clone());
+        return (id, serializedConfig);
     }
 
     private async Task DeployTemplateAsync(
         ProviderCredentials credentials,
-        (string Id, JsonElement SerializedConfig) template,
+        (string Id, string SerializedConfig) template,
         string projectId,
         string environmentId,
         string? workspaceId,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation DeployTemplate($input: TemplateDeployV2Input!) {
-              templateDeployV2(input: $input) {
-                projectId
-                workflowId
-              }
-            }
-            """;
+        var input = new TemplateDeployV2Input
+        {
+            TemplateId = template.Id,
+            SerializedConfig = template.SerializedConfig,
+            ProjectId = projectId,
+            EnvironmentId = environmentId
+        };
 
-        var serializedConfig = template.SerializedConfig.ValueKind == JsonValueKind.String
-            ? template.SerializedConfig.GetString()!
-            : template.SerializedConfig.GetRawText();
+        if (!string.IsNullOrWhiteSpace(workspaceId))
+        {
+            input = input with { WorkspaceId = workspaceId };
+        }
 
-        object input = string.IsNullOrWhiteSpace(workspaceId)
-            ? new
-            {
-                templateId = template.Id,
-                serializedConfig,
-                projectId,
-                environmentId
-            }
-            : new
-            {
-                templateId = template.Id,
-                serializedConfig,
-                projectId,
-                environmentId,
-                workspaceId
-            };
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { input },
-            cancellationToken);
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.TemplateDeploy.ExecuteAsync(input, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private async Task<(string ServiceId, string ServiceName)?> FindDatabaseServiceAsync(
@@ -481,90 +433,42 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         IReadOnlyList<string> imageMatchers,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ProjectServices($id: String!) {
-              project(id: $id) {
-                services {
-                  edges {
-                    node {
-                      id
-                      name
-                      serviceInstances {
-                        edges {
-                          node {
-                            environmentId
-                            source {
-                              image
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = projectId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("project", out var projectNode) ||
-            !projectNode.TryGetProperty("services", out var servicesNode) ||
-            !servicesNode.TryGetProperty("edges", out var serviceEdges) ||
-            serviceEdges.ValueKind != JsonValueKind.Array)
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ProjectServices.ExecuteAsync(projectId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Project?.Services?.Edges is null)
         {
             return null;
         }
 
-        foreach (var serviceEdge in serviceEdges.EnumerateArray())
+        foreach (var serviceEdge in data.Project.Services.Edges)
         {
-            if (!serviceEdge.TryGetProperty("node", out var serviceNode))
+            var serviceNode = serviceEdge.Node;
+            if (serviceNode is null ||
+                string.IsNullOrWhiteSpace(serviceNode.Id) ||
+                string.IsNullOrWhiteSpace(serviceNode.Name))
             {
                 continue;
             }
 
-            var serviceId = serviceNode.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-            var serviceName = serviceNode.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : null;
-            if (string.IsNullOrWhiteSpace(serviceId) || string.IsNullOrWhiteSpace(serviceName))
+            if (serviceNode.ServiceInstances?.Edges is null)
             {
                 continue;
             }
 
-            if (!serviceNode.TryGetProperty("serviceInstances", out var instancesNode) ||
-                !instancesNode.TryGetProperty("edges", out var instanceEdges) ||
-                instanceEdges.ValueKind != JsonValueKind.Array)
+            foreach (var instanceEdge in serviceNode.ServiceInstances.Edges)
             {
-                continue;
-            }
-
-            foreach (var instanceEdge in instanceEdges.EnumerateArray())
-            {
-                if (!instanceEdge.TryGetProperty("node", out var instanceNode))
+                var instanceNode = instanceEdge.Node;
+                if (instanceNode is null ||
+                    !string.Equals(instanceNode.EnvironmentId, environmentId, StringComparison.Ordinal))
                 {
                     continue;
                 }
 
-                var instanceEnvironmentId = instanceNode.TryGetProperty("environmentId", out var envNode)
-                    ? envNode.GetString()
-                    : null;
-                if (!string.Equals(instanceEnvironmentId, environmentId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var image = instanceNode.TryGetProperty("source", out var sourceNode) &&
-                            sourceNode.TryGetProperty("image", out var imageNode)
-                    ? imageNode.GetString()
-                    : null;
+                var image = instanceNode.Source?.Image;
                 if (MatchesDatabaseImage(image, imageMatchers))
                 {
-                    return (serviceId, serviceName);
+                    return (serviceNode.Id, serviceNode.Name);
                 }
             }
         }
@@ -579,80 +483,41 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         string serviceName,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ProjectServices($id: String!) {
-              project(id: $id) {
-                services {
-                  edges {
-                    node {
-                      id
-                      name
-                      serviceInstances {
-                        edges {
-                          node {
-                            environmentId
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = projectId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("project", out var projectNode) ||
-            !projectNode.TryGetProperty("services", out var servicesNode) ||
-            !servicesNode.TryGetProperty("edges", out var serviceEdges) ||
-            serviceEdges.ValueKind != JsonValueKind.Array)
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ProjectServicesByName.ExecuteAsync(projectId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Project?.Services?.Edges is null)
         {
             return null;
         }
 
-        foreach (var serviceEdge in serviceEdges.EnumerateArray())
+        foreach (var serviceEdge in data.Project.Services.Edges)
         {
-            if (!serviceEdge.TryGetProperty("node", out var serviceNode))
+            var serviceNode = serviceEdge.Node;
+            if (serviceNode is null ||
+                string.IsNullOrWhiteSpace(serviceNode.Id) ||
+                string.IsNullOrWhiteSpace(serviceNode.Name) ||
+                !string.Equals(serviceNode.Name, serviceName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var serviceId = serviceNode.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-            var matchedName = serviceNode.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : null;
-            if (string.IsNullOrWhiteSpace(serviceId) ||
-                string.IsNullOrWhiteSpace(matchedName) ||
-                !string.Equals(matchedName, serviceName, StringComparison.OrdinalIgnoreCase))
+            if (serviceNode.ServiceInstances?.Edges is null)
             {
                 continue;
             }
 
-            if (!serviceNode.TryGetProperty("serviceInstances", out var instancesNode) ||
-                !instancesNode.TryGetProperty("edges", out var instanceEdges) ||
-                instanceEdges.ValueKind != JsonValueKind.Array)
+            foreach (var instanceEdge in serviceNode.ServiceInstances.Edges)
             {
-                continue;
-            }
-
-            foreach (var instanceEdge in instanceEdges.EnumerateArray())
-            {
-                if (!instanceEdge.TryGetProperty("node", out var instanceNode))
+                var instanceNode = instanceEdge.Node;
+                if (instanceNode is null)
                 {
                     continue;
                 }
 
-                var instanceEnvironmentId = instanceNode.TryGetProperty("environmentId", out var envNode)
-                    ? envNode.GetString()
-                    : null;
-                if (string.Equals(instanceEnvironmentId, environmentId, StringComparison.Ordinal))
+                if (string.Equals(instanceNode.EnvironmentId, environmentId, StringComparison.Ordinal))
                 {
-                    return (serviceId, matchedName);
+                    return (serviceNode.Id, serviceNode.Name);
                 }
             }
         }
@@ -667,26 +532,16 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         string dockerImage,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation UpdateDatabaseServiceImage($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-              serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.UpdateDatabaseServiceImage.ExecuteAsync(
+            serviceId,
+            environmentId,
+            new ServiceInstanceUpdateInput
             {
-                serviceId,
-                environmentId,
-                input = new
-                {
-                    source = new { image = dockerImage }
-                }
+                Source = new ServiceSourceInput { Image = dockerImage }
             },
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private static bool MatchesDatabaseImage(string? image, IReadOnlyList<string> imageMatchers)

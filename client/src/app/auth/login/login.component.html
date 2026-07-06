@@ -1,7 +1,8 @@
 <div class="login">
-  <div class="card">
-    <h1>Put your app live in one calm place</h1>
-    <p>Connect GitHub once, choose where your app lives, and publish without touching a terminal.</p>
-    <button type="button" class="primary" (click)="continueWithGitHub()">Continue with GitHub</button>
+  <div class="u-card login__card">
+    <h1>DeployAI</h1>
+    <app-ui-button variant="primary" icon="link" [block]="true" (click)="continueWithGitHub()">
+      GitHub
+    </app-ui-button>
   </div>
 </div>

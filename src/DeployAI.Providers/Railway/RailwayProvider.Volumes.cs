@@ -1,6 +1,6 @@
-using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -101,62 +101,27 @@ public sealed partial class RailwayProvider
         string serviceId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query EnvironmentVolumeInstances($projectId: String!, $environmentId: String!) {
-              environment(id: $environmentId, projectId: $projectId) {
-                volumeInstances {
-                  edges {
-                    node {
-                      id
-                      volumeId
-                      serviceId
-                      mountPath
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { projectId, environmentId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("environment", out var environmentNode) ||
-            !environmentNode.TryGetProperty("volumeInstances", out var instancesNode) ||
-            !instancesNode.TryGetProperty("edges", out var edges) ||
-            edges.ValueKind != JsonValueKind.Array)
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.EnvironmentVolumeInstances.ExecuteAsync(projectId, environmentId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Environment?.VolumeInstances?.Edges is null)
         {
             return [];
         }
 
         var results = new List<VolumeInstanceInfo>();
-        foreach (var edge in edges.EnumerateArray())
+        foreach (var edge in data.Environment.VolumeInstances.Edges)
         {
-            if (!edge.TryGetProperty("node", out var node))
+            var node = edge.Node;
+            if (node is null ||
+                string.IsNullOrWhiteSpace(node.Id) ||
+                string.IsNullOrWhiteSpace(node.VolumeId) ||
+                !string.Equals(node.ServiceId, serviceId, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            var id = node.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-            var volumeId = node.TryGetProperty("volumeId", out var volumeIdNode) ? volumeIdNode.GetString() : null;
-            var instanceServiceId = node.TryGetProperty("serviceId", out var serviceNode)
-                ? serviceNode.GetString()
-                : null;
-            var mountPath = node.TryGetProperty("mountPath", out var mountNode) ? mountNode.GetString() : null;
-
-            if (string.IsNullOrWhiteSpace(id) ||
-                string.IsNullOrWhiteSpace(volumeId) ||
-                !string.Equals(instanceServiceId, serviceId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            results.Add(new VolumeInstanceInfo(id, volumeId, mountPath));
+            results.Add(new VolumeInstanceInfo(node.Id, node.VolumeId, node.MountPath));
         }
 
         return results;
@@ -171,36 +136,20 @@ public sealed partial class RailwayProvider
         string? region,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation VolumeCreate($input: VolumeCreateInput!) {
-              volumeCreate(input: $input) {
-                id
-                name
-              }
-            }
-            """;
-
-        var input = new Dictionary<string, object?>
+        var input = new VolumeCreateInput
         {
-            ["projectId"] = projectId,
-            ["environmentId"] = environmentId,
-            ["serviceId"] = serviceId,
-            ["mountPath"] = mountPath
+            ProjectId = projectId,
+            EnvironmentId = environmentId,
+            ServiceId = serviceId,
+            MountPath = mountPath,
+            Region = region
         };
-
-        if (!string.IsNullOrWhiteSpace(region))
-        {
-            input["region"] = region;
-        }
 
         try
         {
-            await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                mutation,
-                new { input },
-                cancellationToken);
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.VolumeCreate.ExecuteAsync(input, cancellationToken);
+            RailwayApiSupport.EnsureSuccess(result);
         }
         catch (DeployAIException ex) when (RailwayApiSupport.IsDuplicateVolumeError(ex.Message))
         {
@@ -215,23 +164,13 @@ public sealed partial class RailwayProvider
         string mountPath,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation VolumeInstanceUpdate($volumeId: String!, $environmentId: String!, $input: VolumeInstanceUpdateInput!) {
-              volumeInstanceUpdate(volumeId: $volumeId, environmentId: $environmentId, input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new
-            {
-                volumeId,
-                environmentId,
-                input = new { mountPath }
-            },
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.VolumeInstanceUpdate.ExecuteAsync(
+            volumeId,
+            environmentId,
+            new VolumeInstanceUpdateInput { MountPath = mountPath },
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private async Task<string?> GetServiceInstanceRegionAsync(
@@ -240,53 +179,28 @@ public sealed partial class RailwayProvider
         string environmentId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ServiceInstanceRegion($id: String!) {
-              service(id: $id) {
-                serviceInstances {
-                  edges {
-                    node {
-                      environmentId
-                      region
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = serviceId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("service", out var serviceNode) ||
-            !serviceNode.TryGetProperty("serviceInstances", out var instancesNode) ||
-            !instancesNode.TryGetProperty("edges", out var edges) ||
-            edges.ValueKind != JsonValueKind.Array)
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ServiceInstanceRegion.ExecuteAsync(serviceId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Service?.ServiceInstances?.Edges is null)
         {
             return null;
         }
 
-        foreach (var edge in edges.EnumerateArray())
+        foreach (var edge in data.Service.ServiceInstances.Edges)
         {
-            if (!edge.TryGetProperty("node", out var node))
+            var node = edge.Node;
+            if (node is null)
             {
                 continue;
             }
 
-            var instanceEnvironmentId = node.TryGetProperty("environmentId", out var envNode)
-                ? envNode.GetString()
-                : null;
-            if (!string.Equals(instanceEnvironmentId, environmentId, StringComparison.Ordinal))
+            if (!string.Equals(node.EnvironmentId, environmentId, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            return node.TryGetProperty("region", out var regionNode) ? regionNode.GetString() : null;
+            return node.Region;
         }
 
         return null;

@@ -66,5 +66,6 @@ public class ProjectServiceMapperTests
         Assert.False(result.IncludeRedis);
         Assert.Equal("Postgres", result.DataServices[0].DisplayName);
         Assert.Contains("ConnectionStrings__DefaultConnection", result.DataServices[0].LinkedConnectionKeys);
+        Assert.Contains("ConnectionStrings__Default", result.DataServices[0].LinkedConnectionKeys);
     }
 }

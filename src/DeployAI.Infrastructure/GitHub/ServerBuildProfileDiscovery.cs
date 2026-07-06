@@ -153,6 +153,10 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
         var dockerfilePath = files.FirstOrDefault(item => string.Equals(item.Name, "Dockerfile", StringComparison.OrdinalIgnoreCase))?.Path;
         var packagePath = files.FirstOrDefault(item => string.Equals(item.Name, "package.json", StringComparison.OrdinalIgnoreCase))?.Path;
         var csprojPath = files.FirstOrDefault(item => item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))?.Path;
+        var requirementsPath = files.FirstOrDefault(item => string.Equals(item.Name, "requirements.txt", StringComparison.OrdinalIgnoreCase))?.Path;
+        var pyprojectPath = files.FirstOrDefault(item => string.Equals(item.Name, "pyproject.toml", StringComparison.OrdinalIgnoreCase))?.Path;
+        var goModPath = files.FirstOrDefault(item => string.Equals(item.Name, "go.mod", StringComparison.OrdinalIgnoreCase))?.Path;
+        var cargoPath = files.FirstOrDefault(item => string.Equals(item.Name, "Cargo.toml", StringComparison.OrdinalIgnoreCase))?.Path;
 
         var dockerfileContent = dockerfilePath is null
             ? null
@@ -163,12 +167,28 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
         var csprojContent = csprojPath is null
             ? null
             : await _gitHubService.GetFileContentAsync(accessToken, owner, repo, csprojPath, gitRef, cancellationToken);
+        var requirementsTxt = requirementsPath is null
+            ? null
+            : await _gitHubService.GetFileContentAsync(accessToken, owner, repo, requirementsPath, gitRef, cancellationToken);
+        var pyprojectToml = pyprojectPath is null
+            ? null
+            : await _gitHubService.GetFileContentAsync(accessToken, owner, repo, pyprojectPath, gitRef, cancellationToken);
+        var goMod = goModPath is null
+            ? null
+            : await _gitHubService.GetFileContentAsync(accessToken, owner, repo, goModPath, gitRef, cancellationToken);
+        var cargoToml = cargoPath is null
+            ? null
+            : await _gitHubService.GetFileContentAsync(accessToken, owner, repo, cargoPath, gitRef, cancellationToken);
 
         return _serverBuildDetector.Detect(
             normalizedPath,
             hasDockerfile,
             dockerfileContent,
             packageJson,
-            csprojContent);
+            csprojContent,
+            requirementsTxt,
+            pyprojectToml,
+            goMod,
+            cargoToml);
     }
 }

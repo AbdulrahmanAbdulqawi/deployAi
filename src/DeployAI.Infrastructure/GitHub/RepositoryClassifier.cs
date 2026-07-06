@@ -270,8 +270,21 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
             : $"{serverPath}/appsettings.json";
         var appsettings = await _gitHubService.GetFileContentAsync(
             accessToken, owner, repo, appsettingsPath, gitRef, cancellationToken);
+        var prismaPaths = new List<string> { "prisma/schema.prisma" };
+        if (!string.IsNullOrEmpty(serverPath))
+        {
+            prismaPaths.Add($"{serverPath}/prisma/schema.prisma");
+        }
 
-        return _databaseRequirementDetector.Detect(dockerCompose, appsettings);
+        var prismaSchema = await ReadFirstExistingFileAsync(
+            accessToken,
+            owner,
+            repo,
+            prismaPaths,
+            gitRef,
+            cancellationToken);
+
+        return _databaseRequirementDetector.Detect(dockerCompose, appsettings, prismaSchema);
     }
 
     private async Task<string?> ReadFirstExistingFileAsync(
@@ -343,6 +356,9 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
     {
         "dotnet" => "a .NET API",
         "node" => "a Node server",
+        "python" => "a Python server",
+        "go" => "a Go server",
+        "rust" => "a Rust server",
         "docker" => "a containerized service",
         _ => "a server"
     };

@@ -1,0 +1,5 @@
+query ProjectWorkspace($id: String!) {
+  project(id: $id) {
+    workspaceId
+  }
+}

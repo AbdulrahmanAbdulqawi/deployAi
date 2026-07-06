@@ -1,0 +1,12 @@
+query ServiceInstanceRegion($id: String!) {
+  service(id: $id) {
+    serviceInstances {
+      edges {
+        node {
+          environmentId
+          region
+        }
+      }
+    }
+  }
+}

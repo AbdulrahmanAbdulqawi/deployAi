@@ -1,0 +1,61 @@
+@if (loading) {
+  <div class="plan-state">
+    <h2>Looking at your project…</h2>
+  </div>
+} @else if (!showManualOverride && plan?.confidence === 'high') {
+  <div class="plan-state">
+    <h2>Deploy plan</h2>
+    <p class="plan-summary">{{ plan!.plainSummary }}</p>
+
+    @if (activeParts.length > 0) {
+      <ul class="destinations">
+        @for (part of activeParts; track part.role + part.providerName) {
+          <li>
+            <strong>{{ roleLabel(part.role) }}</strong>
+            <span class="u-text-muted">{{ roleDescription(part.role) }}</span>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (missingConnections.length > 0) {
+      <p class="connection-notice">Connect hosting first to deploy.</p>
+      <div class="nav plan-actions">
+        <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
+        <app-ui-button variant="primary" icon="link" (click)="connectProviders.emit()">Connect hosting</app-ui-button>
+      </div>
+    } @else {
+      <div class="nav plan-actions">
+        <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
+        <div class="plan-actions__end">
+          <button type="button" class="override-link" (click)="override.emit()">Change how this deploys</button>
+          <app-ui-button variant="primary" icon="upload" [disabled]="deploying || activeParts.length === 0" [loading]="deploying" (click)="accept.emit()">
+            Yes, deploy it
+          </app-ui-button>
+        </div>
+      </div>
+    }
+  </div>
+} @else if (!showManualOverride && plan?.clarifyingQuestion) {
+  <div class="plan-state">
+    <h2>{{ plan!.clarifyingQuestion!.prompt }}</h2>
+
+    <div class="deployment-choices">
+      @for (option of plan!.clarifyingQuestion!.options; track option.id) {
+        <button type="button" class="deployment-choice" [disabled]="deploying" (click)="selectOption.emit(option.id)">
+          <strong>{{ option.label }}</strong>
+          @if (option.description) {
+            <span>{{ option.description }}</span>
+          }
+        </button>
+      }
+    </div>
+
+    <div class="nav">
+      <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
+      <button type="button" class="override-link" (click)="override.emit()">Change how this deploys</button>
+    </div>
+  </div>
+} @else {
+  <ng-content />
+}

@@ -1,5 +1,6 @@
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -14,69 +15,34 @@ public sealed partial class RailwayProvider
         var repo = RailwayApiSupport.NormalizeGitHubRepo(request.GitHubRepoFullName);
         var workspaceId = await ResolveWorkspaceIdAsync(credentials, cancellationToken);
 
-        const string createProjectMutation = """
-            mutation CreateProject($name: String!, $workspaceId: String!) {
-              projectCreate(input: { name: $name, workspaceId: $workspaceId }) {
-                id
-                environments {
-                  edges {
-                    node {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
-            """;
+        await using var gql = _graphQl.CreateSession(credentials);
 
-        using var projectDocument = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            createProjectMutation,
-            new { name = projectName, workspaceId },
-            cancellationToken);
-
-        var projectNode = projectDocument.RootElement
-            .GetProperty("data")
-            .GetProperty("projectCreate");
-        var projectId = projectNode.GetProperty("id").GetString()
+        var projectResult = await gql.Client.CreateProject.ExecuteAsync(projectName, workspaceId, cancellationToken);
+        var projectData = RailwayApiSupport.EnsureData(projectResult);
+        var projectNode = projectData.ProjectCreate;
+        var projectId = projectNode.Id
             ?? throw new InvalidOperationException("Railway returned an empty project id.");
-        var environmentId = GetPreferredEnvironmentId(projectNode)
+        var environmentId = RailwayGraphQlMapping.GetPreferredEnvironmentId(
+            RailwayGraphQlMapping.EnumerateEnvironmentEdges(
+                projectNode.Environments?.Edges,
+                edge => edge.Node is null ? null : (edge.Node.Id, edge.Node.Name)))
             ?? await FetchDefaultEnvironmentIdAsync(credentials, projectId, cancellationToken)
             ?? throw new InvalidOperationException("Railway did not return an environment for the new project.");
 
-        const string createServiceMutation = """
-            mutation CreateService($input: ServiceCreateInput!) {
-              serviceCreate(input: $input) {
-                id
-                name
-              }
-            }
-            """;
-
-        using var serviceDocument = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            createServiceMutation,
-            new
+        var serviceResult = await gql.Client.CreateService.ExecuteAsync(
+            new ServiceCreateInput
             {
-                input = new
-                {
-                    projectId,
-                    name = projectName,
-                    environmentId,
-                    source = new { repo }
-                }
+                ProjectId = projectId,
+                Name = projectName,
+                EnvironmentId = environmentId,
+                Source = new ServiceSourceInput { Repo = repo }
             },
             cancellationToken);
-
-        var serviceNode = serviceDocument.RootElement
-            .GetProperty("data")
-            .GetProperty("serviceCreate");
-        var serviceId = serviceNode.GetProperty("id").GetString()
+        var serviceData = RailwayApiSupport.EnsureData(serviceResult);
+        var serviceNode = serviceData.ServiceCreate;
+        var serviceId = serviceNode.Id
             ?? throw new InvalidOperationException("Railway returned an empty service id.");
-        var serviceName = serviceNode.GetProperty("name").GetString() ?? projectName;
+        var serviceName = serviceNode.Name ?? projectName;
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory) ||
             !string.IsNullOrWhiteSpace(request.BuildCommand) ||
@@ -117,34 +83,27 @@ public sealed partial class RailwayProvider
         string projectId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ProjectEnvironments($id: String!) {
-              project(id: $id) {
-                environments {
-                  edges {
-                    node {
-                      id
-                      name
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = projectId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("project", out var projectNode))
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ProjectEnvironments.ExecuteAsync(projectId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Project is null)
         {
             return null;
         }
 
-        return GetPreferredEnvironmentId(projectNode);
+        return RailwayGraphQlMapping.GetPreferredEnvironmentId(
+            RailwayGraphQlMapping.EnumerateEnvironmentEdges(
+                data.Project.Environments?.Edges,
+                edge => edge.Node is null ? null : (edge.Node.Id, edge.Node.Name)));
+    }
+
+    public async Task DeleteProjectAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeleteProject.ExecuteAsync(providerProjectId, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 }

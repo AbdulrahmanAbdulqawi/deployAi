@@ -1,0 +1,11 @@
+query WorkspaceProjectIds($workspaceId: String!) {
+  workspace(workspaceId: $workspaceId) {
+    projects {
+      edges {
+        node {
+          id
+        }
+      }
+    }
+  }
+}

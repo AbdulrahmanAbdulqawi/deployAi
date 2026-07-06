@@ -1,0 +1,17 @@
+<div class="toast-host" aria-live="polite" aria-atomic="true">
+  @for (message of toast.messages(); track message.id) {
+    <div class="toast" [class.toast--success]="message.type === 'success'" [class.toast--error]="message.type === 'error'">
+      @if (message.type === 'success') {
+        <app-ui-icon name="check" size="sm" statusClass="success" />
+      } @else if (message.type === 'error') {
+        <app-ui-icon name="alert" size="sm" statusClass="danger" />
+      } @else {
+        <app-ui-icon name="info" size="sm" statusClass="accent" />
+      }
+      <span>{{ message.text }}</span>
+      <button type="button" class="toast__dismiss" (click)="toast.dismiss(message.id)" aria-label="Dismiss">
+        <app-ui-icon name="x" size="sm" statusClass="muted" />
+      </button>
+    </div>
+  }
+</div>

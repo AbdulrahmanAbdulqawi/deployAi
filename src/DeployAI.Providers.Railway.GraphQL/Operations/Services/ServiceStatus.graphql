@@ -1,0 +1,16 @@
+query ServiceStatus($serviceId: String!) {
+  service(id: $serviceId) {
+    serviceInstances {
+      edges {
+        node {
+          environmentId
+          latestDeployment {
+            status
+            url
+            createdAt
+          }
+        }
+      }
+    }
+  }
+}

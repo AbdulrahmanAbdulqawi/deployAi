@@ -1,0 +1,3 @@
+mutation VariableUpsert($input: VariableUpsertInput!) {
+  variableUpsert(input: $input)
+}

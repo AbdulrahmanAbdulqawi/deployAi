@@ -1,28 +1,88 @@
-.picker { display: grid; gap: 0.75rem; }
-.breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; color: #6b7280; font-size: 0.875rem; }
-.crumb { background: none; border: none; color: #2563eb; cursor: pointer; padding: 0; font: inherit; }
-.current { color: #111827; font-weight: 500; }
-.sep { color: #9ca3af; }
-.folders { display: grid; gap: 0.5rem; max-height: 220px; overflow: auto; }
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.crumb {
+  background: none;
+  border: none;
+  color: var(--text-link);
+  cursor: pointer;
+  padding: var(--space-2) 0;
+  font: inherit;
+  min-height: 44px;
+}
+
+.current {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.sep {
+  color: var(--text-muted);
+}
+
+.folders {
+  display: grid;
+  gap: var(--space-2);
+  max-height: 240px;
+  overflow: auto;
+}
+
 .folder {
   text-align: left;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 0.625rem 0.875rem;
-  background: #fff;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-card);
   cursor: pointer;
+  min-height: 44px;
+
+  &:hover {
+    border-color: var(--status-accent);
+    background: var(--status-accent-bg);
+  }
 }
-.folder:hover { border-color: #2563eb; background: #eff6ff; }
-.actions { display: grid; gap: 0.5rem; }
-.secondary {
-  justify-self: start;
-  border-radius: 999px;
-  padding: 0.5rem 1rem;
-  font-weight: 600;
-  background: #fff;
-  border: 1px solid #d1d5db;
+
+.toolbar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.toolbar button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-card);
   cursor: pointer;
+  min-height: 44px;
 }
-.selected { margin: 0; color: #15803d; font-size: 0.875rem; }
-.muted { color: #6b7280; margin: 0; }
-.error { color: #b91c1c; margin: 0; }
+
+.selected {
+  margin: 0;
+  color: var(--status-success);
+  font-size: 0.875rem;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-danger);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.picker .actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

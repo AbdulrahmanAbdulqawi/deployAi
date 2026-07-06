@@ -7,6 +7,7 @@ public static class DeploymentStatuses
     public const string Success = "success";
     public const string Failed = "failed";
     public const string Partial = "partial";
+    public const string Cancelled = "cancelled";
 }
 
 public class Deployment

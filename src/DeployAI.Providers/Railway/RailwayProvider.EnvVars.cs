@@ -1,5 +1,5 @@
-using System.Text.Json;
 using DeployAI.Core.Providers;
+using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
@@ -13,33 +13,18 @@ public sealed partial class RailwayProvider
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
         var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
 
-        const string query = """
-            query Variables($projectId: String!, $environmentId: String!, $serviceId: String!) {
-              variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { projectId, environmentId, serviceId },
-            cancellationToken);
-
-        var variablesNode = document.RootElement.GetProperty("data").GetProperty("variables");
-        if (variablesNode.ValueKind != JsonValueKind.Object)
-        {
-            return [];
-        }
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.GetVariables.ExecuteAsync(projectId, environmentId, serviceId, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        var variables = RailwayGraphQlMapping.ParseVariablesJson(data.Variables);
 
         var envVars = new List<ProviderEnvVar>();
-        foreach (var property in variablesNode.EnumerateObject())
+        foreach (var (name, value) in variables)
         {
-            var value = property.Value.GetString();
-            var isSecret = RailwayApiSupport.LooksLikeSecret(property.Name, value);
+            var isSecret = RailwayApiSupport.LooksLikeSecret(name, value);
             envVars.Add(new ProviderEnvVar(
-                property.Name,
-                property.Name,
+                name,
+                name,
                 isSecret ? null : value,
                 "plain",
                 [],
@@ -58,29 +43,19 @@ public sealed partial class RailwayProvider
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
         var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
 
-        const string mutation = """
-            mutation VariableUpsert($input: VariableUpsertInput!) {
-              variableUpsert(input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.VariableUpsert.ExecuteAsync(
+            new VariableUpsertInput
             {
-                input = new
-                {
-                    projectId,
-                    environmentId,
-                    serviceId,
-                    name = request.Key,
-                    value = request.Value,
-                    skipDeploys = true
-                }
+                ProjectId = projectId,
+                EnvironmentId = environmentId,
+                ServiceId = serviceId,
+                Name = request.Key,
+                Value = request.Value,
+                SkipDeploys = true
             },
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
 
         return new ProviderEnvVar(
             request.Key,
@@ -100,27 +75,17 @@ public sealed partial class RailwayProvider
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
         var projectId = await GetProjectIdForServiceAsync(credentials, serviceId, cancellationToken);
 
-        const string mutation = """
-            mutation VariableDelete($input: VariableDeleteInput!) {
-              variableDelete(input: $input)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.VariableDelete.ExecuteAsync(
+            new VariableDeleteInput
             {
-                input = new
-                {
-                    projectId,
-                    environmentId,
-                    serviceId,
-                    name = envVarId
-                }
+                ProjectId = projectId,
+                EnvironmentId = environmentId,
+                ServiceId = serviceId,
+                Name = envVarId
             },
             cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private async Task<string> GetProjectIdForServiceAsync(
@@ -128,26 +93,10 @@ public sealed partial class RailwayProvider
         string serviceId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ServiceProject($id: String!) {
-              service(id: $id) {
-                projectId
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = serviceId },
-            cancellationToken);
-
-        var projectId = document.RootElement
-            .GetProperty("data")
-            .GetProperty("service")
-            .GetProperty("projectId")
-            .GetString();
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ServiceProject.ExecuteAsync(serviceId, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        var projectId = data.Service.ProjectId;
 
         if (string.IsNullOrWhiteSpace(projectId))
         {
@@ -164,26 +113,10 @@ public sealed partial class RailwayProvider
         string serviceId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query ServiceContext($id: String!) {
-              service(id: $id) {
-                projectId
-                project {
-                  workspaceId
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = serviceId },
-            cancellationToken);
-
-        var serviceNode = document.RootElement.GetProperty("data").GetProperty("service");
-        var projectId = serviceNode.GetProperty("projectId").GetString();
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ServiceContext.ExecuteAsync(serviceId, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        var projectId = data.Service.ProjectId;
         if (string.IsNullOrWhiteSpace(projectId))
         {
             throw new DeployAI.Core.Exceptions.DeployAIException(
@@ -191,13 +124,6 @@ public sealed partial class RailwayProvider
                 "Could not resolve the Railway project for this service.");
         }
 
-        string? workspaceId = null;
-        if (serviceNode.TryGetProperty("project", out var projectNode) &&
-            projectNode.TryGetProperty("workspaceId", out var workspaceNode))
-        {
-            workspaceId = workspaceNode.GetString();
-        }
-
-        return (projectId, workspaceId);
+        return (projectId, data.Service.Project?.WorkspaceId);
     }
 }

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
@@ -12,79 +11,38 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
     {
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
 
-        const string query = """
-            query ServiceStatus($serviceId: String!, $environmentId: String!) {
-              service(id: $serviceId) {
-                serviceInstances {
-                  edges {
-                    node {
-                      environmentId
-                      latestDeployment {
-                        status
-                        url
-                        createdAt
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { serviceId, environmentId },
-            cancellationToken);
-
-        if (!document.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("service", out var serviceNode))
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.ServiceStatus.ExecuteAsync(serviceId, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => false);
+        if (data?.Service?.ServiceInstances?.Edges is null)
         {
             return new ProviderServiceStatus("unknown", null, null);
         }
 
-        if (!serviceNode.TryGetProperty("serviceInstances", out var instancesNode) ||
-            !instancesNode.TryGetProperty("edges", out var edges) ||
-            edges.ValueKind != JsonValueKind.Array)
+        foreach (var edge in data.Service.ServiceInstances.Edges)
         {
-            return new ProviderServiceStatus("unknown", null, null);
-        }
-
-        foreach (var edge in edges.EnumerateArray())
-        {
-            if (!edge.TryGetProperty("node", out var node))
+            var node = edge.Node;
+            if (node is null)
             {
                 continue;
             }
 
-            var instanceEnvironmentId = node.TryGetProperty("environmentId", out var envNode)
-                ? envNode.GetString()
-                : null;
-            if (!string.Equals(instanceEnvironmentId, environmentId, StringComparison.Ordinal))
+            if (!string.Equals(node.EnvironmentId, environmentId, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            if (!node.TryGetProperty("latestDeployment", out var deploymentNode) ||
-                deploymentNode.ValueKind == JsonValueKind.Null)
+            var deployment = node.LatestDeployment;
+            if (deployment is null)
             {
                 return new ProviderServiceStatus("not_deployed", null, null);
             }
 
-            var status = deploymentNode.TryGetProperty("status", out var statusNode)
-                ? statusNode.GetString()?.ToLowerInvariant() ?? "unknown"
-                : "unknown";
-            var url = deploymentNode.TryGetProperty("url", out var urlNode) ? urlNode.GetString() : null;
-            DateTimeOffset? lastDeployedAt = null;
-            if (deploymentNode.TryGetProperty("createdAt", out var createdAtNode) &&
-                createdAtNode.ValueKind == JsonValueKind.String &&
-                DateTimeOffset.TryParse(createdAtNode.GetString(), out var parsed))
-            {
-                lastDeployedAt = parsed;
-            }
+            var status = RailwayGraphQlMapping.MapServiceDeploymentStatus(deployment.Status);
+            var url = deployment.Url;
+            DateTimeOffset? lastDeployedAt = deployment.CreatedAt;
 
-            return new ProviderServiceStatus(MapServiceStatus(status), url, lastDeployedAt);
+            return new ProviderServiceStatus(status, url, lastDeployedAt);
         }
 
         return new ProviderServiceStatus("unknown", null, null);
@@ -118,18 +76,9 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
             await DeleteVolumeAsync(credentials, volume.VolumeId, cancellationToken);
         }
 
-        const string mutation = """
-            mutation DeleteService($serviceId: String!) {
-              serviceDelete(id: $serviceId)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { serviceId },
-            cancellationToken);
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeleteService.ExecuteAsync(serviceId, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
     private async Task DeleteVolumeAsync(
@@ -137,26 +86,18 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
         string volumeId,
         CancellationToken cancellationToken)
     {
-        const string mutation = """
-            mutation DeleteVolume($volumeId: String!) {
-              volumeDelete(volumeId: $volumeId)
-            }
-            """;
-
-        await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { volumeId },
-            cancellationToken);
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeleteVolume.ExecuteAsync(volumeId, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
     }
 
-    private static string MapServiceStatus(string status) =>
-        status switch
-        {
-            "success" or "succeeded" or "active" or "running" => "running",
-            "failed" or "crashed" or "removed" => "failed",
-            "building" or "deploying" or "initializing" or "queued" => "deploying",
-            _ => status
-        };
+    public async Task RollbackDeploymentAsync(
+        ProviderCredentials credentials,
+        string providerDeploymentId,
+        CancellationToken cancellationToken)
+    {
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeploymentRollback.ExecuteAsync(providerDeploymentId, cancellationToken);
+        RailwayApiSupport.EnsureSuccess(result);
+    }
 }

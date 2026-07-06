@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 
@@ -6,11 +5,11 @@ namespace DeployAI.Providers.Railway;
 
 public sealed partial class RailwayProvider : IDeploymentProvider, IProviderManagement
 {
-    private readonly HttpClient _httpClient;
+    private readonly RailwayGraphQlClientFactory _graphQl;
 
-    public RailwayProvider(HttpClient httpClient)
+    public RailwayProvider(RailwayGraphQlClientFactory graphQl)
     {
-        _httpClient = httpClient;
+        _graphQl = graphQl;
     }
 
     public string ProviderName => "railway";
@@ -21,14 +20,10 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
     {
         try
         {
-            using var document = await RailwayApiSupport.ExecuteAsync(
-                _httpClient,
-                credentials.Token,
-                "query { me { id } }",
-                null,
-                cancellationToken);
-            return document.RootElement.GetProperty("data").TryGetProperty("me", out var me) &&
-                   me.TryGetProperty("id", out _);
+            await using var gql = _graphQl.CreateSession(credentials);
+            var result = await gql.Client.Me.ExecuteAsync(cancellationToken);
+            var data = RailwayApiSupport.EnsureData(result);
+            return !string.IsNullOrWhiteSpace(data.Me.Id);
         }
         catch (DeployAIException)
         {
@@ -70,23 +65,14 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         environment.TryGetValue("commitSha", out var commitSha);
         var hasCommitSha = !string.IsNullOrWhiteSpace(commitSha);
 
-        const string mutation = """
-            mutation Deploy($serviceId: String!, $environmentId: String!, $commitSha: String) {
-              serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha)
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            mutation,
-            new { serviceId, environmentId, commitSha = hasCommitSha ? commitSha : null },
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeployService.ExecuteAsync(
+            serviceId,
+            environmentId,
+            hasCommitSha ? commitSha : null,
             cancellationToken);
-
-        var deploymentId = document.RootElement
-            .GetProperty("data")
-            .GetProperty("serviceInstanceDeployV2")
-            .GetString();
+        var data = RailwayApiSupport.EnsureData(result);
+        var deploymentId = data.ServiceInstanceDeployV2;
 
         if (string.IsNullOrWhiteSpace(deploymentId))
         {
@@ -101,100 +87,9 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         string deploymentId,
         CancellationToken cancellationToken)
     {
-        const string query = """
-            query DeploymentStatus($id: String!) {
-              deployment(id: $id) {
-                id
-                status
-                url
-              }
-            }
-            """;
-
-        using var document = await RailwayApiSupport.ExecuteAsync(
-            _httpClient,
-            credentials.Token,
-            query,
-            new { id = deploymentId },
-            cancellationToken);
-
-        var deployment = document.RootElement.GetProperty("data").GetProperty("deployment");
-        var status = deployment.GetProperty("status").GetString()?.ToUpperInvariant();
-        var url = deployment.TryGetProperty("url", out var urlNode) ? urlNode.GetString() : null;
-
-        return status switch
-        {
-            "SUCCESS" or "SUCCEEDED" or "ACTIVE" => new DeploymentStatus(DeploymentStatusKind.Success, url, null),
-            "FAILED" or "CRASHED" or "REMOVED" => new DeploymentStatus(
-                DeploymentStatusKind.Failed,
-                null,
-                "Publishing did not go through on Railway."),
-            "BUILDING" or "DEPLOYING" or "INITIALIZING" or "QUEUED" =>
-                new DeploymentStatus(DeploymentStatusKind.InProgress, null, null),
-            _ => new DeploymentStatus(DeploymentStatusKind.InProgress, null, null)
-        };
-    }
-
-    private static string? GetPreferredEnvironmentId(JsonElement projectNode)
-    {
-        string? fallback = null;
-        foreach (var (environmentId, environmentName) in EnumerateEnvironments(projectNode))
-        {
-            fallback ??= environmentId;
-            if (string.Equals(environmentName, "production", StringComparison.OrdinalIgnoreCase))
-            {
-                return environmentId;
-            }
-        }
-
-        return fallback;
-    }
-
-    private static IEnumerable<(string Id, string? Name)> EnumerateEnvironments(JsonElement projectNode)
-    {
-        if (!projectNode.TryGetProperty("environments", out var environmentsNode))
-        {
-            yield break;
-        }
-
-        if (environmentsNode.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var environment in environmentsNode.EnumerateArray())
-            {
-                var environmentId = environment.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-                if (string.IsNullOrWhiteSpace(environmentId))
-                {
-                    continue;
-                }
-
-                var environmentName = environment.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : null;
-                yield return (environmentId, environmentName);
-            }
-
-            yield break;
-        }
-
-        if (!environmentsNode.TryGetProperty("edges", out var edges) ||
-            edges.ValueKind != JsonValueKind.Array)
-        {
-            yield break;
-        }
-
-        foreach (var environmentEdge in edges.EnumerateArray())
-        {
-            if (!environmentEdge.TryGetProperty("node", out var environmentNode))
-            {
-                continue;
-            }
-
-            var environmentId = environmentNode.TryGetProperty("id", out var idNode) ? idNode.GetString() : null;
-            if (string.IsNullOrWhiteSpace(environmentId))
-            {
-                continue;
-            }
-
-            var environmentName = environmentNode.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : null;
-            yield return (environmentId, environmentName);
-        }
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeploymentStatus.ExecuteAsync(deploymentId, cancellationToken);
+        var data = RailwayApiSupport.EnsureData(result);
+        return RailwayGraphQlMapping.MapDeploymentStatus(data.Deployment.Status, data.Deployment.Url);
     }
 }

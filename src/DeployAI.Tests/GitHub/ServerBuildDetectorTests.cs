@@ -85,6 +85,46 @@ public class ServerBuildDetectorTests
     }
 
     [Fact]
+    public void Detect_UsesPython_WhenRequirementsTxtPresent()
+    {
+        const string requirements = "fastapi\nuvicorn";
+
+        var profile = _detector.Detect("api", false, null, null, null, requirements);
+
+        Assert.Equal("python", profile.Framework);
+        Assert.Equal("pip install -r requirements.txt", profile.InstallCommand);
+        Assert.Contains("uvicorn", profile.StartCommand, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Detect_UsesGo_WhenGoModPresent()
+    {
+        const string goMod = "module example.com/app\ngo 1.22";
+
+        var profile = _detector.Detect("api", false, null, null, null, null, null, goMod);
+
+        Assert.Equal("go", profile.Framework);
+        Assert.Equal("go build -o app .", profile.BuildCommand);
+        Assert.Equal("./app", profile.StartCommand);
+    }
+
+    [Fact]
+    public void Detect_UsesRust_WhenCargoTomlPresent()
+    {
+        const string cargo = """
+            [package]
+            name = "deployai"
+            version = "0.1.0"
+            """;
+
+        var profile = _detector.Detect("api", false, null, null, null, null, null, null, cargo);
+
+        Assert.Equal("rust", profile.Framework);
+        Assert.Equal("cargo build --release", profile.BuildCommand);
+        Assert.Equal("./target/release/deployai", profile.StartCommand);
+    }
+
+    [Fact]
     public void Detect_ReturnsNoFramework_ForAngularPackageJson()
     {
         const string packageJson = """

@@ -1,0 +1,30 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore src/DeployAI.Tests/DeployAI.Tests.csproj
+
+      - name: Validate Railway GraphQL operations against schema
+        run: dotnet build src/DeployAI.Providers.Railway.GraphQL/DeployAI.Providers.Railway.GraphQL.csproj --no-restore
+
+      - name: Build
+        run: dotnet build src/DeployAI.Tests/DeployAI.Tests.csproj --no-restore
+
+      - name: Test
+        run: dotnet test src/DeployAI.Tests/DeployAI.Tests.csproj --no-build --verbosity normal

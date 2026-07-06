@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DeployAI.Core\DeployAI.Core.csproj" />
     <ProjectReference Include="..\DeployAI.Infrastructure\DeployAI.Infrastructure.csproj" />
+    <ProjectReference Include="..\DeployAI.Providers.Railway.GraphQL\DeployAI.Providers.Railway.GraphQL.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -14,5 +15,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DeployAI.Tests" />
+  </ItemGroup>
 
 </Project>
