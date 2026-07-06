@@ -1,12 +1,13 @@
-import { Component, Input } from '@angular/core';
+import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { StatusBadgeComponent } from '../status-badge/status-badge.component';
 import { ButtonComponent } from '../ui/button/button.component';
 import { IconComponent } from '../ui/icon/icon.component';
+import { LiveLogPanelComponent, ActivityLine } from '../live-log-panel/live-log-panel.component';
 
 @Component({
   selector: 'app-provider-status-card',
   standalone: true,
-  imports: [StatusBadgeComponent, ButtonComponent, IconComponent],
+  imports: [StatusBadgeComponent, ButtonComponent, IconComponent, LiveLogPanelComponent],
   templateUrl: './provider-status-card.component.html',
   styleUrl: './provider-status-card.component.scss'
 })
@@ -17,7 +18,14 @@ export class ProviderStatusCardComponent {
   @Input() deployUrl?: string;
   @Input() startedAt?: string;
   @Input() showProviderName = true;
-  @Input() showFailureDetails = false;
+  @Input() expanded = false;
+  @Input() lines: ActivityLine[] = [];
+  @Input() connecting = false;
+  @Input() canRedeploy = false;
+  @Input() redeploying = false;
+
+  @Output() expandedChange = new EventEmitter<boolean>();
+  @Output() redeploy = new EventEmitter<void>();
 
   get elapsedLabel(): string {
     if (!this.startedAt || this.status !== 'in_progress') {
@@ -32,7 +40,16 @@ export class ProviderStatusCardComponent {
     return `Working… ${minutes}m`;
   }
 
-  toggleFailureDetails(): void {
-    this.showFailureDetails = !this.showFailureDetails;
+  get providerDisplayName(): string {
+    return this.providerName === 'vercel' ? 'Vercel' : 'Railway';
+  }
+
+  toggleExpanded(): void {
+    this.expandedChange.emit(!this.expanded);
+  }
+
+  onRedeploy(event: Event): void {
+    event.stopPropagation();
+    this.redeploy.emit();
   }
 }

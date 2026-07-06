@@ -30,6 +30,11 @@
           <h2>Replay</h2>
           <app-ui-button variant="quiet" icon="x" (click)="closeReplay()">Close</app-ui-button>
         </div>
+
+        @if (redeployMessage()) {
+          <p class="notice">{{ redeployMessage() }}</p>
+        }
+
         <div class="targets">
           @for (target of deploymentStore.deployment()!.targets; track target.id) {
             <app-provider-status-card
@@ -38,14 +43,16 @@
               [status]="target.status"
               [deployUrl]="target.deployUrl"
               [startedAt]="target.startedAt"
+              [expanded]="isExpanded(target.id)"
+              [lines]="linesForProvider(target.providerName)"
+              [connecting]="deploymentStore.connectingLogs()"
+              [canRedeploy]="canRedeployTarget(target)"
+              [redeploying]="isRedeploying(target.id)"
+              (expandedChange)="setTargetExpanded(target.id, $event)"
+              (redeploy)="redeployTarget(target)"
             />
           }
         </div>
-        <app-live-log-panel
-          [lines]="deploymentStore.activity()"
-          [connecting]="deploymentStore.connectingLogs()"
-          [readOnly]="true"
-        />
       </section>
     }
   }

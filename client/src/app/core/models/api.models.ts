@@ -211,6 +211,7 @@ export interface DeploymentDetail {
   completedAt?: string;
   targets: {
     id: string;
+    deployTargetId: string;
     providerName: string;
     status: string;
     deployUrl?: string;

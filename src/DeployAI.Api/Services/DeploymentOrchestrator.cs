@@ -231,7 +231,7 @@ public sealed class DeploymentJobRunner
         {
             if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
             {
-                await _frontendEnvironmentWiring.WireApiUrlForWebsiteTargetAsync(
+                await _frontendEnvironmentWiring.WireWebsiteTargetBeforeDeployAsync(
                     deployment.Id,
                     target,
                     cancellationToken);
@@ -304,6 +304,24 @@ public sealed class DeploymentJobRunner
             {
                 sequence++;
                 await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, status.ErrorMessage!, cancellationToken);
+            }
+
+            if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+                target.Status == DeploymentStatuses.Success)
+            {
+                await _frontendEnvironmentWiring.WireServerTargetAfterWebsiteDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+
+                var verificationMessages = await _frontendEnvironmentWiring.VerifyWiredEndpointsAsync(
+                    deployment.Id,
+                    cancellationToken);
+                foreach (var message in verificationMessages)
+                {
+                    sequence++;
+                    await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, message, cancellationToken);
+                }
             }
         }
         catch (Exception ex)

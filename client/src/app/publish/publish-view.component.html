@@ -14,6 +14,10 @@
       <app-status-badge [status]="store.overallStatus()" [live]="!store.isComplete()" />
     </header>
 
+    @if (redeployMessage()) {
+      <p class="notice">{{ redeployMessage() }}</p>
+    }
+
     @if (store.isComplete() && store.overallStatus() === 'success') {
       <div class="celebration" role="status" aria-live="polite">
         <app-ui-icon name="check" statusClass="success" />
@@ -50,6 +54,13 @@
             [deployUrl]="target.deployUrl"
             [startedAt]="target.startedAt"
             [showProviderName]="false"
+            [expanded]="isExpanded(target.id)"
+            [lines]="linesForProvider(target.providerName)"
+            [connecting]="store.connectingLogs()"
+            [canRedeploy]="canRedeployTarget(target)"
+            [redeploying]="isRedeploying(target.id)"
+            (expandedChange)="setTargetExpanded(target.id, $event)"
+            (redeploy)="redeployTarget(target)"
           />
         }
       </div>
@@ -60,10 +71,5 @@
         {{ showDetails() ? 'Hide details' : 'See details' }}
       </app-ui-button>
     }
-
-    <app-live-log-panel
-      [lines]="store.activity()"
-      [connecting]="store.connectingLogs()"
-    />
   </section>
 }
