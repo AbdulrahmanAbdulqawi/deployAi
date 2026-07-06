@@ -18,7 +18,8 @@ public sealed partial class RailwayProvider
 
         if (hasMonorepoDockerfile)
         {
-            input["rootDirectory"] = ".";
+            var (dockerRootDirectory, _) = ResolveDockerBuildPaths(environment);
+            input["rootDirectory"] = dockerRootDirectory;
         }
         else if (isDocker || environment.TryGetValue("rootDirectory", out var rootDirectory))
         {
@@ -92,6 +93,29 @@ public sealed partial class RailwayProvider
     private static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request) =>
         BuildSettingsFromEnvironment(BuildEnvironmentFromCreateRequest(request));
 
+    private static (string RootDirectory, string? DockerfilePath) ResolveDockerBuildPaths(
+        IReadOnlyDictionary<string, string> environment)
+    {
+        environment.TryGetValue("dockerfilePath", out var dockerfilePath);
+        environment.TryGetValue("serviceDirectory", out var serviceDirectory);
+
+        var normalizedDockerfilePath = dockerfilePath?.Trim().Trim('/') ?? string.Empty;
+        var normalizedServiceDirectory = serviceDirectory?.Trim().Trim('/') ?? string.Empty;
+
+        if (!string.IsNullOrEmpty(normalizedServiceDirectory) &&
+            string.Equals(
+                normalizedDockerfilePath,
+                $"{normalizedServiceDirectory}/Dockerfile",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return (normalizedServiceDirectory, "Dockerfile");
+        }
+
+        return (
+            ResolveRootDirectory(environment),
+            string.IsNullOrWhiteSpace(normalizedDockerfilePath) ? null : normalizedDockerfilePath);
+    }
+
     private static string ResolveRootDirectory(IReadOnlyDictionary<string, string> environment)
     {
         if (!environment.TryGetValue("rootDirectory", out var rootDirectory) ||
@@ -141,15 +165,15 @@ public sealed partial class RailwayProvider
             await ApplyServiceSettingsAsync(credentials, serviceId, environmentId, settings, cancellationToken);
         }
 
-        if (environment.TryGetValue("dockerfilePath", out var dockerfilePath) &&
-            !string.IsNullOrWhiteSpace(dockerfilePath))
+        var (_, resolvedDockerfilePath) = ResolveDockerBuildPaths(environment);
+        if (!string.IsNullOrWhiteSpace(resolvedDockerfilePath))
         {
             await EnsureServiceVariableAsync(
                 credentials,
                 serviceId,
                 environmentId,
                 DockerfilePathVariable,
-                dockerfilePath.Trim().Trim('/'),
+                resolvedDockerfilePath,
                 cancellationToken);
         }
     }

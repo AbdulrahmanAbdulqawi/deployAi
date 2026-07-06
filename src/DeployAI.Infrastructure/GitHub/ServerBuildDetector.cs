@@ -34,19 +34,22 @@ public sealed class ServerBuildDetector : IServerBuildDetector
 
         if (hasDockerfile)
         {
-            if (DockerfileBuildAnalyzer.RequiresRepositoryRoot(dockerfileContent, normalizedRoot))
-            {
-                return new ServerBuildProfile(
-                    string.Empty,
-                    null,
-                    null,
-                    null,
-                    "docker",
-                    DockerfileBuildAnalyzer.BuildDockerfilePath(normalizedRoot),
-                    normalizedRoot);
-            }
+            var layout = DockerfileBuildAnalyzer.ResolveDockerBuildLayout(dockerfileContent, normalizedRoot);
+            var profileRootDirectory = string.Equals(layout.RootDirectory, ".", StringComparison.Ordinal)
+                ? string.Empty
+                : layout.RootDirectory;
+            var dockerfilePath = string.Equals(layout.RootDirectory, ".", StringComparison.Ordinal)
+                ? layout.DockerfilePath
+                : null;
 
-            return new ServerBuildProfile(normalizedRoot, null, null, null, "docker", null, normalizedRoot);
+            return new ServerBuildProfile(
+                profileRootDirectory,
+                null,
+                null,
+                null,
+                "docker",
+                dockerfilePath,
+                normalizedRoot);
         }
 
         if (!string.IsNullOrWhiteSpace(csprojContent))

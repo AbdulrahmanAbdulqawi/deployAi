@@ -4,46 +4,50 @@ namespace DeployAI.Infrastructure.GitHub;
 
 public static partial class DockerfileBuildAnalyzer
 {
-    public static bool RequiresRepositoryRoot(string? dockerfileContent, string serviceDirectory)
+    public readonly record struct DockerBuildLayout(string RootDirectory, string DockerfilePath);
+
+    public static bool RequiresRepositoryRoot(string? dockerfileContent, string serviceDirectory) =>
+        string.Equals(
+            ResolveDockerBuildLayout(dockerfileContent, serviceDirectory).RootDirectory,
+            ".",
+            StringComparison.Ordinal);
+
+    public static DockerBuildLayout ResolveDockerBuildLayout(string? dockerfileContent, string serviceDirectory)
     {
+        var normalizedServiceDirectory = NormalizeDirectory(serviceDirectory);
+
         if (string.IsNullOrWhiteSpace(dockerfileContent))
         {
-            return false;
+            return ServiceDirectoryLayout(normalizedServiceDirectory);
         }
 
-        var normalizedServiceDirectory = NormalizeDirectory(serviceDirectory);
         foreach (var sourcePath in ExtractCopySourcePaths(dockerfileContent))
         {
             if (sourcePath.Contains("../", StringComparison.Ordinal))
             {
-                return true;
-            }
-
-            if (!sourcePath.Contains('/', StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            var firstSegment = sourcePath.Split('/', StringSplitOptions.RemoveEmptyEntries)[0];
-            if (string.Equals(firstSegment, ".", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (!string.IsNullOrEmpty(normalizedServiceDirectory) &&
-                string.Equals(firstSegment, normalizedServiceDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            if (!string.IsNullOrEmpty(normalizedServiceDirectory) &&
-                !string.Equals(firstSegment, normalizedServiceDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
+                return RepositoryRootLayout(normalizedServiceDirectory);
             }
         }
 
-        return false;
+        var copySegments = ExtractCopySourcePaths(dockerfileContent)
+            .Select(GetFirstPathSegment)
+            .Where(segment => !string.IsNullOrEmpty(segment) && !string.Equals(segment, ".", StringComparison.Ordinal))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (copySegments.Count == 0)
+        {
+            return ServiceDirectoryLayout(normalizedServiceDirectory);
+        }
+
+        if (!string.IsNullOrEmpty(normalizedServiceDirectory) &&
+            copySegments.Any(segment =>
+                string.Equals(segment, normalizedServiceDirectory, StringComparison.OrdinalIgnoreCase)))
+        {
+            return RepositoryRootLayout(normalizedServiceDirectory);
+        }
+
+        return ServiceDirectoryLayout(normalizedServiceDirectory);
     }
 
     public static string BuildDockerfilePath(string serviceDirectory) =>
@@ -75,6 +79,24 @@ public static partial class DockerfileBuildAnalyzer
                 yield return tokens[1].Trim('"', '\'');
             }
         }
+    }
+
+    private static DockerBuildLayout RepositoryRootLayout(string normalizedServiceDirectory) =>
+        new(".", BuildDockerfilePath(normalizedServiceDirectory));
+
+    private static DockerBuildLayout ServiceDirectoryLayout(string normalizedServiceDirectory) =>
+        new(
+            string.IsNullOrEmpty(normalizedServiceDirectory) ? "." : normalizedServiceDirectory,
+            "Dockerfile");
+
+    private static string GetFirstPathSegment(string sourcePath)
+    {
+        if (!sourcePath.Contains('/', StringComparison.Ordinal))
+        {
+            return sourcePath;
+        }
+
+        return sourcePath.Split('/', StringSplitOptions.RemoveEmptyEntries)[0];
     }
 
     private static string NormalizeDirectory(string directory) =>

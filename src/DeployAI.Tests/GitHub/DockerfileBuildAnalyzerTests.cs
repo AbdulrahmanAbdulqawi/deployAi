@@ -39,4 +39,31 @@ public class DockerfileBuildAnalyzerTests
     {
         Assert.Equal("iDaara.Server/Dockerfile", DockerfileBuildAnalyzer.BuildDockerfilePath("iDaara.Server"));
     }
+
+    [Fact]
+    public void ResolveDockerBuildLayout_UsesRepositoryRoot_ForCrossFolderMonorepoDockerfile()
+    {
+        var layout = DockerfileBuildAnalyzer.ResolveDockerBuildLayout(MonorepoDockerfile, "iDaara.Server");
+
+        Assert.Equal(".", layout.RootDirectory);
+        Assert.Equal("iDaara.Server/Dockerfile", layout.DockerfilePath);
+    }
+
+    [Fact]
+    public void ResolveDockerBuildLayout_UsesServiceDirectory_ForNestedSolutionDockerfile()
+    {
+        const string dockerfile = """
+            FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+            WORKDIR /app
+            COPY DeployAI.Api/DeployAI.Api.csproj DeployAI.Api/
+            COPY DeployAI.Providers/DeployAI.Providers.csproj DeployAI.Providers/
+            COPY . .
+            RUN dotnet publish DeployAI.Api/DeployAI.Api.csproj -c Release -o out
+            """;
+
+        var layout = DockerfileBuildAnalyzer.ResolveDockerBuildLayout(dockerfile, "src");
+
+        Assert.Equal("src", layout.RootDirectory);
+        Assert.Equal("Dockerfile", layout.DockerfilePath);
+    }
 }

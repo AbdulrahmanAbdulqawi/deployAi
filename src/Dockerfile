@@ -6,6 +6,7 @@ COPY DeployAI.Core/DeployAI.Core.csproj DeployAI.Core/
 COPY DeployAI.Data/DeployAI.Data.csproj DeployAI.Data/
 COPY DeployAI.Infrastructure/DeployAI.Infrastructure.csproj DeployAI.Infrastructure/
 COPY DeployAI.Providers/DeployAI.Providers.csproj DeployAI.Providers/
+COPY DeployAI.Providers.Railway.GraphQL/DeployAI.Providers.Railway.GraphQL.csproj DeployAI.Providers.Railway.GraphQL/
 
 RUN dotnet restore DeployAI.Api/DeployAI.Api.csproj
 

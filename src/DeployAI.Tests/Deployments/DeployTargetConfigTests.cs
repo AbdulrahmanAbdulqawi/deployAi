@@ -58,4 +58,30 @@ public class DeployTargetConfigTests
         var entries = config.ToEnvironmentEntries();
         Assert.Equal("dotnet run", entries["startCommand"]);
     }
+
+    [Fact]
+    public void ToEnvironmentEntries_PreservesDockerRootDirectory()
+    {
+        var config = DeployTargetConfig.FromServerProfile(
+            new ServerBuildProfile("src", null, null, null, "docker", null, "src"),
+            "server");
+
+        var entries = config.ToEnvironmentEntries();
+
+        Assert.Equal("src", entries["rootDirectory"]);
+        Assert.False(entries.ContainsKey("dockerfilePath"));
+    }
+
+    [Fact]
+    public void ToEnvironmentEntries_UsesRepositoryRoot_ForCrossFolderDockerfile()
+    {
+        var config = DeployTargetConfig.FromServerProfile(
+            new ServerBuildProfile(string.Empty, null, null, null, "docker", "iDaara.Server/Dockerfile", "iDaara.Server"),
+            "server");
+
+        var entries = config.ToEnvironmentEntries();
+
+        Assert.Equal(".", entries["rootDirectory"]);
+        Assert.Equal("iDaara.Server/Dockerfile", entries["dockerfilePath"]);
+    }
 }

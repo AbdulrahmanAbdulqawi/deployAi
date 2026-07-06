@@ -478,6 +478,70 @@ public class RailwayProviderContractTests
     }
 
     [Fact]
+    public async Task TriggerDeploymentAsync_NormalizesNestedDockerfilePath_ToServiceRoot()
+    {
+        string? updateBody = null;
+        string? variableBody = null;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
+                {
+                    updateBody = body;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
+                    };
+                }
+
+                if (body.Contains("variableUpsert", StringComparison.Ordinal))
+                {
+                    variableBody = body;
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""{"data":{"variableUpsert":true}}""")
+                    };
+                }
+
+                if (body.Contains("ServiceProject", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""{"data":{"service":{"projectId":"proj_1"}}}""")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.TriggerDeploymentAsync(
+            new ProviderCredentials("token"),
+            "svc_1|env_1",
+            "main",
+            new Dictionary<string, string>
+            {
+                ["framework"] = "docker",
+                ["dockerfilePath"] = "src/Dockerfile",
+                ["serviceDirectory"] = "src",
+                ["rootDirectory"] = "."
+            },
+            CancellationToken.None);
+
+        Assert.NotNull(updateBody);
+        Assert.Contains("\"rootDirectory\":\"src\"", updateBody, StringComparison.Ordinal);
+        Assert.NotNull(variableBody);
+        Assert.Contains("RAILWAY_DOCKERFILE_PATH", variableBody, StringComparison.Ordinal);
+        Assert.Contains("Dockerfile", variableBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("src/Dockerfile", variableBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GetStatusAsync_MapsSuccess()
     {
         var handler = new MockHttpMessageHandler();

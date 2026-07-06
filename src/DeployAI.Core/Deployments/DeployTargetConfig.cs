@@ -113,13 +113,10 @@ public sealed class DeployTargetConfig
         AddEntry(entries, "dockerfilePath", DockerfilePath?.Trim().Trim('/'));
         AddEntry(entries, "serviceDirectory", ServiceDirectory?.Trim().Trim('/'));
 
-        if (!string.IsNullOrWhiteSpace(DockerfilePath))
+        AddEntry(entries, "rootDirectory", RootDirectory?.Trim().Trim('/'));
+        if (!entries.ContainsKey("rootDirectory") && !string.IsNullOrWhiteSpace(DockerfilePath))
         {
             entries["rootDirectory"] = ".";
-        }
-        else
-        {
-            AddEntry(entries, "rootDirectory", RootDirectory?.Trim().Trim('/'));
         }
 
         AddEntry(entries, "outputDirectory", OutputDirectory?.Trim().Trim('/'));

@@ -33,6 +33,23 @@ public class ServerBuildDetectorTests
     }
 
     [Fact]
+    public void Detect_UsesServiceDirectory_ForNestedSolutionDockerfile()
+    {
+        const string dockerfile = """
+            COPY DeployAI.Api/DeployAI.Api.csproj DeployAI.Api/
+            COPY DeployAI.Providers/DeployAI.Providers.csproj DeployAI.Providers/
+            COPY . .
+            """;
+
+        var profile = _detector.Detect("src", true, dockerfile, null, null);
+
+        Assert.Equal("src", profile.RootDirectory);
+        Assert.Null(profile.DockerfilePath);
+        Assert.Equal("src", profile.ServiceDirectory);
+        Assert.Equal("docker", profile.Framework);
+    }
+
+    [Fact]
     public void Detect_UsesDotnet_WhenCsprojPresent()
     {
         var profile = _detector.Detect("src/api", false, null, null, "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
