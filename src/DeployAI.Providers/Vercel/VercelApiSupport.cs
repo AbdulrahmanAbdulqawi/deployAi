@@ -148,6 +148,39 @@ public static partial class VercelApiSupport
         return BuildSettingsFromEnvironment(environment);
     }
 
+    public static string NormalizeExternalOrigin(string url)
+    {
+        var trimmed = url.Trim();
+        if (!trimmed.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+            !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = $"https://{trimmed}";
+        }
+
+        return trimmed.TrimEnd('/');
+    }
+
+    public static string? ExtractPrimaryProductionAlias(IReadOnlyList<string>? aliases, string? projectName)
+    {
+        if (aliases is not null)
+        {
+            foreach (var alias in aliases)
+            {
+                if (!string.IsNullOrWhiteSpace(alias))
+                {
+                    return alias;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(projectName))
+        {
+            return $"{projectName}.vercel.app";
+        }
+
+        return null;
+    }
+
     public static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)

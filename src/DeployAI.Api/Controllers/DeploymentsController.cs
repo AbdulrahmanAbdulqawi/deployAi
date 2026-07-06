@@ -191,6 +191,7 @@ public sealed class DeploymentsController : ControllerBase
             targets = deployment.Targets.Select(t => new
             {
                 id = t.Id,
+                deployTargetId = t.DeployTargetId,
                 providerName = t.ProviderName,
                 status = t.Status,
                 deployUrl = t.DeployUrl,

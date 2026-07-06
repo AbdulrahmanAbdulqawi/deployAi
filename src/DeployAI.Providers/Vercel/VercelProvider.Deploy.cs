@@ -147,6 +147,9 @@ public sealed partial class VercelProvider
 
         [JsonPropertyName("link")]
         public VercelProjectLink? Link { get; set; }
+
+        [JsonPropertyName("alias")]
+        public List<string>? Aliases { get; set; }
     }
 
     private sealed class VercelProjectLink

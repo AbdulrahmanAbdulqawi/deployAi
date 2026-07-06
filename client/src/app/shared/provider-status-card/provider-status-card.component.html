@@ -1,35 +1,66 @@
 <article
   class="provider-card u-card"
+  [class.provider-card--expanded]="expanded"
   [class.provider-card--vercel]="providerName === 'vercel'"
   [class.provider-card--railway]="providerName === 'railway'">
-  <div class="provider-card__header">
-    <div>
-      <strong>{{ roleLabel }}</strong>
-      @if (showProviderName) {
-        <p class="u-text-muted">{{ providerName === 'vercel' ? 'Vercel' : 'Railway' }}</p>
-      }
+  <button type="button" class="provider-card__toggle" (click)="toggleExpanded()" [attr.aria-expanded]="expanded">
+    <div class="provider-card__header">
+      <div>
+        <strong>{{ roleLabel }}</strong>
+        @if (showProviderName) {
+          <p class="u-text-muted">{{ providerDisplayName }}</p>
+        }
+      </div>
+      <div class="provider-card__header-end">
+        <app-status-badge [status]="status" [live]="status === 'in_progress'" />
+        <app-ui-icon
+          name="chevron-down"
+          size="sm"
+          statusClass="muted"
+          class="provider-card__chevron"
+          [class.provider-card__chevron--open]="expanded"
+        />
+      </div>
     </div>
-    <app-status-badge [status]="status" [live]="status === 'in_progress'" />
-  </div>
+  </button>
 
   @if (status === 'in_progress' && elapsedLabel) {
     <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
   }
 
   @if (status === 'success' && deployUrl) {
-    <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener">
+    <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener" (click)="$event.stopPropagation()">
       <app-ui-icon name="external" size="sm" statusClass="success" />
       Open
     </a>
   }
 
   @if (status === 'failed') {
-    <p class="failure">Failed — check logs below.</p>
-    <app-ui-button variant="quiet" icon="info" (click)="toggleFailureDetails()">
-      {{ showFailureDetails ? 'Hide' : 'Details' }}
-    </app-ui-button>
-    @if (showFailureDetails) {
-      <p class="details u-text-muted">See activity panel.</p>
-    }
+    <div class="provider-card__actions">
+      <p class="failure">Failed</p>
+      @if (canRedeploy) {
+        <app-ui-button
+          variant="secondary"
+          icon="refresh"
+          [disabled]="redeploying"
+          [loading]="redeploying"
+          (click)="onRedeploy($event)">
+          Redeploy
+        </app-ui-button>
+      }
+    </div>
+  }
+
+  @if (expanded) {
+    <div class="provider-card__logs">
+      <app-live-log-panel
+        [lines]="lines"
+        [connecting]="connecting"
+        [embedded]="true"
+        [showProviderPrefix]="false"
+      />
+    </div>
+  } @else if (lines.length > 0 || connecting) {
+    <p class="logs-hint u-text-muted">Expand to view logs</p>
   }
 </article>

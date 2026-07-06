@@ -1,24 +1,59 @@
-<section class="panel u-card">
+@if (!embedded && showToggle) {
   <button type="button" class="toggle" (click)="expanded = !expanded">
-    <app-ui-icon name="log" size="sm" statusClass="muted" />
     {{ expanded ? 'Hide logs' : 'Logs' }}
   </button>
-  @if (expanded) {
-    <div class="log" aria-live="polite">
-      @for (line of lines; track line.sequence + line.providerName) {
-        <div class="line">
-          <span class="provider">{{ roleLabel(line.providerName) }}</span>
-          <span>{{ line.line }}</span>
-        </div>
-      } @empty {
-        <p class="placeholder u-text-muted">
-          @if (connecting) {
-            Connecting…
-          } @else {
-            Waiting…
-          }
+}
+
+@if (showTerminal) {
+  <div class="terminal" [class.terminal--embedded]="embedded">
+    <div class="terminal__header">
+      <div class="terminal__title">
+        <span class="terminal__dots" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+        <span class="terminal__label">{{ terminalTitle }}</span>
+      </div>
+      <div class="terminal__actions">
+        @if (connecting) {
+          <span class="terminal__live" aria-live="polite">
+            <span class="terminal__live-dot" aria-hidden="true"></span>
+            Live
+          </span>
+        }
+        @if (lines.length > 0) {
+          <button type="button" class="terminal__copy" (click)="copyLogs()">
+            {{ copyLabel }}
+          </button>
+        }
+      </div>
+    </div>
+
+    <div
+      #viewport
+      class="terminal__viewport"
+      aria-live="polite"
+      (scroll)="onViewportScroll()">
+      @if (lines.length > 0) {
+        @for (line of lines; track line.sequence + line.providerName + line.line) {
+          <div class="terminal__line" [class]="'terminal__line--' + lineClass(line.line)">
+            @if (showProviderPrefix) {
+              <span class="terminal__provider">{{ roleLabel(line.providerName) }}</span>
+            }
+            @if (timestamp(line.loggedAt); as ts) {
+              <span class="terminal__time">{{ ts }}</span>
+            }
+            <code class="terminal__text">{{ line.line }}</code>
+          </div>
+        }
+      } @else if (connecting) {
+        <p class="terminal__placeholder terminal__placeholder--connecting">
+          Connecting…<span class="terminal__cursor" aria-hidden="true">▌</span>
         </p>
+      } @else {
+        <p class="terminal__placeholder">Waiting for output…</p>
       }
     </div>
-  }
-</section>
+  </div>
+}
