@@ -96,6 +96,9 @@ export class ProjectDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.projectId = this.route.snapshot.paramMap.get('id') ?? '';
+    if (this.projectId) {
+      this.aiSetup.hydrateForProject(this.projectId);
+    }
     this.loadProject();
   }
 

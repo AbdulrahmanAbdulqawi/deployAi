@@ -23,4 +23,15 @@ public interface IDeploymentSetupService
         Guid projectId,
         string branch,
         CancellationToken cancellationToken);
+
+    Task<bool?> GetAiSetupPreferenceAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken);
+
+    Task SetAiSetupPreferenceAsync(
+        Guid userId,
+        Guid projectId,
+        bool enabled,
+        CancellationToken cancellationToken);
 }
