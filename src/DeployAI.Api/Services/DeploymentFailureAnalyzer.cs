@@ -64,6 +64,20 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "Waiting for activity from Vercel"
     ];
 
+    // Vercel/config failures that carry no compiler output but are typically fixable by editing
+    // repository config (usually vercel.json), e.g. an env var pointing at a Secret that was
+    // never created, or an invalid vercel.json schema. These must be matched explicitly because
+    // none of them contain a build-error marker or a compiler diagnostic line.
+    private static readonly string[] FixableConfigMarkers =
+    [
+        "references Secret",
+        "references a secret",
+        "Invalid vercel.json",
+        "should NOT have additional property",
+        "Function Runtimes must have a valid version",
+        "cannot be used in conjunction with"
+    ];
+
     private static readonly Regex TypeScriptPathRegex = new(
         @"(?<path>[^\s:(]+?\.(?:ts|tsx|js|jsx|mjs|cjs)):(?<line>\d+)(?::\d+)?",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -147,6 +161,31 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
                 excerpt,
                 referencedFiles,
                 !string.IsNullOrWhiteSpace(excerpt),
+                errorCount);
+        }
+
+        // Repo-fixable Vercel/config errors (e.g. an env var referencing a missing Secret). These
+        // have no compiler output, so they are matched explicitly and routed to the fix pipeline
+        // with a vercel.json hint so the fix agent knows where to look.
+        var configHit = FixableConfigMarkers.FirstOrDefault(marker =>
+            joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(configHit))
+        {
+            var configLines = logLines
+                .Where(line => FixableConfigMarkers.Any(marker =>
+                    line.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            var configExcerpt = BuildExcerpt(
+                configLines.Count > 0 ? configLines : logLines.TakeLast(maxExcerptLines).ToList(),
+                maxExcerptLines,
+                maxExcerptChars);
+            var configFiles = referencedFiles.Count > 0 ? referencedFiles : ["vercel.json"];
+            return new DeploymentFailureAnalysis(
+                DeploymentFailureCategory.CodeBuild,
+                SummarizeConfiguration(configHit),
+                configExcerpt,
+                configFiles,
+                !string.IsNullOrWhiteSpace(configExcerpt),
                 errorCount);
         }
 
@@ -281,6 +320,11 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
 
         return $"Build failed with a code error ({marker.Trim()}).";
     }
+
+    private static string SummarizeConfiguration(string marker) =>
+        marker.Contains("Secret", StringComparison.OrdinalIgnoreCase)
+            ? "Deployment failed: an environment variable references a Vercel Secret that does not exist. This is usually fixed by removing the '@secret' reference in vercel.json (use a plain value or a normal Environment Variable)."
+            : "Deployment failed due to an invalid Vercel configuration (vercel.json).";
 
     private static string SummarizeInfrastructure(string marker) =>
         marker switch

@@ -126,6 +126,24 @@ public class DeploymentFailureAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_VercelMissingSecretReference_OffersClaudeFix()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "Deploying...",
+            "Environment Variable \"API_BASE_URL\" references Secret \"api_base_url\", which does not exist."
+        };
+
+        var result = analyzer.Analyze("vercel", logs);
+
+        Assert.True(result.CanRequestClaudeFix);
+        Assert.Contains("vercel.json", result.ReferencedFiles);
+        Assert.NotNull(result.ErrorExcerpt);
+        Assert.Contains("references Secret", result.ErrorExcerpt);
+    }
+
+    [Fact]
     public void Analyze_ExcludesWarningsFromErrorExcerpt()
     {
         var analyzer = new DeploymentFailureAnalyzer();
