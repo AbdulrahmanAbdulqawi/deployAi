@@ -211,6 +211,14 @@ export class ProjectDetailComponent implements OnInit {
     return this.aiSetup.enabled() && readiness.usesSplitOrigin;
   }
 
+  setAiSetupEnabled(enabled: boolean): void {
+    if (this.projectId) {
+      this.aiSetup.setEnabledForProject(this.projectId, enabled);
+    } else {
+      this.aiSetup.setEnabled(enabled);
+    }
+  }
+
   showSetupBanner(readiness: DeploymentReadinessResult): boolean {
     return readiness.usesSplitOrigin && readiness.missingFiles.length > 0;
   }

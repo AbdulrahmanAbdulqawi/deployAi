@@ -86,6 +86,22 @@
     </header>
 
     @if (deploymentReadiness(); as readiness) {
+      @if (readiness.usesSplitOrigin) {
+        <div class="ai-toggle u-glass-panel">
+          <label class="ai-toggle__label">
+            <span class="ai-toggle__text">
+              <strong>AI deployment setup</strong>
+              <span class="setup-panel__hint">
+                Let Claude generate and fix this app's split-origin deployment files. When off, DeployAI uses built-in templates.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              [checked]="aiSetup.enabled()"
+              (change)="setAiSetupEnabled($any($event.target).checked)"
+            />
+          </label>
+        </div>
       @if (showDeploymentSetupPanel(readiness)) {
         @if (showSetupBanner(readiness)) {
           <div
@@ -121,6 +137,7 @@
               (setupComplete)="onSetupComplete()" />
           }
         </div>
+      }
       }
     }
 
