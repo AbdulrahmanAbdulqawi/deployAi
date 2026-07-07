@@ -99,6 +99,33 @@ public class DeploymentFailureAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_AngularEsbuildErrorFormat_ExtractsFilesAndExcerpt()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "\u2714 Building...",
+            "Application bundle generation failed. [20.091 seconds]",
+            "\u2718 [ERROR] TS2339: Property 'apiUrl' does not exist on type '{ production: boolean; apiBaseUrl: string; }'. [plugin angular-compiler]",
+            "    src/app/core/admin.service.ts:65:34:",
+            "      65 \u2502   private apiUrl = `${environment.apiUrl}/admin`;",
+            "\u2718 [ERROR] TS2339: Property 'apiUrl' does not exist. [plugin angular-compiler]",
+            "    src/app/core/analytics.service.ts:64:34:",
+            "Error: Command \"node scripts/write-api-env.mjs && npm run build\" exited with 1"
+        };
+
+        var result = analyzer.Analyze("vercel", logs);
+
+        Assert.Equal(DeploymentFailureCategory.CodeBuild, result.Category);
+        Assert.True(result.CanRequestClaudeFix);
+        Assert.Contains("src/app/core/admin.service.ts", result.ReferencedFiles);
+        Assert.Contains("src/app/core/analytics.service.ts", result.ReferencedFiles);
+        Assert.NotNull(result.ErrorExcerpt);
+        Assert.Contains("TS2339", result.ErrorExcerpt);
+        Assert.Contains("admin.service.ts", result.ErrorExcerpt);
+    }
+
+    [Fact]
     public void Analyze_ExcludesWarningsFromErrorExcerpt()
     {
         var analyzer = new DeploymentFailureAnalyzer();

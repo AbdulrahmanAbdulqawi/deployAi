@@ -38,13 +38,17 @@ public class ClaudeDeploymentPromptsTests
         Assert.Contains("Failed provider: Vercel", prompt);
         Assert.Contains("Framework: Angular", prompt);
         Assert.Contains("error TS2304", prompt);
-        Assert.Contains("Build errors (2 distinct errors)", prompt);
-        Assert.Contains("Fix ALL 2 errors", prompt);
-        Assert.Contains("run_local_build", prompt);
-        Assert.Contains("Build verification (required)", prompt);
+        Assert.Contains("## Build Log", prompt);
+        Assert.Contains("## Structured Errors", prompt);
+        Assert.Contains("Distinct errors detected: 2", prompt);
+        Assert.Contains("Fix ALL errors listed", prompt);
+        Assert.Contains("run_command", prompt);
+        Assert.Contains("### Verification", prompt);
+        Assert.Contains("## What NOT to Do", prompt);
         Assert.Contains("src/app/a.component.ts", prompt);
         Assert.Contains("src/app/b.component.ts", prompt);
-        Assert.Contains("github_read_file", prompt);
+        Assert.Contains("write_file", prompt);
+        Assert.Contains("read_file", prompt);
         Assert.Contains("submit_deployment_files", prompt);
 
     }
@@ -53,7 +57,7 @@ public class ClaudeDeploymentPromptsTests
 
     [Fact]
 
-    public void BuildMissingFilesPrompt_IncludesSplitOriginChecklistAndTools()
+    public void BuildMissingFilesPrompt_IncludesContextPlanGapsAndTools()
 
     {
 
@@ -95,23 +99,27 @@ public class ClaudeDeploymentPromptsTests
 
 
 
-        Assert.Contains("Role: website, Provider: vercel", prompt);
+        Assert.Contains("You are a deployment engineer completing deployment setup for a repository.", prompt);
 
-        Assert.Contains("Role: server, Provider: railway", prompt);
+        Assert.Contains("Repository: owner/repo @ main", prompt);
+
+        Assert.Contains("## Deployment Plan", prompt);
+
+        Assert.Contains("\"ProviderName\": \"vercel\"", prompt);
+
+        Assert.Contains("\"ProviderName\": \"railway\"", prompt);
 
         Assert.Contains("[Blocking] client/vercel.json", prompt);
 
         Assert.Contains("[Recommended] src/Api/Program.cs", prompt);
 
-        Assert.Contains("Split-origin checklist", prompt);
-
         Assert.Contains("github_read_file", prompt);
 
-        Assert.Contains("AllowAnyOrigin()", prompt);
+        Assert.Contains("submit_deployment_files", prompt);
 
-        Assert.Contains("docs/DEPLOYMENT.md", prompt);
+        Assert.Contains("## Build Validation Step", prompt);
 
-        Assert.Contains("no /api or /hubs proxy rewrites", prompt);
+        Assert.Contains("## What NOT to Do", prompt);
 
     }
 
@@ -119,7 +127,7 @@ public class ClaudeDeploymentPromptsTests
 
     [Fact]
 
-    public void BuildMissingFilesPrompt_UsesGenericRulesForSinglePartPlan()
+    public void BuildMissingFilesPrompt_DescribesArchitectureForSinglePartPlan()
 
     {
 

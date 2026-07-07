@@ -7,6 +7,7 @@ public sealed class AnthropicOptions
     public string Model { get; set; } = "claude-sonnet-4-6";
     public int FixAgentMaxTurns { get; set; } = 50;
     public int FixMaxToolCalls { get; set; } = 100;
+    public int FixMaxCommands { get; set; } = 40;
     public int FixForceSubmitAfterToolCalls { get; set; } = 35;
     public int SetupAgentMaxTurns { get; set; } = 22;
     public int SetupMaxToolCalls { get; set; } = 35;

@@ -1,104 +1,172 @@
 using System.Text;
 using System.Text.Json;
-using DeployAI.Core.Deployments;
-using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
 internal sealed class ClaudeFixToolExecutor
 {
-    private readonly ClaudeGitHubToolExecutor _gitHubExecutor;
-    private readonly IFixBuildWorkspaceService _buildWorkspace;
-    private readonly string _accessToken;
-    private readonly string _owner;
-    private readonly string _repo;
-    private readonly string _gitRef;
-    private readonly string _providerName;
-    private readonly string? _framework;
-    private readonly DeployTargetConfig _targetConfig;
-    private readonly DeploymentFailureAnalysis _failureAnalysis;
+    private readonly IFixBuildSession _buildSession;
+    private readonly int _maxCommands;
     private readonly Func<string, Task>? _reportActivity;
 
-    private bool _buildSucceeded;
+    private readonly Dictionary<string, (string Path, string Content)> _changedFiles =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private int _commandCount;
+    private bool _verifiedSinceLastEdit;
 
     public ClaudeFixToolExecutor(
-        IGitHubService gitHubService,
-        IFixBuildWorkspaceService buildWorkspace,
-        int maxGitHubToolCalls,
-        string accessToken,
-        string owner,
-        string repo,
-        string gitRef,
-        string providerName,
-        string? framework,
-        DeployTargetConfig targetConfig,
-        DeploymentFailureAnalysis failureAnalysis,
+        IFixBuildSession buildSession,
+        int maxCommands,
         Func<string, Task>? reportActivity)
     {
-        _gitHubExecutor = new ClaudeGitHubToolExecutor(gitHubService, maxGitHubToolCalls);
-        _buildWorkspace = buildWorkspace;
-        _accessToken = accessToken;
-        _owner = owner;
-        _repo = repo;
-        _gitRef = gitRef;
-        _providerName = providerName;
-        _framework = framework;
-        _targetConfig = targetConfig;
-        _failureAnalysis = failureAnalysis;
+        _buildSession = buildSession;
+        _maxCommands = Math.Max(1, maxCommands);
         _reportActivity = reportActivity;
     }
 
-    public bool BuildSucceeded => _buildSucceeded;
+    /// <summary>True once a command has succeeded after the most recent file edit.</summary>
+    public bool CanProactiveSubmit => _verifiedSinceLastEdit;
 
-    public bool CanProactiveSubmit => _buildSucceeded;
+    /// <summary>The files Claude created or replaced with write_file, i.e. what should be committed.</summary>
+    public IReadOnlyList<(string Path, string Content)> ChangedFiles =>
+        _changedFiles.Values.ToArray();
 
     public async Task<string> ExecuteAsync(
         string toolName,
         JsonElement input,
-        GitHubRepoRef repo,
         CancellationToken cancellationToken)
     {
-        if (string.Equals(toolName, ClaudeDeploymentAgentTools.RunLocalBuildToolName, StringComparison.Ordinal))
+        if (string.Equals(toolName, ClaudeDeploymentAgentTools.RunCommandToolName, StringComparison.Ordinal))
         {
-            var files = AnthropicJsonFileParser.ParseFilesFromToolInput(input);
-            if (files.Count == 0)
-            {
-                return "Error: run_local_build requires at least one file in the files array.";
-            }
-
-            await ReportAsync("Running local build to verify the proposed fix…");
-            var result = await _buildWorkspace.RunBuildAsync(
-                _accessToken,
-                _owner,
-                _repo,
-                _gitRef,
-                _providerName,
-                _targetConfig,
-                _framework,
-                _failureAnalysis,
-                files,
-                cancellationToken);
-
-            _buildSucceeded = result.Succeeded;
-            await ReportAsync(result.Succeeded
-                ? "Local build succeeded."
-                : "Local build failed — read the output and fix remaining errors.");
-
-            return FormatBuildResult(result);
+            return await RunCommandAsync(input, cancellationToken);
         }
 
-        return await _gitHubExecutor.ExecuteAsync(toolName, input, repo, cancellationToken);
+        if (string.Equals(toolName, ClaudeDeploymentAgentTools.WriteFileToolName, StringComparison.Ordinal))
+        {
+            return WriteFile(input);
+        }
+
+        if (string.Equals(toolName, ClaudeDeploymentAgentTools.ReadFileToolName, StringComparison.Ordinal))
+        {
+            return ReadFile(input);
+        }
+
+        if (string.Equals(toolName, ClaudeDeploymentAgentTools.ListDirectoryToolName, StringComparison.Ordinal))
+        {
+            return ListDirectory(input);
+        }
+
+        return $"Error: unknown tool '{toolName}'.";
     }
 
-    private static string FormatBuildResult(FixBuildResult result)
+    private async Task<string> RunCommandAsync(JsonElement input, CancellationToken cancellationToken)
+    {
+        if (!TryGetString(input, "command", out var command))
+        {
+            return "Error: 'command' is required.";
+        }
+
+        if (_commandCount >= _maxCommands)
+        {
+            return $"Error: command limit reached ({_maxCommands}). Fix the remaining errors with the output you already have, then submit.";
+        }
+
+        _commandCount++;
+        var workingDirectory = TryGetString(input, "working_directory", out var dir) ? dir : null;
+
+        await ReportAsync($"Running command: {command}");
+        var result = await _buildSession.RunCommandAsync(command, workingDirectory, cancellationToken);
+
+        if (result.Succeeded)
+        {
+            _verifiedSinceLastEdit = true;
+        }
+
+        await ReportAsync(result.Succeeded
+            ? "Command succeeded."
+            : "Command failed — read the output and fix remaining errors.");
+
+        return FormatCommandResult(result);
+    }
+
+    private string WriteFile(JsonElement input)
+    {
+        if (!TryGetString(input, "path", out var path))
+        {
+            return "Error: 'path' is required.";
+        }
+
+        if (!input.TryGetProperty("content", out var contentElement) ||
+            contentElement.ValueKind != JsonValueKind.String)
+        {
+            return "Error: 'content' is required.";
+        }
+
+        var content = contentElement.GetString() ?? string.Empty;
+
+        try
+        {
+            _buildSession.WriteFile(path, content);
+        }
+        catch (Exception ex)
+        {
+            return $"Error writing '{path}': {ex.Message}";
+        }
+
+        var normalized = NormalizePath(path);
+        _changedFiles[normalized] = (path, content);
+        _verifiedSinceLastEdit = false;
+
+        return $"Wrote {content.Length} characters to {normalized}.";
+    }
+
+    private string ReadFile(JsonElement input)
+    {
+        if (!TryGetString(input, "path", out var path))
+        {
+            return "Error: 'path' is required.";
+        }
+
+        var content = _buildSession.ReadFile(path);
+        return content ?? $"Error: file '{path}' was not found in the workspace.";
+    }
+
+    private string ListDirectory(JsonElement input)
+    {
+        var path = TryGetString(input, "path", out var value) ? value : string.Empty;
+        return _buildSession.ListDirectory(path);
+    }
+
+    private static string FormatCommandResult(FixBuildResult result)
     {
         var builder = new StringBuilder();
-        builder.AppendLine(result.Succeeded ? "BUILD SUCCEEDED" : "BUILD FAILED");
+        builder.AppendLine(result.Succeeded ? "COMMAND SUCCEEDED" : "COMMAND FAILED");
         builder.AppendLine($"exit_code: {result.ExitCode}");
         builder.AppendLine();
         builder.AppendLine(result.Output);
         return builder.ToString().TrimEnd();
     }
+
+    private static bool TryGetString(JsonElement input, string property, out string value)
+    {
+        value = string.Empty;
+        if (input.TryGetProperty(property, out var element) &&
+            element.ValueKind == JsonValueKind.String)
+        {
+            var raw = element.GetString();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                value = raw;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string NormalizePath(string path) =>
+        path.Replace('\\', '/').Trim().TrimStart('/');
 
     private Task ReportAsync(string message) =>
         _reportActivity is null ? Task.CompletedTask : _reportActivity(message);

@@ -22,15 +22,30 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "Failed to compile",
         "Module not found",
         "Cannot find module",
+        "Cannot find package",
         "npm ERR!",
+        "npm error",
+        "ERR_PNPM",
+        "ELIFECYCLE",
         "error during build",
+        "Build error occurred",
         "Compilation failed",
         "SyntaxError:",
         "Type error:",
-        "Build failed"
+        "Build failed",
+        "Could not resolve",
+        "Rollup failed to resolve",
+        "Transform failed",
+        "esbuild",
+        "Command failed with exit code",
+        "command not found",
+        "exited with 1",
+        "[ERROR]",
+        "\u2718",
+        "Application bundle generation failed"
     ];
 
-    private static readonly string[] InfrastructureMarkers =
+    private static readonly string[] HardInfrastructureMarkers =
     [
         "not linked to GitHub",
         "Reconnect it in settings",
@@ -39,7 +54,11 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "unauthorized",
         "gitHub_auth",
         "provider_token_invalid",
-        "invalid_credential",
+        "invalid_credential"
+    ];
+
+    private static readonly string[] GenericFailureMarkers =
+    [
         "Something went wrong while publishing",
         "Publishing did not go through",
         "Waiting for activity from Vercel"
@@ -54,11 +73,14 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex WarningLineRegex = new(
-        @"(^\s*warning[\s\[]|: warning |warning CS|warning TS|warning NG|warning MSB|warning NU|\bnpm warn\b|\bWARN(?:ING)?:|\bWarning\b.*\bCS\d+)",
+        @"(^\s*warning[\s\[]|: warning |warning CS|warning TS|warning NG|warning MSB|warning NU|\bnpm warn\b|\bWARN(?:ING)?:|\[WARNING\]|\bWarning\b.*\bCS\d+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    // Matches both the classic tsc format ("... - error TS2304: ...") and the esbuild/Angular
+    // diagnostic format ("\u2718 [ERROR] TS2339: ..."), where "error" is bracketed and the code is
+    // not contiguous with the word "error".
     private static readonly Regex ErrorLineRegex = new(
-        @"(\berror TS|\berror NG|\berror CS|\berror MSB|\berror NU|: error |\(error |npm ERR!|Failed to compile|Compilation failed|SyntaxError:|Type error:|BUILD FAILED|Module not found|Cannot find module|Build failed|\bFAILED\b)",
+        @"(\berror TS|\berror NG|\berror CS|\berror MSB|\berror NU|: error |\(error |\[ERROR\]|\u2718|\bTS\d{3,}\b|\bNG\d{2,}\b|npm ERR!|npm error|ERR_PNPM|ELIFECYCLE|Failed to compile|Compilation failed|SyntaxError:|Type error:|BUILD FAILED|Module not found|Cannot find module|Cannot find package|Could not resolve|Rollup failed to resolve|Transform failed|Command failed with exit code|command not found|Build error occurred|Build failed|\bFAILED\b)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public DeploymentFailureAnalysis Analyze(string providerName, IReadOnlyList<string> logLines) =>
@@ -85,7 +107,7 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         }
 
         var joined = string.Join('\n', logLines);
-        var infrastructureHit = InfrastructureMarkers.FirstOrDefault(marker =>
+        var hardInfrastructureHit = HardInfrastructureMarkers.FirstOrDefault(marker =>
             joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
         var codeHit = CodeBuildMarkers.FirstOrDefault(marker =>
             joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
@@ -93,37 +115,57 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         var errorLines = SelectErrorLines(logLines);
         var errorCount = logLines.Count(IsErrorOrFailureLine);
         var referencedFiles = ExtractReferencedFiles(errorLines);
-        var excerpt = BuildExcerpt(
-            ResolveExcerptLines(logLines, codeHit, infrastructureHit, errorLines),
-            maxExcerptLines,
-            maxExcerptChars);
 
-        if (!string.IsNullOrWhiteSpace(infrastructureHit) && string.IsNullOrWhiteSpace(codeHit))
+        // Genuine infrastructure/auth problems cannot be resolved by editing repository code.
+        if (!string.IsNullOrWhiteSpace(hardInfrastructureHit) && string.IsNullOrWhiteSpace(codeHit))
         {
+            var infraExcerpt = BuildExcerpt(
+                ResolveInfraExcerptLines(logLines, HardInfrastructureMarkers, errorLines),
+                maxExcerptLines,
+                maxExcerptChars);
             return new DeploymentFailureAnalysis(
                 DeploymentFailureCategory.Infrastructure,
-                SummarizeInfrastructure(infrastructureHit),
-                excerpt,
+                SummarizeInfrastructure(hardInfrastructureHit),
+                infraExcerpt,
                 referencedFiles,
                 false,
                 errorCount);
         }
 
-        if (!string.IsNullOrWhiteSpace(codeHit))
+        // A recognized build marker OR any concrete error output means Claude can attempt a fix.
+        // The error-line fallback covers Vite/esbuild/Rollup/Angular client builds whose exact
+        // wording is not in the marker list (e.g. a bare stack trace ending in "FAILED").
+        if (!string.IsNullOrWhiteSpace(codeHit) || errorLines.Count > 0)
         {
+            var excerpt = BuildExcerpt(
+                errorLines.Count > 0 ? errorLines : logLines.TakeLast(maxExcerptLines).ToList(),
+                maxExcerptLines,
+                maxExcerptChars);
             return new DeploymentFailureAnalysis(
                 DeploymentFailureCategory.CodeBuild,
-                SummarizeCodeBuild(codeHit, referencedFiles, errorCount),
+                SummarizeCodeBuild(codeHit ?? "build error", referencedFiles, errorCount),
                 excerpt,
                 referencedFiles,
                 !string.IsNullOrWhiteSpace(excerpt),
                 errorCount);
         }
 
+        // Only low-signal, generic failure messages were captured — surface the failure but do
+        // not offer an automated code fix, since there is no build output to act on.
+        var genericHit = GenericFailureMarkers.FirstOrDefault(marker =>
+            joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        var fallbackExcerpt = BuildExcerpt(
+            logLines.TakeLast(maxExcerptLines).ToList(),
+            maxExcerptLines,
+            maxExcerptChars);
         return new DeploymentFailureAnalysis(
-            DeploymentFailureCategory.Unknown,
-            "The deployment failed, but the logs do not show a clear code or build error.",
-            excerpt,
+            string.IsNullOrWhiteSpace(genericHit)
+                ? DeploymentFailureCategory.Unknown
+                : DeploymentFailureCategory.Infrastructure,
+            string.IsNullOrWhiteSpace(genericHit)
+                ? "The deployment failed, but the logs do not show a clear code or build error."
+                : SummarizeInfrastructure(genericHit),
+            fallbackExcerpt,
             referencedFiles,
             false,
             errorCount);
@@ -136,6 +178,8 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         !string.IsNullOrWhiteSpace(line) &&
         !IsWarningLine(line) &&
         ErrorLineRegex.IsMatch(line);
+
+    private const int MaxForwardContextLines = 8;
 
     private static List<string> SelectErrorLines(IReadOnlyList<string> logLines)
     {
@@ -163,32 +207,56 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
             {
                 selected.Add(line);
             }
+
+            // The esbuild/Angular diagnostic format puts the file location and code frame on the
+            // lines *after* the error header (e.g. "    src/app/foo.ts:65:34:"). Capture those so
+            // the excerpt is actionable and referenced-file extraction can see the paths.
+            var contextCount = 0;
+            for (var j = i + 1; j < logLines.Count && contextCount < MaxForwardContextLines; j++)
+            {
+                var next = logLines[j];
+                if (IsErrorOrFailureLine(next) || !IsDiagnosticContinuationLine(next))
+                {
+                    break;
+                }
+
+                if (!IsWarningLine(next) && !selected.Contains(next, StringComparer.Ordinal))
+                {
+                    selected.Add(next);
+                }
+
+                contextCount++;
+            }
         }
 
         return selected;
     }
 
-    private static IReadOnlyList<string> ResolveExcerptLines(
-        IReadOnlyList<string> logLines,
-        string? codeHit,
-        string? infrastructureHit,
-        IReadOnlyList<string> errorLines)
+    private static bool IsDiagnosticContinuationLine(string line)
     {
-        if (!string.IsNullOrWhiteSpace(codeHit) && errorLines.Count > 0)
+        if (string.IsNullOrWhiteSpace(line))
         {
-            return errorLines;
+            return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(infrastructureHit))
+        // Indented continuation lines (file location and code frame) or a bare "path:line:col".
+        return char.IsWhiteSpace(line[0]) ||
+               TypeScriptPathRegex.IsMatch(line) ||
+               CSharpPathRegex.IsMatch(line);
+    }
+
+    private static IReadOnlyList<string> ResolveInfraExcerptLines(
+        IReadOnlyList<string> logLines,
+        IReadOnlyList<string> markers,
+        IReadOnlyList<string> errorLines)
+    {
+        var infrastructureLines = logLines
+            .Where(line => markers.Any(marker =>
+                line.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (infrastructureLines.Count > 0)
         {
-            var infrastructureLines = logLines
-                .Where(line => InfrastructureMarkers.Any(marker =>
-                    line.Contains(marker, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-            if (infrastructureLines.Count > 0)
-            {
-                return infrastructureLines;
-            }
+            return infrastructureLines;
         }
 
         return errorLines.Count > 0 ? errorLines : logLines.TakeLast(MaxExcerptLines).ToList();

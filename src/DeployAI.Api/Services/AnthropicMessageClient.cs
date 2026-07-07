@@ -298,6 +298,8 @@ public sealed class AnthropicMessageClient
 
     public int FixMaxToolCalls => _options.FixMaxToolCalls;
 
+    public int FixMaxCommands => _options.FixMaxCommands;
+
     public int FixForceSubmitAfterToolCalls => _options.FixForceSubmitAfterToolCalls;
 
     public int SetupAgentMaxTurns => _options.SetupAgentMaxTurns;
