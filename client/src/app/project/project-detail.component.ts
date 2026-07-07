@@ -2,13 +2,16 @@ import { Component, ElementRef, OnInit, signal, viewChild } from '@angular/core'
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
+import { AiSetupPreferenceService } from '../core/services/ai-setup-preference.service';
 import { ProjectsStore } from '../core/stores/projects.store';
 import {
   DatabaseRequirementProfile,
   DataServiceInfo,
   DeploymentPlanPart,
   DeploymentReadinessResult,
+  DeploymentSummary,
   ProjectDetail,
+  ProjectServiceStatus,
   ProjectServiceView,
   ProjectServicesResponse,
   ProviderEnvVar
@@ -16,7 +19,6 @@ import {
 import {
   databaseEngineLabel,
   parseTargetConfig,
-  plainTargetSummary,
   providerLabel,
   serviceStatusLabel
 } from '../core/utils/target-config';
@@ -24,11 +26,26 @@ import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent, IconName } from '../shared/ui/icon/icon.component';
 import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/dropdown-menu.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
+import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
+import { ConfirmService } from '../shared/ui/confirm/confirm.service';
+import { ToastService } from '../shared/ui/toast/toast.service';
+
+interface LiveUrl {
+  label: string;
+  url: string;
+}
 
 @Component({
   selector: 'app-project-detail',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, IconComponent, DropdownMenuComponent, DeploymentSetupPanelComponent],
+  imports: [
+    FormsModule,
+    ButtonComponent,
+    IconComponent,
+    DropdownMenuComponent,
+    DeploymentSetupPanelComponent,
+    StatusBadgeComponent
+  ],
   templateUrl: './project-detail.component.html',
   styleUrl: './project-detail.component.scss'
 })
@@ -37,11 +54,13 @@ export class ProjectDetailComponent implements OnInit {
 
   readonly project = signal<ProjectDetail | null>(null);
   readonly services = signal<ProjectServicesResponse | null>(null);
-  readonly message = signal<string | null>(null);
+  readonly latestDeployment = signal<DeploymentSummary | null>(null);
   readonly envVars = signal<Record<string, ProviderEnvVar[]>>({});
   readonly loadingEnv = signal<Record<string, boolean>>({});
   readonly savingEnv = signal<Record<string, boolean>>({});
   readonly serviceStatuses = signal<Record<string, string>>({});
+  readonly serviceStatusDetails = signal<Record<string, ProjectServiceStatus>>({});
+  readonly copiedUrl = signal<string | null>(null);
   readonly loadingStatus = signal<Record<string, boolean>>({});
   readonly actingOnService = signal<Record<string, boolean>>({});
   readonly provisioning = signal(false);
@@ -51,8 +70,6 @@ export class ProjectDetailComponent implements OnInit {
   readonly dataServiceInfo = signal<Record<string, DataServiceInfo | null>>({});
   readonly loadingDataInfo = signal<Record<string, boolean>>({});
   readonly expandedDataInfo = signal<Record<string, boolean>>({});
-  readonly showAdvanced = signal(true);
-  readonly showDeleteConfirm = signal(false);
   readonly deleting = signal(false);
   readonly deploymentReadiness = signal<DeploymentReadinessResult | null>(null);
   readonly loadingDeploymentReadiness = signal(false);
@@ -65,10 +82,15 @@ export class ProjectDetailComponent implements OnInit {
 
   projectId = '';
 
+  private copiedTimer?: ReturnType<typeof setTimeout>;
+
   constructor(
     private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly api: ApiService,
+    private readonly toast: ToastService,
+    private readonly confirm: ConfirmService,
+    readonly aiSetup: AiSetupPreferenceService,
     readonly projectsStore: ProjectsStore
   ) {}
 
@@ -81,25 +103,101 @@ export class ProjectDetailComponent implements OnInit {
   providerLabel = providerLabel;
   serviceStatusLabel = serviceStatusLabel;
 
-  statusClass(serviceId: string): string {
-    return this.serviceStatuses()[serviceId] || 'unknown';
+  overallStatus(): string {
+    return this.latestDeployment()?.status ?? 'idle';
   }
 
-  targetSummary(): string {
-    const project = this.project();
-    if (!project) {
-      return '';
+  hasDeployed(): boolean {
+    return this.latestDeployment() !== null;
+  }
+
+  lastDeployedLabel(): string | null {
+    const deployment = this.latestDeployment();
+    const when = deployment?.completedAt ?? deployment?.startedAt;
+    if (!when) {
+      return null;
+    }
+    return this.relativeTime(when);
+  }
+
+  liveUrls(): LiveUrl[] {
+    const urls: LiveUrl[] = [];
+    const sync = this.project()?.environmentSync;
+    const deployment = this.latestDeployment();
+
+    const websiteUrl =
+      sync?.resolvedWebsiteUrl ||
+      deployment?.targets.find(t => t.providerName === 'vercel')?.deployUrl ||
+      this.serviceDeployUrl('vercel');
+    if (websiteUrl) {
+      urls.push({ label: 'Website', url: websiteUrl });
     }
 
-    const deployable = project.targets.filter(
-      target => parseTargetConfig(target.config).role !== 'database'
-    );
-    const summary = plainTargetSummary(deployable);
-    return summary === 'App' ? 'ready to publish' : summary;
+    const apiUrl =
+      sync?.resolvedApiUrl ||
+      deployment?.targets.find(t => t.providerName === 'railway')?.deployUrl ||
+      this.serviceDeployUrl('railway');
+    if (apiUrl) {
+      urls.push({ label: 'API', url: apiUrl });
+    }
+
+    return urls;
   }
 
-  toggleAdvanced(): void {
-    this.showAdvanced.update(open => !open);
+  serviceOpenUrl(service: ProjectServiceView): string | undefined {
+    return this.serviceStatusDetails()[service.id]?.deployUrl;
+  }
+
+  displayUrl(url: string): string {
+    return url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+  }
+
+  async copyUrl(url: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copiedUrl.set(url);
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = setTimeout(() => this.copiedUrl.set(null), 2000);
+      this.toast.success('Link copied');
+    } catch {
+      this.toast.error('Could not copy link');
+    }
+  }
+
+  goToProjects(): void {
+    void this.router.navigate(['/dashboard']);
+  }
+
+  private serviceDeployUrl(providerName: string): string | undefined {
+    const service = (this.services()?.applicationServices ?? []).find(
+      s => s.providerName === providerName
+    );
+    if (!service) {
+      return undefined;
+    }
+    return this.serviceStatusDetails()[service.id]?.deployUrl;
+  }
+
+  private relativeTime(value: string): string {
+    const then = new Date(value).getTime();
+    const diffMs = Date.now() - then;
+    const seconds = Math.round(diffMs / 1000);
+    if (seconds < 60) {
+      return 'just now';
+    }
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+    const days = Math.round(hours / 24);
+    if (days < 30) {
+      return `${days}d ago`;
+    }
+    return new Date(value).toLocaleDateString();
   }
 
   scrollToSetup(): void {
@@ -107,7 +205,7 @@ export class ProjectDetailComponent implements OnInit {
   }
 
   showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
-    return readiness.usesSplitOrigin;
+    return this.aiSetup.enabled() && readiness.usesSplitOrigin;
   }
 
   showSetupBanner(readiness: DeploymentReadinessResult): boolean {
@@ -185,7 +283,7 @@ export class ProjectDetailComponent implements OnInit {
         this.loadEnvVars(service);
       },
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not save that setting.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not save that setting.');
         this.savingEnv.update(state => ({ ...state, [targetId]: false }));
       }
     });
@@ -194,7 +292,7 @@ export class ProjectDetailComponent implements OnInit {
   removeEnv(service: ProjectServiceView, envVarId: string): void {
     this.api.deleteProjectEnvVar(service.credentialId, service.providerProjectId, envVarId).subscribe({
       next: () => this.loadEnvVars(service),
-      error: (err) => this.message.set(err?.error?.error?.message ?? 'Could not remove that setting.')
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not remove that setting.')
     });
   }
 
@@ -208,6 +306,7 @@ export class ProjectDetailComponent implements OnInit {
     this.api.getProjectServiceStatus(this.projectId, targetId).subscribe({
       next: (response) => {
         this.serviceStatuses.update(state => ({ ...state, [targetId]: response.status }));
+        this.serviceStatusDetails.update(state => ({ ...state, [targetId]: response }));
         this.loadingStatus.update(state => ({ ...state, [targetId]: false }));
       },
       error: () => {
@@ -222,20 +321,26 @@ export class ProjectDetailComponent implements OnInit {
     this.actingOnService.update(state => ({ ...state, [targetId]: true }));
     this.api.redeployProjectService(this.projectId, targetId).subscribe({
       next: () => {
-        this.message.set('Service restart requested.');
+        this.toast.success('Service restart requested.');
         this.actingOnService.update(state => ({ ...state, [targetId]: false }));
         this.loadServiceStatus(service);
       },
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not restart that service.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not restart that service.');
         this.actingOnService.update(state => ({ ...state, [targetId]: false }));
       }
     });
   }
 
-  removeService(service: ProjectServiceView): void {
+  async removeService(service: ProjectServiceView): Promise<void> {
     const label = databaseEngineLabel(service.databaseEngine);
-    if (!confirm(`Remove ${label} from Railway? This deletes the service and unlinks it from your app.`)) {
+    const confirmed = await this.confirm.ask({
+      title: `Remove ${label}?`,
+      message: `This deletes the ${label} service from Railway and unlinks it from your app. This cannot be undone.`,
+      confirmLabel: 'Remove',
+      destructive: true
+    });
+    if (!confirmed) {
       return;
     }
 
@@ -245,10 +350,10 @@ export class ProjectDetailComponent implements OnInit {
       next: (response) => {
         this.services.set(response);
         this.actingOnService.update(state => ({ ...state, [targetId]: false }));
-        this.message.set(`${label} removed.`);
+        this.toast.success(`${label} removed.`);
       },
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not remove that service.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not remove that service.');
         this.actingOnService.update(state => ({ ...state, [targetId]: false }));
       }
     });
@@ -256,11 +361,10 @@ export class ProjectDetailComponent implements OnInit {
 
   autoSetupDatabases(): void {
     this.provisioning.set(true);
-    this.message.set(null);
     this.api.autoProvisionRailwayDatabases(this.projectId).subscribe({
       next: () => this.refreshAfterProvisioning(),
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not set up databases from your repo.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not set up databases from your repo.');
         this.provisioning.set(false);
       }
     });
@@ -268,19 +372,18 @@ export class ProjectDetailComponent implements OnInit {
 
   addSelectedDatabases(): void {
     if (!this.setupPostgres && !this.setupRedis) {
-      this.message.set('Choose at least one database to add.');
+      this.toast.error('Choose at least one database to add.');
       return;
     }
 
     this.provisioning.set(true);
-    this.message.set(null);
     this.api.provisionRailwayDatabases(this.projectId, {
       postgres: this.setupPostgres,
       redis: this.setupRedis
     }).subscribe({
       next: () => this.refreshAfterProvisioning(),
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not add those databases.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not add those databases.');
         this.provisioning.set(false);
       }
     });
@@ -288,8 +391,8 @@ export class ProjectDetailComponent implements OnInit {
 
   publish(): void {
     const readiness = this.deploymentReadiness();
-    if (readiness?.usesSplitOrigin && !readiness.isReady) {
-      this.message.set('Generate split-origin deployment files before publishing.');
+    if (this.aiSetup.enabled() && readiness?.usesSplitOrigin && !readiness.isReady) {
+      this.toast.error('Generate split-origin deployment files before publishing.');
       return;
     }
 
@@ -396,7 +499,7 @@ export class ProjectDetailComponent implements OnInit {
       error: (err) => {
         this.dataServiceInfo.update(state => ({ ...state, [targetId]: null }));
         this.loadingDataInfo.update(state => ({ ...state, [targetId]: false }));
-        this.message.set(err?.error?.error?.message ?? 'Could not load database details.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not load database details.');
       }
     });
   }
@@ -434,29 +537,61 @@ export class ProjectDetailComponent implements OnInit {
     return inspection.connected ? 'OK' : 'Unreachable';
   }
 
-  connectionStatusClass(serviceId: string): string {
-    const inspection = this.dataInfoFor(serviceId)?.inspection;
-    if (!inspection) {
-      return 'unknown';
+  async removeApp(): Promise<void> {
+    const confirmed = await this.confirm.ask({
+      title: 'Remove this app?',
+      message: `This removes ${this.project()?.name ?? 'this app'} and unlinks its connected services. This cannot be undone.`,
+      confirmLabel: 'Remove app',
+      cancelLabel: 'Keep app',
+      destructive: true
+    });
+    if (!confirmed) {
+      return;
     }
 
-    return inspection.connected ? 'running' : 'failed';
-  }
-
-  removeApp(): void {
-    this.showDeleteConfirm.set(true);
-  }
-
-  confirmRemoveApp(): void {
     this.deleting.set(true);
-    this.showDeleteConfirm.set(false);
     this.api.deleteProject(this.projectId).subscribe({
       next: () => void this.router.navigate(['/dashboard']),
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not remove that app.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not remove that app.');
         this.deleting.set(false);
       }
     });
+  }
+
+  applicationServiceMenuItems(service: ProjectServiceView): DropdownMenuItem[] {
+    const acting = this.actingOnService()[service.id];
+    const items: DropdownMenuItem[] = [];
+    const openUrl = this.serviceOpenUrl(service);
+
+    if (openUrl) {
+      items.push({ id: 'open', label: 'Open', icon: 'external', href: openUrl });
+    }
+
+    if (service.canManage) {
+      items.push({ id: 'restart', label: 'Restart', icon: 'refresh', disabled: acting, loading: acting });
+    }
+
+    items.push({
+      id: 'env',
+      label: this.isEnvExpanded(service.id) ? 'Hide env' : 'Env vars',
+      icon: 'settings'
+    });
+
+    return items;
+  }
+
+  onApplicationServiceMenuAction(service: ProjectServiceView, action: string): void {
+    switch (action) {
+      case 'restart':
+        this.redeployService(service);
+        break;
+      case 'env':
+        this.toggleEnvPanel(service);
+        break;
+      default:
+        break;
+    }
   }
 
   dataServiceMenuItems(service: ProjectServiceView): DropdownMenuItem[] {
@@ -510,9 +645,19 @@ export class ProjectDetailComponent implements OnInit {
       next: (project) => {
         this.project.set(project);
         this.loadServices();
-        this.loadDeploymentReadiness();
+        if (this.aiSetup.enabled()) {
+          this.loadDeploymentReadiness();
+        }
+        this.loadLatestDeployment();
       },
-      error: (err) => this.message.set(err?.error?.error?.message ?? 'Could not load that app.')
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not load that app.')
+    });
+  }
+
+  private loadLatestDeployment(): void {
+    this.api.listDeployments(this.projectId).subscribe({
+      next: (response) => this.latestDeployment.set(response.deployments[0] ?? null),
+      error: () => this.latestDeployment.set(null)
     });
   }
 
@@ -554,7 +699,7 @@ export class ProjectDetailComponent implements OnInit {
           this.loadDatabaseRequirements();
         }
       },
-      error: (err) => this.message.set(err?.error?.error?.message ?? 'Could not load services.')
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not load services.')
     });
   }
 

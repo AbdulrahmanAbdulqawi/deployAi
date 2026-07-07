@@ -1,11 +1,36 @@
 @if (store.loading() && !store.deployment()) {
-  <p class="u-text-muted">Loading…</p>
+  <section class="live-deploy live-skeleton" aria-hidden="true">
+    <div class="u-skeleton live-skeleton__eyebrow"></div>
+    <div class="u-skeleton live-skeleton__title"></div>
+    <div class="u-skeleton live-skeleton__meta"></div>
+    <div class="live-skeleton__cards">
+      <div class="u-skeleton live-skeleton__card"></div>
+      <div class="u-skeleton live-skeleton__card"></div>
+    </div>
+    <div class="u-skeleton live-skeleton__terminal"></div>
+  </section>
 } @else if (store.error()) {
   <div class="u-card error-state">
-    <p>{{ store.error() }}</p>
+    <span class="error-state__icon" aria-hidden="true">
+      <app-ui-icon name="alert" statusClass="danger" />
+    </span>
+    <div>
+      <h2 class="error-state__title">We couldn't load this deployment</h2>
+      <p class="error-state__text">{{ store.error() }}</p>
+    </div>
+    <app-ui-button variant="secondary" icon="arrow-left" (click)="goBack()">Back to project</app-ui-button>
   </div>
 } @else if (store.deployment()) {
   <section class="live-deploy" [class.live-deploy--celebrate]="store.isComplete() && store.overallStatus() === 'success'">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" class="breadcrumb__link" (click)="goBack()">
+        <app-ui-icon name="arrow-left" size="sm" statusClass="muted" />
+        {{ projectName() || 'Project' }}
+      </button>
+      <span class="breadcrumb__sep" aria-hidden="true">/</span>
+      <span class="breadcrumb__current" aria-current="page">Deployment</span>
+    </nav>
+
     @if (store.isComplete() && store.canRestore()) {
       <div class="restore-bar">
         <div class="restore-bar__copy">
@@ -40,7 +65,7 @@
         <div class="live-deploy__meta-row">
           @if (githubRepoFullName(); as repo) {
             <a class="meta meta-link" [href]="repoUrl()" target="_blank" rel="noopener">
-              <app-ui-icon name="code" size="sm" statusClass="muted" />
+              <app-ui-icon name="github" size="sm" statusClass="muted" />
               <span class="u-code-sm">{{ repo }}</span>
             </a>
           }
@@ -80,6 +105,11 @@
 
     @if (store.isComplete() && store.overallStatus() === 'success') {
       <section class="summary u-glass-panel" role="status" aria-live="polite">
+        <span class="summary__hero" aria-hidden="true">
+          <span class="summary__hero-glow"></span>
+          <span class="summary__hero-ring"></span>
+          <app-ui-icon name="rocket" statusClass="success" />
+        </span>
         <div class="summary__main">
           <span class="summary__badge" aria-hidden="true">
             <app-ui-icon name="check" statusClass="success" />
@@ -87,23 +117,54 @@
           <div class="summary__copy">
             <h2 class="summary__title">{{ projectName() || 'Your app' }} is live</h2>
             <p class="summary__subtitle">Your app is up and ready for people to use.</p>
-          </div>
-          @if (liveLinks().length > 0) {
-            <div class="summary__actions">
-              @for (link of liveLinks(); track link.url; let first = $first) {
-                <a
-                  class="summary__cta"
-                  [class.summary__cta--primary]="first"
-                  [href]="link.url"
-                  target="_blank"
-                  rel="noopener">
-                  <app-ui-icon name="external" size="sm" [statusClass]="first ? '' : 'accent'" />
-                  {{ link.label }}
-                </a>
+            <div class="summary__stats">
+              @if (durationLabel(); as duration) {
+                <span class="summary__stat">
+                  <app-ui-icon name="clock" size="sm" statusClass="muted" />
+                  Deployed in {{ duration }}
+                </span>
+              }
+              @if (finishedAt(); as finished) {
+                <span class="summary__stat">
+                  <app-ui-icon name="check" size="sm" statusClass="muted" />
+                  Finished {{ finished | date: 'MMM d, h:mm a' }}
+                </span>
               }
             </div>
-          }
+          </div>
         </div>
+
+        @if (liveServices().length > 0) {
+          <div class="summary__links">
+            @for (service of liveServices(); track service.url) {
+              <div class="url-chip">
+                <app-ui-icon name="globe" size="sm" statusClass="accent" class="url-chip__leading" />
+                <div class="url-chip__body">
+                  <span class="url-chip__label u-label-caps">{{ service.label }}</span>
+                  <code class="url-chip__url u-code-sm">{{ displayUrl(service.url) }}</code>
+                </div>
+                <button
+                  type="button"
+                  class="url-chip__action"
+                  [attr.aria-label]="(copiedUrl() === service.url ? 'Copied ' : 'Copy ') + service.label + ' link'"
+                  (click)="copyUrl(service.url)">
+                  <app-ui-icon
+                    [name]="copiedUrl() === service.url ? 'check' : 'copy'"
+                    size="sm"
+                    [statusClass]="copiedUrl() === service.url ? 'success' : 'muted'" />
+                </button>
+                <a
+                  class="url-chip__action url-chip__action--launch"
+                  [href]="service.url"
+                  target="_blank"
+                  rel="noopener"
+                  [attr.aria-label]="'Open ' + service.label">
+                  <app-ui-icon name="external" size="sm" statusClass="accent" />
+                </a>
+              </div>
+            }
+          </div>
+        }
 
         @if (canSyncUrls() || environmentSync()) {
           <div class="summary__meta">
@@ -164,14 +225,6 @@
       </section>
     }
 
-    @if (redeployMessage()) {
-      <p class="notice">{{ redeployMessage() }}</p>
-    }
-
-    @if (syncMessage()) {
-      <p class="notice">{{ syncMessage() }}</p>
-    }
-
     @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {
       <p class="notice notice--warning">Your site and app need reconnecting so they can talk to each other.</p>
     }
@@ -229,6 +282,7 @@
         [connecting]="store.connectingLogs()"
         [embedded]="true"
         [showProviderPrefix]="true"
+        [providerLabels]="providerLabelMap()"
       />
     } @else if (showDetails() || store.overallStatus() !== 'success') {
       <div class="targets">
@@ -239,6 +293,7 @@
             [status]="target.status"
             [deployUrl]="target.deployUrl"
             [startedAt]="target.startedAt"
+            [checkedAt]="target.completedAt"
             [showProviderName]="false"
             [showOpenLink]="false"
             [expanded]="isExpanded(target.id)"

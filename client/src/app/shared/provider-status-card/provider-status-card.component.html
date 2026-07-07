@@ -103,6 +103,16 @@
     <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
   }
 
+  @if (!live && status === 'success') {
+    <div class="provider-card__health">
+      <span class="provider-card__health-dot" aria-hidden="true"></span>
+      <span class="provider-card__health-text">Live · Healthy</span>
+      @if (checkedAt) {
+        <span class="provider-card__health-meta">· checked {{ checkedAt | date: 'shortTime' }}</span>
+      }
+    </div>
+  }
+
   @if (!live && showOpenLink && status === 'success' && deployUrl) {
     <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener" (click)="$event.stopPropagation()">
       <app-ui-icon name="external" size="sm" statusClass="success" />

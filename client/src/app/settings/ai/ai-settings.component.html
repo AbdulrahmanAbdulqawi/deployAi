@@ -1,0 +1,32 @@
+<section class="settings-page">
+  <p class="page-intro">Let AI providers help configure and fix your deployments.</p>
+
+  <article class="settings-panel u-glass-panel">
+    <header class="settings-panel__header">
+      <div>
+        <h2>AI providers</h2>
+        <p class="settings-panel__desc">Off by default. When enabled, DeployAI can use Claude to analyze your repository.</p>
+      </div>
+    </header>
+
+    <div class="settings-toggle-list">
+      <label class="settings-toggle">
+        <span class="settings-toggle__text">
+          <strong>AI-powered deployment setup</strong>
+          <span class="settings-toggle__hint">
+            Show the split-origin setup panel and let Claude add or fix deployment files and configuration patches.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          [checked]="aiSetup.enabled()"
+          (change)="setEnabled($any($event.target).checked)"
+        />
+      </label>
+    </div>
+
+    <p class="settings-panel__footnote u-text-muted">
+      This preference is stored on this device. Publishing is never blocked while AI setup is disabled.
+    </p>
+  </article>
+</section>

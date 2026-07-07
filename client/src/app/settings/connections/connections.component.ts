@@ -7,7 +7,7 @@ import { ConnectionsStore } from '../../core/stores/connections.store';
 import { ButtonComponent } from '../../shared/ui/button/button.component';
 import { InputComponent } from '../../shared/ui/input/input.component';
 import { ToastService } from '../../shared/ui/toast/toast.service';
-import { ConfirmDialogComponent } from '../../shared/confirm-dialog/confirm-dialog.component';
+import { ConfirmService } from '../../shared/ui/confirm/confirm.service';
 import { StatusBadgeComponent } from '../../shared/status-badge/status-badge.component';
 
 type ProviderKey = 'vercel' | 'railway';
@@ -15,7 +15,7 @@ type ProviderKey = 'vercel' | 'railway';
 @Component({
   selector: 'app-connections',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, InputComponent, ConfirmDialogComponent, StatusBadgeComponent],
+  imports: [FormsModule, ButtonComponent, InputComponent, StatusBadgeComponent],
   templateUrl: './connections.component.html',
   styleUrl: './connections.component.scss'
 })
@@ -26,7 +26,6 @@ export class ConnectionsComponent implements OnInit {
   readonly showAdvanced = signal(false);
   readonly showAdvancedRailway = signal(false);
   readonly savingRailway = signal(false);
-  readonly confirmRemoveId = signal<string | null>(null);
   readonly providerHealth = signal<{ name: string; status: string; message?: string | null }[]>([]);
 
   readonly healthAlert = computed(() =>
@@ -49,7 +48,8 @@ export class ConnectionsComponent implements OnInit {
     private readonly api: ApiService,
     private readonly router: Router,
     private readonly route: ActivatedRoute,
-    private readonly toast: ToastService
+    private readonly toast: ToastService,
+    private readonly confirm: ConfirmService
   ) {}
 
   ngOnInit(): void {
@@ -218,25 +218,24 @@ export class ConnectionsComponent implements OnInit {
     }
   }
 
-  askRemove(id: string): void {
-    this.confirmRemoveId.set(id);
-  }
-
-  confirmRemove(): void {
-    const id = this.confirmRemoveId();
-    if (!id) {
+  async askRemove(id: string): Promise<void> {
+    const confirmed = await this.confirm.ask({
+      title: 'Remove connection?',
+      message: 'DeployAI will stop using this connection.',
+      confirmLabel: 'Remove',
+      destructive: true
+    });
+    if (!confirmed) {
       return;
     }
 
     this.store.remove(id).subscribe({
       next: () => {
         this.toast.success('Connection removed');
-        this.confirmRemoveId.set(null);
         this.store.load();
       },
       error: (err) => {
         this.toast.error(err?.error?.error?.message ?? 'Could not remove that connection.');
-        this.confirmRemoveId.set(null);
       }
     });
   }

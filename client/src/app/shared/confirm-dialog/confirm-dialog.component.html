@@ -1,10 +1,27 @@
-<div class="backdrop" role="dialog" aria-modal="true" [attr.aria-label]="title">
-  <div class="dialog u-card">
-    <h2>{{ title }}</h2>
-    <p>{{ message }}</p>
+<div class="backdrop" (click)="cancel.emit()">
+  <div
+    class="dialog"
+    [class.dialog--destructive]="destructive"
+    role="alertdialog"
+    aria-modal="true"
+    [attr.aria-label]="title"
+    (click)="$event.stopPropagation()">
+    <div class="dialog__head">
+      <span class="dialog__icon" aria-hidden="true">
+        <app-ui-icon [name]="destructive ? 'trash' : 'info'" [statusClass]="destructive ? 'danger' : 'accent'" />
+      </span>
+      <div class="dialog__body">
+        <h2 class="dialog__title">{{ title }}</h2>
+        <p class="dialog__message">{{ message }}</p>
+      </div>
+    </div>
     <div class="actions">
-      <app-ui-button variant="secondary" icon="x" (click)="cancel.emit()">{{ cancelLabel }}</app-ui-button>
-      <app-ui-button variant="primary" [icon]="destructive ? 'trash' : 'check'" (click)="confirm.emit()">
+      <app-ui-button variant="secondary" (click)="cancel.emit()">{{ cancelLabel }}</app-ui-button>
+      <app-ui-button
+        variant="primary"
+        [tone]="destructive ? 'danger' : 'brand'"
+        [icon]="destructive ? 'trash' : 'check'"
+        (click)="confirm.emit()">
         {{ confirmLabel }}
       </app-ui-button>
     </div>

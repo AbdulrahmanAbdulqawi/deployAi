@@ -34,6 +34,7 @@ export class LiveLogPanelComponent implements AfterViewChecked {
   @Input() showProviderPrefix = true;
   @Input() showToggle = true;
   @Input() title = 'Build output';
+  @Input() providerLabels: Record<string, string> = {};
 
   @ViewChild('viewport') viewport?: ElementRef<HTMLElement>;
 
@@ -68,7 +69,7 @@ export class LiveLogPanelComponent implements AfterViewChecked {
   }
 
   roleLabel(providerName: string): string {
-    return roleLabelForProvider(providerName);
+    return this.providerLabels[providerName] ?? roleLabelForProvider(providerName);
   }
 
   lineClass(line: string): LogLineClass {

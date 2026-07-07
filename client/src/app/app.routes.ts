@@ -36,6 +36,10 @@ export const routes: Routes = [
             loadComponent: () => import('./settings/notifications/notifications.component').then(m => m.NotificationsComponent)
           },
           {
+            path: 'ai',
+            loadComponent: () => import('./settings/ai/ai-settings.component').then(m => m.AiSettingsComponent)
+          },
+          {
             path: 'account',
             loadComponent: () => import('./settings/account/account.component').then(m => m.AccountComponent)
           }

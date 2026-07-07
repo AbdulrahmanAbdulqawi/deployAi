@@ -12,6 +12,7 @@ import { IconComponent } from '../shared/ui/icon/icon.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { LiveLogPanelComponent } from '../shared/live-log-panel/live-log-panel.component';
 import { DeploymentFixPanelComponent } from '../shared/deployment-fix-panel/deployment-fix-panel.component';
+import { ToastService } from '../shared/ui/toast/toast.service';
 
 @Component({
   selector: 'app-publish-view',
@@ -24,20 +25,21 @@ export class PublishViewComponent implements OnInit, OnDestroy {
   readonly showDetails = signal(true);
   readonly expandedTargets = signal<Record<string, boolean>>({});
   readonly redeployingTargets = signal<Record<string, boolean>>({});
-  readonly redeployMessage = signal<string | null>(null);
   readonly syncingUrls = signal(false);
-  readonly syncMessage = signal<string | null>(null);
   readonly environmentSync = signal<EnvironmentSyncState | null>(null);
   readonly githubRepoFullName = signal<string | null>(null);
   readonly projectName = signal<string | null>(null);
+  readonly copiedUrl = signal<string | null>(null);
 
   private projectLoadedFor: string | null = null;
+  private copiedTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     readonly store: DeploymentStore,
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly api: ApiService
+    private readonly api: ApiService,
+    private readonly toast: ToastService
   ) {
     effect(() => {
       const deployment = this.store.deployment();
@@ -77,6 +79,15 @@ export class PublishViewComponent implements OnInit, OnDestroy {
 
   async ngOnDestroy(): Promise<void> {
     await this.store.unload();
+  }
+
+  goBack(): void {
+    const projectId = this.store.deployment()?.projectId;
+    if (projectId) {
+      void this.router.navigate(['/projects', projectId]);
+      return;
+    }
+    void this.router.navigate(['/dashboard']);
   }
 
   roleLabel(providerName: string): string {
@@ -135,7 +146,27 @@ export class PublishViewComponent implements OnInit, OnDestroy {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
 
-  liveLinks(): { label: string; url: string }[] {
+  durationLabel(): string | null {
+    const deployment = this.store.deployment();
+    if (!deployment?.startedAt || !deployment.completedAt) {
+      return null;
+    }
+
+    const ms = new Date(deployment.completedAt).getTime() - new Date(deployment.startedAt).getTime();
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    if (totalSeconds < 60) {
+      return `${totalSeconds}s`;
+    }
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+  }
+
+  finishedAt(): string | null {
+    return this.store.deployment()?.completedAt ?? null;
+  }
+
+  liveServices(): { label: string; url: string; status: string; providerName: string }[] {
     const deployment = this.store.deployment();
     if (!deployment) {
       return [];
@@ -145,8 +176,33 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       .filter(t => t.deployUrl)
       .map(t => ({
         label: this.roleLabel(t.providerName),
-        url: t.deployUrl!
+        url: t.deployUrl!,
+        status: t.status,
+        providerName: t.providerName
       }));
+  }
+
+  providerLabelMap(): Record<string, string> {
+    return {
+      vercel: this.roleLabel('vercel'),
+      railway: this.roleLabel('railway')
+    };
+  }
+
+  displayUrl(url: string): string {
+    return url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+  }
+
+  async copyUrl(url: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(url);
+      this.copiedUrl.set(url);
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = setTimeout(() => this.copiedUrl.set(null), 2000);
+      this.toast.success('Link copied');
+    } catch {
+      this.toast.error('Could not copy link');
+    }
   }
 
   toggleDetails(): void {
@@ -183,7 +239,6 @@ export class PublishViewComponent implements OnInit, OnDestroy {
     }
 
     this.redeployingTargets.update(state => ({ ...state, [target.id]: true }));
-    this.redeployMessage.set(null);
     this.api.redeployDeployTarget(deployment.projectId, target.deployTargetId, deployment.branch).subscribe({
       next: (response) => {
         this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));
@@ -191,7 +246,7 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));
-        this.redeployMessage.set(err?.error?.error?.message ?? 'Could not redeploy that service.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not redeploy that service.');
       }
     });
   }
@@ -250,24 +305,20 @@ export class PublishViewComponent implements OnInit, OnDestroy {
     }
 
     this.syncingUrls.set(true);
-    this.syncMessage.set(null);
     this.api.syncEnvironmentUrls(deployment.projectId).subscribe({
       next: (result) => {
         this.syncingUrls.set(false);
         if (result.skipped) {
-          this.syncMessage.set(result.skipReason ?? 'URL sync was skipped.');
+          this.toast.show(result.skipReason ?? 'Reconnect was skipped.', 'info');
           return;
         }
 
-        const summary = result.verificationMessages.length > 0
-          ? result.verificationMessages.join(' ')
-          : 'Railway and Vercel URLs are aligned.';
-        this.syncMessage.set(summary);
+        this.toast.success('Your site and app are reconnected.');
         void this.loadEnvironmentSync(deployment.projectId);
       },
       error: (err) => {
         this.syncingUrls.set(false);
-        this.syncMessage.set(err?.error?.error?.message ?? 'Could not sync URLs.');
+        this.toast.error(err?.error?.error?.message ?? 'Could not reconnect your site and app.');
       }
     });
   }

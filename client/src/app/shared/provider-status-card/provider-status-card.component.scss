@@ -214,6 +214,60 @@
   }
 }
 
+.provider-card__health {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  font-size: 0.8125rem;
+}
+
+.provider-card__health-dot {
+  position: relative;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--status-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-success) 18%, transparent);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: inherit;
+    animation: provider-health-pulse 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  }
+}
+
+.provider-card__health-text {
+  font-weight: 600;
+  color: var(--status-success);
+}
+
+.provider-card__health-meta {
+  color: var(--text-muted);
+}
+
+@keyframes provider-health-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-card__health-dot::before {
+    animation: none;
+  }
+}
+
 .failure {
   margin: 0;
   color: var(--status-danger);

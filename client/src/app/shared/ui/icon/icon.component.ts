@@ -24,7 +24,11 @@ export type IconName =
   | 'more'
   | 'chevron-down'
   | 'rocket'
-  | 'code';
+  | 'code'
+  | 'github'
+  | 'copy'
+  | 'globe'
+  | 'search';
 
 export type IconStatusClass = 'success' | 'accent' | 'danger' | 'warning' | 'muted' | '';
 

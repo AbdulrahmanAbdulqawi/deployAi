@@ -129,4 +129,33 @@
       }
     }
   }
+
+  &--primary.ui-btn--danger {
+    background: #dc2626;
+    color: var(--white);
+    border-color: transparent;
+    box-shadow: 0 8px 22px rgba(220, 38, 38, 0.3);
+
+    &:hover:not(:disabled) {
+      background: #b91c1c;
+      box-shadow: 0 10px 26px rgba(220, 38, 38, 0.4);
+      transform: translateY(-1px);
+    }
+  }
+
+  &--secondary.ui-btn--danger {
+    background: var(--btn-secondary-bg);
+    color: var(--status-danger);
+    border-color: color-mix(in srgb, var(--status-danger) 55%, transparent);
+
+    app-ui-icon {
+      color: var(--status-danger);
+    }
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--status-danger) 10%, transparent);
+      border-color: var(--status-danger);
+      box-shadow: 0 8px 22px color-mix(in srgb, var(--status-danger) 20%, transparent);
+    }
+  }
 }

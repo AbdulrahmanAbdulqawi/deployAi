@@ -27,10 +27,6 @@ export class ProjectCardComponent {
     return this.publishing || this.project.latestDeployment?.status === 'in_progress';
   }
 
-  get isLive(): boolean {
-    return this.project.latestDeployment?.status === 'success';
-  }
-
   get canFix(): boolean {
     return !!this.project.latestDeployment?.canRequestClaudeFix;
   }

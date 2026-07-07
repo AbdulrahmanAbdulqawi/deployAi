@@ -54,3 +54,47 @@
   color: var(--text-secondary);
   border-color: rgba(255, 255, 255, 0.1);
 }
+
+.badge--dot {
+  padding: 0;
+  gap: 0;
+  background: transparent;
+  border-color: transparent;
+
+  &::before {
+    display: none;
+  }
+}
+
+.badge__dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
+  flex-shrink: 0;
+}
+
+.badge--dot.live .badge__dot,
+.badge--dot.working .badge__dot {
+  animation: badge-dot-blink 2.8s ease-in-out infinite;
+}
+
+@keyframes badge-dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 24%, transparent);
+  }
+  50% {
+    opacity: 0.25;
+    box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge--dot.live .badge__dot,
+  .badge--dot.working .badge__dot {
+    animation: none;
+  }
+}

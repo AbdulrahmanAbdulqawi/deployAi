@@ -1,41 +1,89 @@
 @if (project()) {
   <section class="detail">
-    <header class="detail__header">
-      <div class="detail__title-block">
-        <h1 class="u-display-lg">{{ project()!.name }}</h1>
-        <p class="detail__meta">
-          <app-ui-icon name="log" size="sm" statusClass="muted" />
-          <span class="u-code-md">{{ project()!.githubRepoFullName }} · {{ project()!.defaultBranch }} · {{ targetSummary() }}</span>
-        </p>
-      </div>
-      <div class="detail__actions">
-        <app-ui-button
-          variant="secondary"
-          icon="clock"
-          (click)="openHistory()">
-          History
-        </app-ui-button>
-        <app-ui-button
-          variant="secondary"
-          icon="pencil"
-          (click)="openEdit()">
-          Edit
-        </app-ui-button>
-        <app-ui-button
-          class="detail__publish"
-          variant="primary"
-          icon="rocket"
-          [disabled]="projectsStore.deployingProjectId() === project()?.id"
-          [loading]="projectsStore.deployingProjectId() === project()?.id"
-          (click)="publish()">
-          Publish
-        </app-ui-button>
-      </div>
-    </header>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" class="breadcrumb__link" (click)="goToProjects()">
+        <app-ui-icon name="arrow-left" size="sm" statusClass="muted" />
+        Projects
+      </button>
+      <span class="breadcrumb__sep" aria-hidden="true">/</span>
+      <span class="breadcrumb__current" aria-current="page">{{ project()!.name }}</span>
+    </nav>
 
-    @if (message()) {
-      <p class="detail__notice">{{ message() }}</p>
-    }
+    <header class="hero u-glass-panel">
+      <span class="hero__glow" aria-hidden="true"></span>
+      <div class="hero__main">
+        <div class="hero__heading">
+          <div class="hero__title-row">
+            <h1 class="u-headline-md">{{ project()!.name }}</h1>
+            <app-status-badge [status]="overallStatus()" kind="deployment" />
+          </div>
+          <div class="hero__meta">
+            <a
+              class="hero__chip hero__chip--link"
+              [href]="'https://github.com/' + project()!.githubRepoFullName"
+              target="_blank"
+              rel="noopener">
+              <app-ui-icon name="github" size="sm" statusClass="muted" />
+              <span class="u-code-sm">{{ project()!.githubRepoFullName }}</span>
+            </a>
+            <span class="hero__chip">
+              <app-ui-icon name="code" size="sm" statusClass="muted" />
+              <span class="u-code-sm">{{ project()!.defaultBranch }}</span>
+            </span>
+            @if (lastDeployedLabel(); as when) {
+              <span class="hero__meta-text">
+                <app-ui-icon name="clock" size="sm" statusClass="muted" />
+                Deployed {{ when }}
+              </span>
+            }
+          </div>
+        </div>
+        <div class="hero__actions">
+          <app-ui-button variant="secondary" icon="clock" (click)="openHistory()">History</app-ui-button>
+          <app-ui-button variant="secondary" icon="pencil" (click)="openEdit()">Edit</app-ui-button>
+          <app-ui-button
+            variant="primary"
+            icon="rocket"
+            [disabled]="projectsStore.deployingProjectId() === project()?.id"
+            [loading]="projectsStore.deployingProjectId() === project()?.id"
+            (click)="publish()">
+            Publish
+          </app-ui-button>
+        </div>
+      </div>
+
+      @if (liveUrls().length > 0) {
+        <div class="hero__links">
+          @for (link of liveUrls(); track link.url) {
+            <div class="url-chip">
+              <app-ui-icon name="globe" size="sm" statusClass="accent" class="url-chip__leading" />
+              <div class="url-chip__body">
+                <span class="url-chip__label u-label-caps">{{ link.label }}</span>
+                <code class="url-chip__url u-code-sm">{{ displayUrl(link.url) }}</code>
+              </div>
+              <button
+                type="button"
+                class="url-chip__action"
+                [attr.aria-label]="(copiedUrl() === link.url ? 'Copied ' : 'Copy ') + link.label + ' link'"
+                (click)="copyUrl(link.url)">
+                <app-ui-icon
+                  [name]="copiedUrl() === link.url ? 'check' : 'copy'"
+                  size="sm"
+                  [statusClass]="copiedUrl() === link.url ? 'success' : 'muted'" />
+              </button>
+              <a
+                class="url-chip__action url-chip__action--launch"
+                [href]="link.url"
+                target="_blank"
+                rel="noopener"
+                [attr.aria-label]="'Open ' + link.label">
+                <app-ui-icon name="external" size="sm" statusClass="accent" />
+              </a>
+            </div>
+          }
+        </div>
+      }
+    </header>
 
     @if (deploymentReadiness(); as readiness) {
       @if (showDeploymentSetupPanel(readiness)) {
@@ -49,15 +97,15 @@
             </div>
             <div class="readiness-banner__copy">
               @if (readiness.isReady) {
-                <p class="readiness-banner__title">Recommended deployment improvements</p>
-                <p class="readiness-banner__desc">Split-origin wiring can be improved before or after publish.</p>
+                <p class="readiness-banner__title">Optional deployment improvements</p>
+                <p class="readiness-banner__desc">Fine-tune your split-origin wiring anytime — before or after you publish.</p>
               } @else {
-                <p class="readiness-banner__title">Deployment setup required</p>
-                <p class="readiness-banner__desc">Split-origin files are missing or invalid.</p>
+                <p class="readiness-banner__title">Finish deployment setup</p>
+                <p class="readiness-banner__desc">Some split-origin files are missing or need updating before this app can deploy reliably.</p>
               }
             </div>
             <button type="button" class="readiness-banner__action u-label-caps" (click)="scrollToSetup()">
-              {{ readiness.isReady ? 'Improve' : 'Configure' }}
+              {{ readiness.isReady ? 'Review' : 'Set up' }}
             </button>
           </div>
         }
@@ -76,309 +124,313 @@
       }
     }
 
-    <section class="advanced-panel u-glass-panel">
-      <button type="button" class="advanced-panel__toggle" (click)="toggleAdvanced()">
-        <span class="advanced-panel__toggle-label">
-          <app-ui-icon name="settings" size="sm" statusClass="accent" />
-          <span class="u-headline-sm">Advanced</span>
-        </span>
-        <app-ui-icon
-          name="chevron-down"
-          size="sm"
-          statusClass="muted"
-          [class.advanced-panel__chevron--open]="showAdvanced()" />
-      </button>
-
-      @if (showAdvanced() && services()) {
-        <div class="advanced-panel__body">
-          <div class="services-group">
-            <h3 class="services-group__label u-label-caps">Apps</h3>
-            @if (services()!.applicationServices.length === 0) {
-              <p class="detail__muted">None</p>
-            } @else {
-              <div class="service-grid">
-                @for (service of services()!.applicationServices; track service.id) {
-                  <article class="service-tile u-glass-panel">
-                    <div class="service-tile__head">
-                      <div class="service-tile__brand">
-                        <div
-                          class="service-tile__logo"
-                          [class.service-tile__logo--vercel]="service.providerName === 'vercel'"
-                          [class.service-tile__logo--railway]="service.providerName === 'railway'">
-                          @if (service.providerName === 'vercel') {
-                            <svg width="16" height="14" viewBox="0 0 20 18" fill="none" aria-hidden="true">
-                              <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
-                            </svg>
-                          } @else {
-                            <app-ui-icon name="link" size="sm" statusClass="accent" />
-                          }
-                        </div>
-                        <span class="u-title-lg">{{ providerLabel(service.providerName) }}</span>
-                      </div>
-                      @if (service.canManage) {
-                        @if (loadingStatus()[service.id]) {
-                          <span class="service-tile__badge">…</span>
-                        } @else {
-                          <span class="service-tile__badge" [class.service-tile__badge--live]="serviceStatuses()[service.id] === 'running'">
-                            {{ serviceStatusLabel(serviceStatuses()[service.id]) }}
-                          </span>
-                        }
+    @if (services(); as svc) {
+      <section class="resources u-glass-panel">
+        <div class="resource-group">
+        <h2 class="section__label u-label-caps">Services</h2>
+        @if (svc.applicationServices.length === 0) {
+          <p class="detail__muted">No services yet.</p>
+        } @else {
+          <div class="service-grid">
+            @for (service of svc.applicationServices; track service.id) {
+              <article class="resource-tile service-tile">
+                <div class="service-tile__head">
+                  <div class="service-tile__brand">
+                    <div
+                      class="service-tile__logo"
+                      [class.service-tile__logo--vercel]="service.providerName === 'vercel'"
+                      [class.service-tile__logo--railway]="service.providerName === 'railway'">
+                      @if (service.providerName === 'vercel') {
+                        <svg width="16" height="14" viewBox="0 0 20 18" fill="none" aria-hidden="true">
+                          <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+                        </svg>
+                      } @else {
+                        <app-ui-icon name="link" size="sm" statusClass="accent" />
                       }
                     </div>
-                    @if (serviceFolderSummary(service); as folder) {
-                      <p class="service-tile__folder u-code-sm">{{ folder }}</p>
-                    }
-                    <div class="service-tile__actions">
-                      @if (service.canManage) {
-                        <button
-                          type="button"
-                          class="service-tile__btn"
-                          [disabled]="actingOnService()[service.id]"
-                          (click)="redeployService(service)">
-                          <app-ui-icon name="refresh" size="sm" statusClass="muted" />
-                          Restart
-                        </button>
+                    <div class="service-tile__brand-text">
+                      <span class="u-title-lg">{{ providerLabel(service.providerName) }}</span>
+                      @if (serviceFolderSummary(service); as folder) {
+                        <span class="service-tile__folder u-code-sm">{{ folder }}</span>
                       }
-                      <button type="button" class="service-tile__link" (click)="toggleEnvPanel(service)">
-                        <app-ui-icon name="settings" size="sm" statusClass="accent" />
-                        {{ isEnvExpanded(service.id) ? 'Hide env vars' : 'Env vars' }}
-                      </button>
                     </div>
-                    @if (isEnvExpanded(service.id)) {
-                      <div class="env-panel">
-                        @if (loadingEnv()[service.id]) {
-                          <p class="detail__muted">Loading…</p>
-                        } @else {
-                          <ul class="env-list">
-                            @for (item of envVarsFor(service.id); track item.id) {
-                              <li>
-                                <strong>{{ item.key }}</strong>
-                                <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
-                                <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
-                              </li>
-                            } @empty {
-                              <li class="detail__muted">None</li>
-                            }
-                          </ul>
-                          <div class="env-form">
-                            <label>
-                              Name
-                              <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="API_URL" />
-                            </label>
-                            <label>
-                              Value
-                              <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
-                            </label>
-                            <app-ui-button
-                              variant="secondary"
-                              icon="plus"
-                              [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
-                              [loading]="savingEnv()[service.id]"
-                              (click)="addEnv(service)">
-                              Add
-                            </app-ui-button>
-                          </div>
-                        }
-                      </div>
-                    }
-                  </article>
-                }
-              </div>
-            }
-          </div>
-
-          @if (services()!.hasRailwayServer) {
-            <div class="services-group">
-              <h3 class="services-group__label u-label-caps">Databases</h3>
-              <div class="database-grid">
-                @for (service of services()!.dataServices; track service.id) {
-                  <article class="database-tile u-glass-panel">
-                    <div class="database-tile__brand">
-                      <div class="database-tile__icon" aria-hidden="true">
-                        <app-ui-icon [name]="databaseIcon(service.databaseEngine)" size="sm" statusClass="accent" />
-                      </div>
-                      <div>
-                        <span class="u-title-lg">{{ databaseEngineLabel(service.databaseEngine) }}</span>
-                        @if (dataServiceSummary(service); as summary) {
-                          <span class="database-tile__meta u-code-sm">{{ summary }}</span>
-                        } @else {
-                          @if (linkedConnectionSummary(service); as linked) {
-                            <span class="database-tile__meta u-code-sm">{{ linked }}</span>
-                          }
-                        }
-                      </div>
-                    </div>
-                    <div class="database-tile__end">
-                      @if (connectionStatusLabel(service.id); as connectionLabel) {
-                        <span class="database-tile__badge database-tile__badge--connected">{{ connectionLabel }}</span>
-                      }
-                      @if (loadingStatus()[service.id]) {
-                        <span class="database-tile__badge">…</span>
-                      } @else if (serviceStatuses()[service.id]) {
-                        <span class="service-tile__badge" [class.service-tile__badge--live]="serviceStatuses()[service.id] === 'running'">
-                          {{ serviceStatusLabel(serviceStatuses()[service.id]) }}
-                        </span>
-                      }
-                      <app-ui-dropdown
-                        triggerVariant="quiet"
-                        [items]="dataServiceMenuItems(service)"
-                        (select)="onDataServiceMenuAction(service, $event)"
-                      />
-                    </div>
-                    @if (isDataInfoExpanded(service.id)) {
-                      <div class="data-panel">
-                        @if (loadingDataInfo()[service.id]) {
-                          <p class="detail__muted">Loading…</p>
-                        } @else {
-                          @if (dataInfoFor(service.id); as info) {
-                          <dl class="data-meta">
-                            @if (info.metadata.databaseName) {
-                              <div>
-                                <dt>Database name</dt>
-                                <dd>{{ info.metadata.databaseName }}</dd>
-                              </div>
-                            }
-                            @if (info.metadata.host) {
-                              <div>
-                                <dt>Host</dt>
-                                <dd>
-                                  {{ info.metadata.host }}
-                                  @if (info.metadata.port) {
-                                    :{{ info.metadata.port }}
-                                  }
-                                </dd>
-                              </div>
-                            }
-                            @if (info.connectionSummary) {
-                              <div>
-                                <dt>Connection</dt>
-                                <dd><code>{{ info.connectionSummary }}</code></dd>
-                              </div>
-                            }
-                          </dl>
-                          @if (info.inspection?.connected) {
-                            <div class="data-tables">
-                              <div class="data-tables-header">
-                                <strong>{{ tableCount(service.id) }} tables</strong>
-                                <button type="button" class="text-btn" (click)="refreshDataServiceInfo(service)">Refresh</button>
-                              </div>
-                              @if (info.inspection!.tables.length === 0) {
-                                <p class="detail__muted">No tables</p>
-                              } @else {
-                                <table class="data-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Table</th>
-                                      <th>Rows</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    @for (table of info.inspection!.tables; track table.name) {
-                                      <tr>
-                                        <td>{{ table.name }}</td>
-                                        <td>{{ table.rowCount }}</td>
-                                      </tr>
-                                    }
-                                  </tbody>
-                                </table>
-                              }
-                            </div>
-                          }
-                          } @else {
-                            <p class="detail__muted">Unavailable</p>
-                          }
-                        }
-                      </div>
-                    }
-                    @if (isEnvExpanded(service.id)) {
-                      <div class="env-panel">
-                        @if (loadingEnv()[service.id]) {
-                          <p class="detail__muted">Loading…</p>
-                        } @else {
-                          <ul class="env-list">
-                            @for (item of envVarsFor(service.id); track item.id) {
-                              <li>
-                                <strong>{{ item.key }}</strong>
-                                <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
-                                <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
-                              </li>
-                            } @empty {
-                              <li class="detail__muted">None</li>
-                            }
-                          </ul>
-                          <div class="env-form">
-                            <label>
-                              Name
-                              <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="POSTGRES_DB" />
-                            </label>
-                            <label>
-                              Value
-                              <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
-                            </label>
-                            <app-ui-button
-                              variant="secondary"
-                              icon="plus"
-                              [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
-                              [loading]="savingEnv()[service.id]"
-                              (click)="addEnv(service)">
-                              Add
-                            </app-ui-button>
-                          </div>
-                        }
-                      </div>
-                    }
-                  </article>
-                }
-              </div>
-
-              @if (!hasPostgresService() || !hasRedisService()) {
-                <div class="setup-panel u-glass-panel">
-                  <h4 class="u-title-lg">Add databases</h4>
-                  @if (detectingRequirements()) {
-                    <p class="detail__muted">Detecting…</p>
-                  } @else if (databaseRequirements()) {
-                    <p class="setup-panel__hint">
-                      Detected:
-                      @if (databaseRequirements()!.requiresPostgres) { PostgreSQL }
-                      @if (databaseRequirements()!.requiresPostgres && databaseRequirements()!.requiresRedis) { + }
-                      @if (databaseRequirements()!.requiresRedis) { Redis }
-                      @if (!databaseRequirements()!.requiresPostgres && !databaseRequirements()!.requiresRedis) { none }
-                    </p>
-                  }
-                  <div class="setup-options">
-                    @if (!hasPostgresService()) {
-                      <label class="checkbox">
-                        <input type="checkbox" [(ngModel)]="setupPostgres" />
-                        PostgreSQL
-                      </label>
-                    }
-                    @if (!hasRedisService()) {
-                      <label class="checkbox">
-                        <input type="checkbox" [(ngModel)]="setupRedis" />
-                        Redis
-                      </label>
-                    }
                   </div>
-                  <div class="setup-actions">
-                    <app-ui-button variant="secondary" icon="refresh" [disabled]="provisioning()" [loading]="provisioning()" (click)="autoSetupDatabases()">
-                      Auto setup
-                    </app-ui-button>
-                    <app-ui-button variant="primary" icon="plus" [disabled]="provisioning()" [loading]="provisioning()" (click)="addSelectedDatabases()">
-                      Add
-                    </app-ui-button>
+                  <div class="service-tile__end">
+                    @if (service.canManage) {
+                      @if (loadingStatus()[service.id]) {
+                        <span class="service-tile__badge">…</span>
+                      } @else {
+                        <app-status-badge
+                          kind="service"
+                          [status]="serviceStatuses()[service.id] || 'unknown'" />
+                      }
+                    }
+                    <app-ui-dropdown
+                      triggerVariant="quiet"
+                      [items]="applicationServiceMenuItems(service)"
+                      (select)="onApplicationServiceMenuAction(service, $event)"
+                    />
                   </div>
                 </div>
-              }
+                @if (isEnvExpanded(service.id)) {
+                  <div class="env-panel">
+                    @if (loadingEnv()[service.id]) {
+                      <p class="detail__muted">Loading…</p>
+                    } @else {
+                      <ul class="env-list">
+                        @for (item of envVarsFor(service.id); track item.id) {
+                          <li>
+                            <strong>{{ item.key }}</strong>
+                            <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
+                            <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
+                          </li>
+                        } @empty {
+                          <li class="detail__muted">None</li>
+                        }
+                      </ul>
+                      <div class="env-form">
+                        <label>
+                          Name
+                          <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="API_URL" />
+                        </label>
+                        <label>
+                          Value
+                          <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
+                        </label>
+                        <app-ui-button
+                          variant="secondary"
+                          icon="plus"
+                          [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
+                          [loading]="savingEnv()[service.id]"
+                          (click)="addEnv(service)">
+                          Add
+                        </app-ui-button>
+                      </div>
+                    }
+                  </div>
+                }
+              </article>
+            }
+          </div>
+        }
+        </div>
+
+      @if (svc.hasRailwayServer) {
+        <div class="resource-group">
+          <h2 class="section__label u-label-caps">Databases</h2>
+          <div class="database-grid">
+            @for (service of svc.dataServices; track service.id) {
+              <article class="resource-tile database-tile">
+                <div class="database-tile__brand">
+                  <div class="database-tile__icon" aria-hidden="true">
+                    <app-ui-icon [name]="databaseIcon(service.databaseEngine)" size="sm" statusClass="accent" />
+                  </div>
+                  <div>
+                    <span class="u-title-lg">{{ databaseEngineLabel(service.databaseEngine) }}</span>
+                    @if (dataServiceSummary(service); as summary) {
+                      <span class="database-tile__meta u-code-sm">{{ summary }}</span>
+                    } @else {
+                      @if (linkedConnectionSummary(service); as linked) {
+                        <span class="database-tile__meta u-code-sm">{{ linked }}</span>
+                      }
+                    }
+                  </div>
+                </div>
+                <div class="database-tile__end">
+                  @if (connectionStatusLabel(service.id); as connectionLabel) {
+                    <span class="database-tile__badge database-tile__badge--connected">{{ connectionLabel }}</span>
+                  }
+                  @if (loadingStatus()[service.id]) {
+                    <span class="database-tile__badge">…</span>
+                  } @else if (serviceStatuses()[service.id]) {
+                    <app-status-badge
+                      kind="service"
+                      [status]="serviceStatuses()[service.id] || 'unknown'" />
+                  }
+                  <app-ui-dropdown
+                    triggerVariant="quiet"
+                    [items]="dataServiceMenuItems(service)"
+                    (select)="onDataServiceMenuAction(service, $event)"
+                  />
+                </div>
+                @if (isDataInfoExpanded(service.id)) {
+                  <div class="data-panel">
+                    @if (loadingDataInfo()[service.id]) {
+                      <p class="detail__muted">Loading…</p>
+                    } @else {
+                      @if (dataInfoFor(service.id); as info) {
+                      <dl class="data-meta">
+                        @if (info.metadata.databaseName) {
+                          <div>
+                            <dt>Database name</dt>
+                            <dd>{{ info.metadata.databaseName }}</dd>
+                          </div>
+                        }
+                        @if (info.metadata.host) {
+                          <div>
+                            <dt>Host</dt>
+                            <dd>
+                              {{ info.metadata.host }}
+                              @if (info.metadata.port) {
+                                :{{ info.metadata.port }}
+                              }
+                            </dd>
+                          </div>
+                        }
+                        @if (info.connectionSummary) {
+                          <div>
+                            <dt>Connection</dt>
+                            <dd><code>{{ info.connectionSummary }}</code></dd>
+                          </div>
+                        }
+                      </dl>
+                      @if (info.inspection?.connected) {
+                        <div class="data-tables">
+                          <div class="data-tables-header">
+                            <strong>{{ tableCount(service.id) }} tables</strong>
+                            <button type="button" class="text-btn" (click)="refreshDataServiceInfo(service)">Refresh</button>
+                          </div>
+                          @if (info.inspection!.tables.length === 0) {
+                            <p class="detail__muted">No tables</p>
+                          } @else {
+                            <table class="data-table">
+                              <thead>
+                                <tr>
+                                  <th>Table</th>
+                                  <th>Rows</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                @for (table of info.inspection!.tables; track table.name) {
+                                  <tr>
+                                    <td>{{ table.name }}</td>
+                                    <td>{{ table.rowCount }}</td>
+                                  </tr>
+                                }
+                              </tbody>
+                            </table>
+                          }
+                        </div>
+                      }
+                      } @else {
+                        <p class="detail__muted">Unavailable</p>
+                      }
+                    }
+                  </div>
+                }
+                @if (isEnvExpanded(service.id)) {
+                  <div class="env-panel">
+                    @if (loadingEnv()[service.id]) {
+                      <p class="detail__muted">Loading…</p>
+                    } @else {
+                      <ul class="env-list">
+                        @for (item of envVarsFor(service.id); track item.id) {
+                          <li>
+                            <strong>{{ item.key }}</strong>
+                            <span>{{ item.valueHidden ? '••••••' : item.value }}</span>
+                            <button type="button" class="text-btn" (click)="removeEnv(service, item.id)">Remove</button>
+                          </li>
+                        } @empty {
+                          <li class="detail__muted">None</li>
+                        }
+                      </ul>
+                      <div class="env-form">
+                        <label>
+                          Name
+                          <input type="text" [(ngModel)]="newEnvKey[service.id]" placeholder="POSTGRES_DB" />
+                        </label>
+                        <label>
+                          Value
+                          <input type="password" [(ngModel)]="newEnvValue[service.id]" placeholder="Your setting value" />
+                        </label>
+                        <app-ui-button
+                          variant="secondary"
+                          icon="plus"
+                          [disabled]="!newEnvKey[service.id] || !newEnvValue[service.id] || savingEnv()[service.id]"
+                          [loading]="savingEnv()[service.id]"
+                          (click)="addEnv(service)">
+                          Add
+                        </app-ui-button>
+                      </div>
+                    }
+                  </div>
+                }
+              </article>
+            }
+          </div>
+        </div>
+
+          @if (!hasPostgresService() || !hasRedisService()) {
+            <div class="resource-group">
+              <h2 class="section__label u-label-caps">Add database</h2>
+              <div class="add-resource">
+                @if (detectingRequirements()) {
+                  <p class="detail__muted">Detecting…</p>
+                } @else if (databaseRequirements()) {
+                  <p class="setup-panel__hint">
+                    Detected:
+                    @if (databaseRequirements()!.requiresPostgres) { PostgreSQL }
+                    @if (databaseRequirements()!.requiresPostgres && databaseRequirements()!.requiresRedis) { + }
+                    @if (databaseRequirements()!.requiresRedis) { Redis }
+                    @if (!databaseRequirements()!.requiresPostgres && !databaseRequirements()!.requiresRedis) { none }
+                  </p>
+                }
+                <div class="setup-options">
+                  @if (!hasPostgresService()) {
+                    <label class="checkbox">
+                      <input type="checkbox" [(ngModel)]="setupPostgres" />
+                      PostgreSQL
+                    </label>
+                  }
+                  @if (!hasRedisService()) {
+                    <label class="checkbox">
+                      <input type="checkbox" [(ngModel)]="setupRedis" />
+                      Redis
+                    </label>
+                  }
+                </div>
+                <div class="setup-actions">
+                  <app-ui-button variant="secondary" icon="refresh" [disabled]="provisioning()" [loading]="provisioning()" (click)="autoSetupDatabases()">
+                    Auto setup
+                  </app-ui-button>
+                  <app-ui-button variant="primary" icon="plus" [disabled]="provisioning()" [loading]="provisioning()" (click)="addSelectedDatabases()">
+                    Add
+                  </app-ui-button>
+                </div>
+              </div>
             </div>
           }
-        </div>
-      } @else if (showAdvanced() && !services()) {
-        <div class="advanced-panel__body">
-          <p class="detail__muted">Loading…</p>
-        </div>
       }
+      </section>
+    } @else {
+      <div class="section">
+        <div class="u-skeleton detail-skeleton__card"></div>
+        <div class="u-skeleton detail-skeleton__card"></div>
+      </div>
+    }
+
+    <section class="danger-zone u-glass-panel">
+      <div class="danger-zone__copy">
+        <h2 class="u-title-lg">Danger zone</h2>
+        <p class="detail__muted">Permanently remove this app and unlink its connected services.</p>
+      </div>
+      <app-ui-button
+        variant="secondary"
+        icon="trash"
+        [disabled]="deleting()"
+        [loading]="deleting()"
+        (click)="removeApp()">
+        Remove app
+      </app-ui-button>
     </section>
   </section>
 } @else {
-  <p class="detail__muted">Loading…</p>
+  <section class="detail">
+    <div class="u-skeleton detail-skeleton__breadcrumb"></div>
+    <div class="u-skeleton detail-skeleton__hero"></div>
+    <div class="detail-skeleton__cards">
+      <div class="u-skeleton detail-skeleton__card"></div>
+      <div class="u-skeleton detail-skeleton__card"></div>
+    </div>
+  </section>
 }

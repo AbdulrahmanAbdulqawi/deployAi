@@ -28,6 +28,7 @@ export class DeploymentSetupPanelComponent {
   readonly readiness = input<DeploymentReadinessResult | null>(null);
   readonly setupComplete = output<void>();
 
+  readonly collapsed = signal(true);
   readonly generating = signal(false);
   readonly setupResult = signal<DeploymentSetupResult | null>(null);
   readonly mergeResult = signal<DeploymentSetupMergeResult | null>(null);
@@ -45,6 +46,10 @@ export class DeploymentSetupPanelComponent {
 
   constructor() {
     this.destroyRef.onDestroy(() => this.setupSubscription?.unsubscribe());
+  }
+
+  toggleCollapsed(): void {
+    this.collapsed.update(value => !value);
   }
 
   hasMissingFiles(): boolean {

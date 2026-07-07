@@ -2,7 +2,7 @@ import { Component, Input } from '@angular/core';
 import { IconComponent, IconName } from '../icon/icon.component';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
-export type ButtonTone = 'brand' | 'success';
+export type ButtonTone = 'brand' | 'success' | 'danger';
 
 @Component({
   selector: 'app-ui-button',

@@ -1,43 +1,32 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
-import { DeploymentStore } from '../core/stores/deployment.store';
-import { DeploymentDetail, DeploymentSummary } from '../core/models/api.models';
-import { ActivityLine, LiveLogPanelComponent } from '../shared/live-log-panel/live-log-panel.component';
+import { DeploymentSummary } from '../core/models/api.models';
 import { EmptyStateComponent } from '../shared/empty-state/empty-state.component';
-import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent, IconName, IconStatusClass } from '../shared/ui/icon/icon.component';
-import { providerLabel } from '../core/utils/target-config';
 
 @Component({
   selector: 'app-history',
   standalone: true,
   imports: [
     EmptyStateComponent,
-    ButtonComponent,
-    IconComponent,
-    LiveLogPanelComponent
+    IconComponent
   ],
   templateUrl: './history.component.html',
   styleUrl: './history.component.scss'
 })
-export class HistoryComponent implements OnInit, OnDestroy {
+export class HistoryComponent implements OnInit {
   readonly deployments = signal<DeploymentSummary[]>([]);
   readonly projectName = signal('');
   readonly searchQuery = signal('');
   readonly loading = signal(true);
-  readonly selectedId = signal<string | null>(null);
-  readonly expandedTargets = signal<Record<string, boolean>>({});
-  readonly redeployingTargets = signal<Record<string, boolean>>({});
-  readonly redeployMessage = signal<string | null>(null);
 
   private projectId = '';
 
   constructor(
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly api: ApiService,
-    readonly deploymentStore: DeploymentStore
+    private readonly api: ApiService
   ) {}
 
   ngOnInit(): void {
@@ -52,16 +41,9 @@ export class HistoryComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.deployments.set(response.deployments);
         this.loading.set(false);
-        if (response.deployments.length > 0) {
-          void this.open(response.deployments[0].id);
-        }
       },
       error: () => this.loading.set(false)
     });
-  }
-
-  async ngOnDestroy(): Promise<void> {
-    await this.deploymentStore.unload();
   }
 
   filteredDeployments(): DeploymentSummary[] {
@@ -70,7 +52,48 @@ export class HistoryComponent implements OnInit, OnDestroy {
     if (!query) {
       return items;
     }
-    return items.filter(item => item.branch.toLowerCase().includes(query));
+    return items.filter(item =>
+      item.branch.toLowerCase().includes(query) ||
+      (item.gitCommitMessage?.toLowerCase().includes(query) ?? false) ||
+      (item.gitCommitSha?.toLowerCase().includes(query) ?? false)
+    );
+  }
+
+  groupedDeployments(): { key: string; label: string; items: DeploymentSummary[] }[] {
+    const groups = new Map<string, DeploymentSummary[]>();
+    for (const item of this.filteredDeployments()) {
+      const raw = item.completedAt || item.startedAt;
+      const date = raw ? new Date(raw) : new Date();
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      const bucket = groups.get(key);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        groups.set(key, [item]);
+      }
+    }
+    return [...groups.entries()].map(([key, items]) => ({
+      key,
+      label: this.dayLabel(items[0].completedAt || items[0].startedAt),
+      items
+    }));
+  }
+
+  successRate(): number {
+    const items = this.deployments();
+    if (items.length === 0) {
+      return 0;
+    }
+    const succeeded = items.filter(item => item.status === 'success').length;
+    return Math.round((succeeded / items.length) * 100);
+  }
+
+  lastDeployRelative(): string {
+    const items = this.deployments();
+    if (items.length === 0) {
+      return '—';
+    }
+    return this.relativeTime(items[0].completedAt || items[0].startedAt);
   }
 
   onSearch(event: Event): void {
@@ -78,11 +101,8 @@ export class HistoryComponent implements OnInit, OnDestroy {
     this.searchQuery.set(value);
   }
 
-  async open(deploymentId: string): Promise<void> {
-    this.selectedId.set(deploymentId);
-    this.expandedTargets.set({});
-    this.redeployMessage.set(null);
-    await this.deploymentStore.load(deploymentId);
+  open(deploymentId: string): void {
+    void this.router.navigate(['/projects', this.projectId, 'deploy', deploymentId]);
   }
 
   back(): void {
@@ -94,6 +114,62 @@ export class HistoryComponent implements OnInit, OnDestroy {
       return 'Just now';
     }
     return new Date(value).toLocaleString();
+  }
+
+  relativeTime(value?: string): string {
+    if (!value) {
+      return 'just now';
+    }
+    const then = new Date(value).getTime();
+    const seconds = Math.round((Date.now() - then) / 1000);
+    if (seconds < 45) {
+      return 'just now';
+    }
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+    const days = Math.round(hours / 24);
+    if (days < 7) {
+      return `${days}d ago`;
+    }
+    const weeks = Math.round(days / 7);
+    if (weeks < 5) {
+      return `${weeks}w ago`;
+    }
+    return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  formatDuration(seconds?: number): string | null {
+    if (seconds === undefined || seconds === null) {
+      return null;
+    }
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+  }
+
+  private dayLabel(value?: string): string {
+    const date = value ? new Date(value) : new Date();
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    const sameDay = (a: Date, b: Date): boolean =>
+      a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (sameDay(date, today)) {
+      return 'Today';
+    }
+    if (sameDay(date, yesterday)) {
+      return 'Yesterday';
+    }
+    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   statusIcon(status: string): IconName {
@@ -137,79 +213,5 @@ export class HistoryComponent implements OnInit, OnDestroy {
       default:
         return 'Pending';
     }
-  }
-
-  providerLabel = providerLabel;
-
-  targetRoleLabel(providerName: string): string {
-    return providerName === 'vercel' ? 'Static Build' : 'Containerization';
-  }
-
-  targetStatusText(target: DeploymentDetail['targets'][number]): string {
-    switch (target.status) {
-      case 'success':
-        return target.deployUrl ? '200 OK' : 'Live';
-      case 'failed':
-        return 'Exit Code 1';
-      case 'in_progress':
-        return 'Building…';
-      default:
-        return 'Pending';
-    }
-  }
-
-  shortId(id: string): string {
-    return `#${id.slice(-4).toUpperCase()}`;
-  }
-
-  allLines(): ActivityLine[] {
-    return this.deploymentStore.activity();
-  }
-
-  failedTarget(): DeploymentDetail['targets'][number] | null {
-    const deployment = this.deploymentStore.deployment();
-    if (!deployment) {
-      return null;
-    }
-    return deployment.targets.find(t => t.status === 'failed' && t.deployTargetId) ?? null;
-  }
-
-  resolutionHint(deployment: DeploymentDetail): string {
-    const failed = deployment.targets.filter(t => t.status === 'failed');
-    if (failed.length === 0) {
-      return deployment.status === 'success' ? 'Deployment succeeded' : 'Review logs';
-    }
-    if (failed.some(t => t.providerName === 'railway')) {
-      return 'Check Railway credentials or env vars';
-    }
-    return 'Review build logs and redeploy';
-  }
-
-  redeployTarget(target: {
-    id: string;
-    deployTargetId: string;
-    providerName: string;
-  }): void {
-    const deployment = this.deploymentStore.deployment();
-    if (!deployment) {
-      return;
-    }
-
-    this.redeployingTargets.update(state => ({ ...state, [target.id]: true }));
-    this.redeployMessage.set(null);
-    this.api.redeployDeployTarget(this.projectId, target.deployTargetId, deployment.branch).subscribe({
-      next: (response) => {
-        this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));
-        void this.router.navigate(['/projects', this.projectId, 'deploy', response.deploymentId]);
-      },
-      error: (err) => {
-        this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));
-        this.redeployMessage.set(err?.error?.error?.message ?? 'Could not redeploy that service.');
-      }
-    });
-  }
-
-  isRedeploying(targetId: string): boolean {
-    return this.redeployingTargets()[targetId] ?? false;
   }
 }

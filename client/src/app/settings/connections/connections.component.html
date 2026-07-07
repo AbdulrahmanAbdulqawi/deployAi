@@ -184,14 +184,3 @@
     </article>
   </div>
 </section>
-
-@if (confirmRemoveId()) {
-  <app-confirm-dialog
-    title="Remove connection?"
-    message="DeployAI will stop using this connection."
-    confirmLabel="Remove"
-    [destructive]="true"
-    (confirm)="confirmRemove()"
-    (cancel)="confirmRemoveId.set(null)"
-  />
-}

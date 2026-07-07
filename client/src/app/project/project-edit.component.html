@@ -185,17 +185,6 @@
         </div>
       </section>
     </div>
-
-    @if (showDeleteConfirm()) {
-      <app-confirm-dialog
-        title="Delete app?"
-        message="This permanently removes the app, all deployment history, and hosting on Railway and Vercel. This cannot be undone."
-        confirmLabel="Delete"
-        [destructive]="true"
-        (confirm)="confirmRemove()"
-        (cancel)="showDeleteConfirm.set(false)"
-      />
-    }
   </section>
 } @else {
   <p class="edit__loading">Loading…</p>

@@ -82,15 +82,6 @@
   color: var(--text-primary);
 }
 
-.project-card__live-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--status-success);
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
-  flex-shrink: 0;
-}
-
 .project-card__repo {
   display: flex;
   align-items: center;
@@ -110,7 +101,7 @@
 .project-card__footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-3);
   margin-top: auto;
   padding-top: var(--space-4);

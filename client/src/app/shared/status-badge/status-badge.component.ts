@@ -128,4 +128,8 @@ export class StatusBadgeComponent {
       ? this.status === 'deploying'
       : this.status === 'in_progress';
   }
+
+  get showDot(): boolean {
+    return !this.labelOverride;
+  }
 }

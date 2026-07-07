@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { StatusBadgeComponent } from '../status-badge/status-badge.component';
 import { ButtonComponent } from '../ui/button/button.component';
 import { IconComponent } from '../ui/icon/icon.component';
@@ -7,7 +8,7 @@ import { LiveLogPanelComponent, ActivityLine } from '../live-log-panel/live-log-
 @Component({
   selector: 'app-provider-status-card',
   standalone: true,
-  imports: [StatusBadgeComponent, ButtonComponent, IconComponent, LiveLogPanelComponent],
+  imports: [DatePipe, StatusBadgeComponent, ButtonComponent, IconComponent, LiveLogPanelComponent],
   templateUrl: './provider-status-card.component.html',
   styleUrl: './provider-status-card.component.scss'
 })
@@ -17,6 +18,7 @@ export class ProviderStatusCardComponent {
   @Input({ required: true }) status = 'pending';
   @Input() deployUrl?: string;
   @Input() startedAt?: string;
+  @Input() checkedAt?: string;
   @Input() showProviderName = true;
   @Input() expanded = false;
   @Input() lines: ActivityLine[] = [];

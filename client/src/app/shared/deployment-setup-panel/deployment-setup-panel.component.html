@@ -1,16 +1,24 @@
-<section class="setup-panel u-glass-panel">
-  <div class="setup-panel__header">
+<section class="setup-panel u-glass-panel" [class.setup-panel--collapsed]="collapsed()">
+  <button
+    type="button"
+    class="setup-panel__header"
+    [attr.aria-expanded]="!collapsed()"
+    (click)="toggleCollapsed()">
     <div class="setup-panel__icon" aria-hidden="true">
       <app-ui-icon name="settings" size="sm" statusClass="accent" />
     </div>
-    <div>
+    <div class="setup-panel__heading">
       <h3 class="setup-panel__title">Split-origin deployment setup</h3>
       <p class="setup-panel__summary">
-        Claude will explore your repository and add or fix split-origin deployment files and configuration patches.
+        AI reviews your repository and prepares the files and configuration needed for a reliable split-origin deployment.
       </p>
     </div>
-  </div>
+    <span class="setup-panel__chevron" aria-hidden="true">
+      <app-ui-icon name="chevron-down" size="sm" />
+    </span>
+  </button>
 
+  @if (!collapsed()) {
   @if (readiness()) {
     @if (hasMissingFiles()) {
       @if (blockingFiles().length > 0) {
@@ -40,7 +48,7 @@
       }
     } @else {
       <p class="setup-panel__complete">
-        Setup scan looks complete. Regenerate if the first run was wrong or you changed the repository.
+        Your repository looks deployment-ready. Regenerate only if you've changed the repository or the last run missed something.
       </p>
     }
 
@@ -53,7 +61,7 @@
     <div class="setup-panel__activity">
       <div class="setup-panel__activity-label">
         <app-ui-icon name="code" size="sm" statusClass="accent" />
-        <span class="u-label-caps">Claude activity</span>
+        <span class="u-label-caps">AI activity</span>
       </div>
       <app-live-log-panel
         [embedded]="true"
@@ -69,25 +77,25 @@
   @if (setupResult()) {
     <div class="setup-panel__result">
       <p>
-        Setup branch <code>{{ setupResult()!.branchName }}</code> created.
-        <a class="setup-panel__link" [href]="setupResult()!.pullRequestUrl" target="_blank" rel="noopener">Open pull request</a>
+        Changes are ready on <code>{{ setupResult()!.branchName }}</code>.
+        <a class="setup-panel__link" [href]="setupResult()!.pullRequestUrl" target="_blank" rel="noopener">Review pull request</a>
       </p>
     </div>
     <div class="setup-panel__actions">
-      <app-ui-button (click)="mergeSetup()">Merge to default branch</app-ui-button>
+      <app-ui-button (click)="mergeSetup()">Merge &amp; apply</app-ui-button>
       <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
-        Regenerate setup
+        Regenerate
       </app-ui-button>
     </div>
   } @else {
     <div class="setup-panel__actions">
       @if (hasMissingFiles()) {
         <app-ui-button [disabled]="generating()" [loading]="generating()" (click)="generateSetup()">
-          Generate full setup with Claude
+          Generate setup with AI
         </app-ui-button>
       }
       <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
-        {{ hasMissingFiles() ? 'Regenerate setup' : 'Regenerate setup with Claude' }}
+        {{ hasMissingFiles() ? 'Regenerate' : 'Regenerate with AI' }}
       </app-ui-button>
     </div>
   }
@@ -114,5 +122,6 @@
 
   @if (error()) {
     <p class="setup-panel__error">{{ error() }}</p>
+  }
   }
 </section>

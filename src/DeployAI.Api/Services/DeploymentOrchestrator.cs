@@ -458,6 +458,26 @@ public sealed class DeploymentJobRunner
             if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
                 target.Status == DeploymentStatuses.Success)
             {
+                if (provider is IWebsiteApiProxySupport websiteProxy)
+                {
+                    try
+                    {
+                        var stableUrl = await websiteProxy.ResolvePublicWebsiteUrlAsync(
+                            credentials,
+                            deployTarget.ProviderProjectId,
+                            target.DeployUrl,
+                            cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(stableUrl))
+                        {
+                            target.DeployUrl = stableUrl;
+                        }
+                    }
+                    catch
+                    {
+                        // Resolving the stable domain is best-effort; keep the deployment URL on failure.
+                    }
+                }
+
                 await _frontendEnvironmentWiring.WireServerTargetAfterWebsiteDeployAsync(
                     deployment.Id,
                     target,

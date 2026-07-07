@@ -17,8 +17,10 @@
       <div class="project-card__title">
         <div class="project-card__name-row">
           <h3 class="u-title-lg">{{ project.name }}</h3>
-          @if (isLive) {
-            <span class="project-card__live-dot" aria-label="Live"></span>
+          @if (project.latestDeployment) {
+            <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
+          } @else {
+            <app-status-badge status="idle" />
           }
         </div>
         <p class="project-card__repo">
@@ -29,11 +31,6 @@
     </div>
 
     <div class="project-card__footer">
-      @if (project.latestDeployment) {
-        <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
-      } @else {
-        <app-status-badge status="idle" />
-      }
       <div class="project-card__actions">
         @if (canFix) {
           <app-ui-button
