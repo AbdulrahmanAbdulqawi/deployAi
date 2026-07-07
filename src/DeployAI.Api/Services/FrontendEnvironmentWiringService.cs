@@ -52,6 +52,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     private readonly IGitHubService _gitHubService;
     private readonly IEncryptionService _encryption;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IDeploymentReadinessService _deploymentReadiness;
 
     public FrontendEnvironmentWiringService(
         DeployAIDbContext db,
@@ -61,7 +62,8 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         IProviderCredentialTokenService tokens,
         IGitHubService gitHubService,
         IEncryptionService encryption,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IDeploymentReadinessService deploymentReadiness)
     {
         _db = db;
         _managementFactory = managementFactory;
@@ -71,6 +73,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         _gitHubService = gitHubService;
         _encryption = encryption;
         _httpClientFactory = httpClientFactory;
+        _deploymentReadiness = deploymentReadiness;
     }
 
     public async Task<EnvironmentSyncResult> SyncCrossProviderEnvironmentAsync(
@@ -126,8 +129,25 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             apiUrl,
             cancellationToken);
 
+        var usesSplitOrigin = CrossProviderUrlWiring.ShouldUseSplitOrigin(
+            websiteConfig.Framework,
+            serverConfig.Framework);
+
         if (options.DetectDriftOnly)
         {
+            if (usesSplitOrigin)
+            {
+                var staleBuildDrift = await DetectStaleSplitOriginBuildDriftAsync(
+                    project.Id,
+                    websiteUrl,
+                    apiUrl,
+                    cancellationToken);
+                if (staleBuildDrift is not null)
+                {
+                    driftDetails = [.. driftDetails, staleBuildDrift];
+                }
+            }
+
             var driftOnlyResult = new EnvironmentSyncResult(
                 Success: driftDetails.Count == 0,
                 DriftDetected: driftDetails.Count > 0,
@@ -173,9 +193,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 cancellationToken);
         }
 
-        var usesSplitOrigin = CrossProviderUrlWiring.ShouldUseSplitOrigin(
-            websiteConfig.Framework,
-            serverConfig.Framework);
         var shouldRedeployVercel = options.RedeployVercelAfterUpdate ||
             !string.IsNullOrWhiteSpace(vercelCommitSha) ||
             hadVercelDrift;
@@ -189,6 +206,37 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             if (proxyWorking == false)
             {
                 shouldRedeployVercel = true;
+            }
+        }
+
+        string? deployedSpaWiringMessage = null;
+        if (options.EnsureWebsiteWiring &&
+            usesSplitOrigin &&
+            !shouldRedeployVercel)
+        {
+            var spaWired = await ProbeDeployedSpaWiredToApiAsync(websiteUrl, apiUrl, cancellationToken);
+            if (spaWired == false)
+            {
+                var blockingIssues = await TryGetSplitOriginBlockingIssuesAsync(project.Id, cancellationToken);
+                if (blockingIssues is null || blockingIssues.Count == 0)
+                {
+                    // The repo has the split-origin wiring but the deployed bundle predates the
+                    // env vars, so relative /api calls still hit the Vercel catch-all and 405.
+                    // Only a production rebuild bakes the Railway URL into the SPA.
+                    shouldRedeployVercel = true;
+                }
+                else
+                {
+                    deployedSpaWiringMessage =
+                        "Deployed SPA wiring check failed: the deployed site does not call the Railway API directly, " +
+                        "so its /api requests hit the Vercel static host and return 405. Missing split-origin setup files: " +
+                        string.Join("; ", blockingIssues.Select(issue => $"{issue.Path} ({issue.Reason})")) +
+                        ". Regenerate the deployment setup files, merge them, then deploy and sync again.";
+                }
+            }
+            else if (spaWired == true)
+            {
+                deployedSpaWiringMessage = $"Deployed SPA wiring check passed: site calls {apiUrl} directly.";
             }
         }
 
@@ -267,6 +315,11 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                     websiteConfig.Framework,
                     serverConfig.Framework,
                     cancellationToken);
+            }
+
+            if (!vercelRedeployTriggered && deployedSpaWiringMessage is not null)
+            {
+                verificationMessages = [.. verificationMessages, deployedSpaWiringMessage];
             }
         }
 
@@ -380,7 +433,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 EnsureWebsiteWiring: true,
                 ApplyVercelEnv: true,
                 ApplyRailwayEnv: true,
-                RunVerification: false,
+                RunVerification: true,
                 Source: "deploy"),
             cancellationToken);
     }
@@ -1220,6 +1273,152 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Checks whether the deployed SPA build actually has the Railway API origin baked in.
+    /// In split-origin mode the website origin never serves /api, so the only reliable
+    /// signal is the API URL appearing in the served index.html or its script bundles.
+    /// Returns true when wired, false when the deployed build lacks the API URL,
+    /// null when the site could not be inspected.
+    /// </summary>
+    private async Task<bool?> ProbeDeployedSpaWiredToApiAsync(
+        string websiteUrl,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var baseUrl = websiteUrl.TrimEnd('/');
+            var apiOrigin = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
+
+            var html = await client.GetStringAsync($"{baseUrl}/", cancellationToken);
+            if (html.Contains(apiOrigin, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var scriptSources = ExtractScriptSources(html);
+            if (scriptSources.Count == 0)
+            {
+                return null;
+            }
+
+            foreach (var source in scriptSources)
+            {
+                var scriptUrl = source.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    ? source
+                    : $"{baseUrl}/{source.TrimStart('/')}";
+
+                string body;
+                try
+                {
+                    body = await client.GetStringAsync(scriptUrl, cancellationToken);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (body.Contains(apiOrigin, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // Angular's build references the entry bundles with <script src> and the statically
+    // imported chunks (where an env-baked constant may land) with <link rel="modulepreload">.
+    private static IReadOnlyList<string> ExtractScriptSources(string html)
+    {
+        var sources = new List<string>();
+
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                     html,
+                     "<script[^>]+src\\s*=\\s*[\"']([^\"']+)[\"']",
+                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            sources.Add(match.Groups[1].Value);
+        }
+
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                     html,
+                     "<link[^>]+>",
+                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+        {
+            if (!match.Value.Contains("modulepreload", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var href = System.Text.RegularExpressions.Regex.Match(
+                match.Value,
+                "href\\s*=\\s*[\"']([^\"']+)[\"']",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (href.Success)
+            {
+                sources.Add(href.Groups[1].Value);
+            }
+        }
+
+        return sources
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Scans the project's repository for the split-origin wiring files (env script,
+    /// api-base interceptor, ...). Returns the Blocking findings, or null when the
+    /// repository could not be scanned.
+    /// </summary>
+    private async Task<IReadOnlyList<MissingDeploymentFile>?> TryGetSplitOriginBlockingIssuesAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var readiness = await _deploymentReadiness.ScanProjectAsync(projectId, gitRef: null, cancellationToken);
+            return readiness.MissingFiles
+                .Where(file => file.Severity == DeploymentFileSeverity.Blocking)
+                .ToList();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> DetectStaleSplitOriginBuildDriftAsync(
+        Guid projectId,
+        string websiteUrl,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        var spaWired = await ProbeDeployedSpaWiredToApiAsync(websiteUrl, apiUrl, cancellationToken);
+        if (spaWired != false)
+        {
+            return null;
+        }
+
+        // Only report drift when a rebuild can actually fix it; an app whose repo lacks
+        // the split-origin wiring files would otherwise trigger a redeploy on every run.
+        var blockingIssues = await TryGetSplitOriginBlockingIssuesAsync(projectId, cancellationToken);
+        if (blockingIssues is null || blockingIssues.Count > 0)
+        {
+            return null;
+        }
+
+        return $"Vercel deployment missing baked API URL {apiUrl} (stale build; production redeploy required).";
     }
 
     private static async Task<bool?> EvaluateProxiedApiPostResponseAsync(

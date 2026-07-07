@@ -481,6 +481,278 @@ public class FrontendEnvironmentWiringServiceTests
         Assert.Contains(result.DriftDetails, detail => detail.Contains("Vercel API_URL mismatch", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_RedeploysVercel_WhenDeployedSpaMissingApiUrl()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedDualTargetProjectAsync(db);
+        var mocks = CreateSplitOriginSyncMocks(bundleContent: "console.log('no api url baked in');");
+        mocks.Readiness.Setup(r => r.ScanProjectAsync(projectId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentReadinessResult(true, "sha", true, [], []));
+
+        var service = CreateSplitOriginService(db, mocks);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                RedeployRailwayAfterUpdate: false,
+                RunVerification: true,
+                Source: "manual"),
+            CancellationToken.None);
+
+        mocks.DeploymentProvider.Verify(p => p.TriggerDeploymentAsync(
+            It.IsAny<ProviderCredentials>(),
+            "prj_web",
+            "main",
+            It.IsAny<IReadOnlyDictionary<string, string>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.False(result.Success);
+        Assert.Contains(result.VerificationMessages, message =>
+            message.Contains("redeploy triggered", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_ReportsBlockingFindings_WhenWiringFilesMissing()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedDualTargetProjectAsync(db);
+        var mocks = CreateSplitOriginSyncMocks(bundleContent: "console.log('no api url baked in');");
+        mocks.Readiness.Setup(r => r.ScanProjectAsync(projectId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentReadinessResult(
+                false,
+                "sha",
+                true,
+                [new MissingDeploymentFile(
+                    "scripts/write-api-env.mjs",
+                    "Required to bake the API URL into the production build.",
+                    DeploymentFileSeverity.Blocking)],
+                []));
+
+        var service = CreateSplitOriginService(db, mocks);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                RedeployRailwayAfterUpdate: false,
+                RunVerification: true,
+                Source: "manual"),
+            CancellationToken.None);
+
+        mocks.DeploymentProvider.Verify(p => p.TriggerDeploymentAsync(
+            It.IsAny<ProviderCredentials>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyDictionary<string, string>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        Assert.False(result.Success);
+        Assert.Contains(result.VerificationMessages, message =>
+            message.Contains("Missing split-origin setup files", StringComparison.Ordinal) &&
+            message.Contains("scripts/write-api-env.mjs", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_DoesNotRedeploy_WhenDeployedSpaIsWired()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedDualTargetProjectAsync(db);
+        var mocks = CreateSplitOriginSyncMocks(bundleContent: "console.log('entry bundle');");
+        // The env-baked API URL often lands in a chunk referenced via modulepreload, not <script src>.
+        mocks.Http.SetResponse(
+            "https://idaara-livid.vercel.app/",
+            """<html><head><link rel="modulepreload" href="chunk-def456.js"><script src="main-abc123.js" type="module"></script></head><body></body></html>""",
+            "text/html");
+        mocks.Http.SetResponse(
+            "https://idaara-livid.vercel.app/chunk-def456.js",
+            "const apiBaseUrl='https://api.example.com';",
+            "application/javascript");
+
+        var service = CreateSplitOriginService(db, mocks);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                RedeployRailwayAfterUpdate: false,
+                RunVerification: false,
+                Source: "manual"),
+            CancellationToken.None);
+
+        Assert.False(result.Skipped);
+        mocks.DeploymentProvider.Verify(p => p.TriggerDeploymentAsync(
+            It.IsAny<ProviderCredentials>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<IReadOnlyDictionary<string, string>>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        mocks.Readiness.Verify(r => r.ScanProjectAsync(
+            It.IsAny<Guid>(),
+            It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_DriftOnly_ReportsStaleSplitOriginBuild()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedDualTargetProjectAsync(db);
+        var mocks = CreateSplitOriginSyncMocks(bundleContent: "console.log('no api url baked in');");
+        mocks.Readiness.Setup(r => r.ScanProjectAsync(projectId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentReadinessResult(true, "sha", true, [], []));
+
+        var service = CreateSplitOriginService(db, mocks);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                DetectDriftOnly: true,
+                RunVerification: false,
+                Source: "scheduled"),
+            CancellationToken.None);
+
+        Assert.True(result.DriftDetected);
+        Assert.Contains(result.DriftDetails, detail =>
+            detail.Contains("missing baked API URL", StringComparison.Ordinal));
+    }
+
+    private sealed record SplitOriginSyncMocks(
+        Mock<IProviderManagementFactory> Factory,
+        Mock<IProviderServiceOperationsFactory> ServiceOperationsFactory,
+        Mock<IProviderCredentialTokenService> Tokens,
+        Mock<IProviderFactory> ProviderFactory,
+        Mock<IDeploymentProvider> DeploymentProvider,
+        Mock<IGitHubService> GitHubService,
+        Mock<IDeploymentReadinessService> Readiness,
+        StubHttpMessageHandler Http);
+
+    /// <summary>
+    /// Mocks a healthy split-origin project: Vercel env vars already correct (hidden values),
+    /// repo vercel.json already SPA-only, so the sync reaches the deployed-SPA probe instead
+    /// of redeploying for env drift or vercel.json changes.
+    /// </summary>
+    private static SplitOriginSyncMocks CreateSplitOriginSyncMocks(string bundleContent)
+    {
+        var vercelManagement = new Mock<IProviderManagement>();
+        vercelManagement.SetupGet(m => m.ProviderName).Returns("vercel");
+        vercelManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new ProviderEnvVar("env_1", "IDAARA_API_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_2", "NG_APP_API_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_3", "API_URL", string.Empty, "encrypted", [], true)
+            ]);
+        var proxySupport = vercelManagement.As<IWebsiteApiProxySupport>();
+        proxySupport.Setup(p => p.ResolvePublicWebsiteUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://idaara-livid.vercel.app");
+        proxySupport.Setup(p => p.ListProductionWebsiteOriginsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(["https://idaara-livid.vercel.app"]);
+        proxySupport.Setup(p => p.GetLatestProductionDeploymentIdAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("dpl_current");
+        proxySupport.Setup(p => p.AssignProductionDomainsToDeploymentAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var railwayManagement = new Mock<IProviderManagement>();
+        railwayManagement.SetupGet(m => m.ProviderName).Returns("railway");
+        railwayManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "svc_api|env_1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var railwayOperations = new Mock<IProviderServiceOperations>();
+        railwayOperations.SetupGet(o => o.ProviderName).Returns("railway");
+        railwayOperations.Setup(o => o.GetServiceStatusAsync(
+                It.IsAny<ProviderCredentials>(),
+                "svc_api|env_1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderServiceStatus("running", "https://api.example.com", null));
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("vercel")).Returns(vercelManagement.Object);
+        factory.Setup(f => f.GetManagement("railway")).Returns(railwayManagement.Object);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        serviceOperationsFactory.Setup(f => f.GetServiceOperations("railway")).Returns(railwayOperations.Object);
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var deploymentProvider = new Mock<IDeploymentProvider>();
+        deploymentProvider.SetupGet(p => p.ProviderName).Returns("vercel");
+        deploymentProvider.Setup(p => p.TriggerDeploymentAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyDictionary<string, string>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentResponse("dpl_new", "https://idaara-livid.vercel.app"));
+
+        var providerFactory = new Mock<IProviderFactory>();
+        providerFactory.Setup(f => f.GetProvider("vercel")).Returns(deploymentProvider.Object);
+
+        // vercel.json in the repo is already the canonical SPA-only content, so
+        // EnsureSplitOriginVercelJsonAsync makes no commit and no redeploy is queued for it.
+        var websiteConfig = DeployTargetConfig.Parse("""{"role":"website","framework":"angular"}""");
+        VercelJsonRewrites.TryBuildSpaOnlyContent(null, websiteConfig, out var spaOnlyVercelJson);
+        var gitHubService = new Mock<IGitHubService>();
+        gitHubService.Setup(g => g.GetFileMetadataAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubFileMetadata(spaOnlyVercelJson, "sha-existing"));
+
+        var readiness = new Mock<IDeploymentReadinessService>();
+
+        var http = new StubHttpMessageHandler();
+        http.SetResponse(
+            "https://idaara-livid.vercel.app/",
+            """<html><head><script src="main-abc123.js" type="module"></script></head><body></body></html>""",
+            "text/html");
+        http.SetResponse("https://idaara-livid.vercel.app/main-abc123.js", bundleContent, "application/javascript");
+
+        return new SplitOriginSyncMocks(
+            factory,
+            serviceOperationsFactory,
+            tokens,
+            providerFactory,
+            deploymentProvider,
+            gitHubService,
+            readiness,
+            http);
+    }
+
+    private static FrontendEnvironmentWiringService CreateSplitOriginService(
+        DeployAIDbContext db,
+        SplitOriginSyncMocks mocks) =>
+        CreateService(
+            db,
+            mocks.Factory,
+            mocks.ServiceOperationsFactory,
+            mocks.Tokens,
+            mocks.ProviderFactory,
+            mocks.GitHubService,
+            deploymentReadiness: mocks.Readiness,
+            httpClientFactory: new StubHttpClientFactory(mocks.Http));
+
     private static async Task<Guid> SeedDualTargetProjectAsync(DeployAIDbContext db)
     {
         var userId = Guid.NewGuid();
@@ -672,7 +944,9 @@ public class FrontendEnvironmentWiringServiceTests
         Mock<IProviderCredentialTokenService> tokens,
         Mock<IProviderFactory>? providerFactory = null,
         Mock<IGitHubService>? gitHubService = null,
-        Mock<IEncryptionService>? encryption = null)
+        Mock<IEncryptionService>? encryption = null,
+        Mock<IDeploymentReadinessService>? deploymentReadiness = null,
+        IHttpClientFactory? httpClientFactory = null)
     {
         gitHubService ??= new Mock<IGitHubService>();
         gitHubService.Setup(g => g.GetFileMetadataAsync(
@@ -702,7 +976,8 @@ public class FrontendEnvironmentWiringServiceTests
             tokens.Object,
             gitHubService.Object,
             (encryption ?? CreateEncryptionMock()).Object,
-            new TestHttpClientFactory());
+            httpClientFactory ?? new StubHttpClientFactory(new StubHttpMessageHandler()),
+            (deploymentReadiness ?? new Mock<IDeploymentReadinessService>()).Object);
     }
 
     private static Mock<IEncryptionService> CreateEncryptionMock()
@@ -712,8 +987,32 @@ public class FrontendEnvironmentWiringServiceTests
         return encryption;
     }
 
-    private sealed class TestHttpClientFactory : IHttpClientFactory
+    private sealed class StubHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
-        public HttpClient CreateClient(string name) => new();
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+
+    private sealed class StubHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly Dictionary<string, Func<HttpResponseMessage>> _responses =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        public void SetResponse(string url, string content, string mediaType)
+        {
+            _responses[url] = () => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(content, System.Text.Encoding.UTF8, mediaType)
+            };
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(_responses.TryGetValue(request.RequestUri!.ToString(), out var factory)
+                ? factory()
+                : new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(string.Empty)
+                });
     }
 }

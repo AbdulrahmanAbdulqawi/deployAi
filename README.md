@@ -169,6 +169,23 @@ You can override settings with environment variables using the standard ASP.NET 
 - `Railway__ClientId`
 - `Railway__ClientSecret`
 
+## Production deployment (DeployAI itself)
+
+The SPA (Vercel) and the API (Railway) live on different origins. The Angular client calls
+`/api` and `/hubs` with relative URLs, which are wired up in two layers:
+
+1. **Direct split-origin calls (primary):** set `NG_APP_API_URL` (or `API_URL`) on the Vercel
+   project to the Railway API URL. `client/scripts/write-api-env.mjs` runs during the Vercel
+   build and bakes it into the bundle (`src/app/core/api-base.ts`); the `apiBaseInterceptor`
+   and SignalR then call Railway directly. Re-deploy the Vercel project after changing the
+   variable — it is a build-time input.
+2. **Proxy rewrites (fallback):** `client/vercel.json` proxies `/api/:path*` and `/hubs/:path*`
+   to the Railway URL, so relative requests never hit the static host and 405. Update the
+   hardcoded Railway URL there if the API moves.
+
+On the Railway side, set `App__FrontendUrl` to the production Vercel URL so CORS allows the
+browser calls made with the direct API URL.
+
 ## v1 scope
 
 - GitHub login with encrypted token storage

@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
 import * as signalR from '@microsoft/signalr';
+import { API_BASE_URL } from '../api-base';
 import { AuthService } from './auth.service';
 
 export interface DeploymentEventHandlers {
@@ -32,7 +33,7 @@ export class SignalRService {
     }
 
     this.connection = new signalR.HubConnectionBuilder()
-      .withUrl('/hubs/deployments', {
+      .withUrl(`${API_BASE_URL}/hubs/deployments`, {
         accessTokenFactory: () => this.auth.accessToken ?? ''
       })
       .withAutomaticReconnect()
