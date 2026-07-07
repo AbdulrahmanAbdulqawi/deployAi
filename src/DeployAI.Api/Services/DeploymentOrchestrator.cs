@@ -1,5 +1,4 @@
 using DeployAI.Api.Hubs;
-using DeployAI.Api.Services;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
@@ -17,17 +16,29 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
 {
     private readonly DeployAIDbContext _db;
     private readonly IBackgroundJobClient _backgroundJobs;
+    private readonly IDeploymentReadinessService _readinessService;
+    private readonly IGitHubService _gitHubService;
+    private readonly IEncryptionService _encryption;
 
-    public DeploymentOrchestrator(DeployAIDbContext db, IBackgroundJobClient backgroundJobs)
+    public DeploymentOrchestrator(
+        DeployAIDbContext db,
+        IBackgroundJobClient backgroundJobs,
+        IDeploymentReadinessService readinessService,
+        IGitHubService gitHubService,
+        IEncryptionService encryption)
     {
         _db = db;
         _backgroundJobs = backgroundJobs;
+        _readinessService = readinessService;
+        _gitHubService = gitHubService;
+        _encryption = encryption;
     }
 
     public async Task<TriggerDeploymentResult> TriggerAsync(Guid projectId, Guid userId, string branch, CancellationToken cancellationToken)
     {
         var project = await _db.Projects
             .Include(p => p.DeployTargets)
+            .Include(p => p.User)
             .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
 
         if (project is null)
@@ -40,6 +51,24 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             throw new DeployAIException("no_targets", "Connect a hosting destination before publishing.");
         }
 
+        var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
+        if (!readiness.IsReady)
+        {
+            throw new DeployAIException(
+                "deployment_not_ready",
+                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+        }
+
+        var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
+        var repoParts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var commitSha = readiness.CommitSha;
+        string? commitMessage = null;
+        if (repoParts.Length == 2 && !string.IsNullOrWhiteSpace(commitSha))
+        {
+            var commit = await _gitHubService.GetCommitAsync(gitHubToken, repoParts[0], repoParts[1], commitSha, cancellationToken);
+            commitMessage = commit?.Commit.Message;
+        }
+
         var deployment = new Deployment
         {
             Id = Guid.NewGuid(),
@@ -47,7 +76,9 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             Branch = branch,
             TriggeredBy = "user",
             Status = DeploymentStatuses.Pending,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            GitCommitSha = commitSha,
+            GitCommitMessage = commitMessage
         };
 
         var targetResults = new List<TriggerDeploymentTargetResult>();
@@ -94,6 +125,87 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         }
 
         return new TriggerDeploymentResult(deployment.Id, deployment.Status, targetResults);
+    }
+
+    public async Task<TriggerDeploymentResult> TriggerTargetAsync(
+        Guid projectId,
+        Guid userId,
+        Guid deployTargetId,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        var project = await _db.Projects
+            .Include(p => p.DeployTargets)
+            .Include(p => p.User)
+            .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
+
+        if (project is null)
+        {
+            throw new DeployAIException("project_not_found", "We couldn't find that app.");
+        }
+
+        var deployTarget = project.DeployTargets.FirstOrDefault(t => t.Id == deployTargetId);
+        if (deployTarget is null)
+        {
+            throw new DeployAIException("not_found", "We couldn't find that service.");
+        }
+
+        var targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+        if (!targetConfig.IsDeployableTarget)
+        {
+            throw new DeployAIException("invalid_target", "That service cannot be redeployed from DeployAI.");
+        }
+
+        var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
+        if (!readiness.IsReady)
+        {
+            throw new DeployAIException(
+                "deployment_not_ready",
+                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+        }
+
+        var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
+        var repoParts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var commitSha = readiness.CommitSha;
+        string? commitMessage = null;
+        if (repoParts.Length == 2 && !string.IsNullOrWhiteSpace(commitSha))
+        {
+            var commit = await _gitHubService.GetCommitAsync(gitHubToken, repoParts[0], repoParts[1], commitSha, cancellationToken);
+            commitMessage = commit?.Commit.Message;
+        }
+
+        var deployment = new Deployment
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Branch = branch,
+            TriggeredBy = "user",
+            Status = DeploymentStatuses.Pending,
+            CreatedAt = DateTimeOffset.UtcNow,
+            GitCommitSha = commitSha,
+            GitCommitMessage = commitMessage
+        };
+
+        var deploymentTarget = new DeploymentTarget
+        {
+            Id = Guid.NewGuid(),
+            DeploymentId = deployment.Id,
+            DeployTargetId = deployTarget.Id,
+            ProviderName = deployTarget.ProviderName,
+            Status = DeploymentStatuses.Pending
+        };
+
+        deployment.Targets.Add(deploymentTarget);
+        _db.Deployments.Add(deployment);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _backgroundJobs.Enqueue<DeploymentJobRunner>(
+            runner => runner.RunAsync(deploymentTarget.Id, CancellationToken.None));
+
+        return new TriggerDeploymentResult(
+            deployment.Id,
+            deployment.Status,
+            [new TriggerDeploymentTargetResult(deployTarget.ProviderName, DeploymentStatuses.Pending)]);
     }
 
     internal static IReadOnlyList<Guid> OrderDeploymentTargetIds(
@@ -157,6 +269,7 @@ public sealed class DeploymentJobRunner
     private readonly IGitHubService _gitHubService;
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
+    private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
 
     public DeploymentJobRunner(
@@ -167,6 +280,7 @@ public sealed class DeploymentJobRunner
         IGitHubService gitHubService,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
+        IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub)
     {
         _db = db;
@@ -176,6 +290,7 @@ public sealed class DeploymentJobRunner
         _gitHubService = gitHubService;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
+        _failureAnalyzer = failureAnalyzer;
         _hub = hub;
     }
 
@@ -231,10 +346,21 @@ public sealed class DeploymentJobRunner
         {
             if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
             {
-                await _frontendEnvironmentWiring.WireWebsiteTargetBeforeDeployAsync(
+                var wiringCommitSha = await _frontendEnvironmentWiring.WireWebsiteTargetBeforeDeployAsync(
                     deployment.Id,
                     target,
                     cancellationToken);
+                if (!string.IsNullOrWhiteSpace(wiringCommitSha))
+                {
+                    deployment.GitCommitSha = wiringCommitSha;
+                    await _db.Database.ExecuteSqlInterpolatedAsync(
+                        $"""
+                        UPDATE deployments
+                        SET "GitCommitSha" = {deployment.GitCommitSha}
+                        WHERE "Id" = {deployment.Id}
+                        """,
+                        cancellationToken);
+                }
             }
 
             var provider = _providerFactory.GetProvider(target.ProviderName);
@@ -250,6 +376,11 @@ public sealed class DeploymentJobRunner
                     cancellationToken);
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+
+                await _frontendEnvironmentWiring.WireServerTargetBeforeRailwayDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
             }
 
             var environment = new Dictionary<string, string>
@@ -261,13 +392,31 @@ public sealed class DeploymentJobRunner
                 environment[entry.Key] = entry.Value;
             }
 
+            if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(targetConfig.Framework, "docker", StringComparison.OrdinalIgnoreCase))
+            {
+                await ApplyResolvedDockerBuildEnvironmentAsync(
+                    project,
+                    targetConfig,
+                    deployment.Branch,
+                    environment,
+                    cancellationToken);
+            }
+
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
             {
-                var commitSha = await ResolveGitHubCommitShaAsync(project, deployment.Branch, cancellationToken);
+                var commitSha = deployment.GitCommitSha ??
+                    await ResolveGitHubCommitShaAsync(project, deployment.Branch, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(commitSha))
                 {
                     environment["commitSha"] = commitSha;
                 }
+            }
+
+            if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(deployment.GitCommitSha))
+            {
+                environment["commitSha"] = deployment.GitCommitSha;
             }
 
             var response = await provider.TriggerDeploymentAsync(
@@ -401,6 +550,87 @@ public sealed class DeploymentJobRunner
         deployment.CompletedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
 
+        foreach (var failedTarget in deployment.Targets.Where(t => t.Status == DeploymentStatuses.Failed))
+        {
+            var logLines = await _db.DeploymentLogs
+                .Where(l => l.DeploymentTargetId == failedTarget.Id)
+                .OrderBy(l => l.Sequence)
+                .Select(l => l.Line)
+                .ToListAsync(cancellationToken);
+
+            var analysis = _failureAnalyzer.Analyze(failedTarget.ProviderName, logLines);
+            failedTarget.FailureAnalysisJson = DeploymentFailureAnalysisJson.ToJson(analysis);
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE deployment_targets
+                SET "FailureAnalysisJson" = {failedTarget.FailureAnalysisJson}
+                WHERE "Id" = {failedTarget.Id}
+                """,
+                cancellationToken);
+
+            await _hub.Clients.Group(deploymentId.ToString())
+                .SendAsync(
+                    "FailureAnalysisReady",
+                    deploymentId,
+                    failedTarget.Id,
+                    failedTarget.ProviderName,
+                    new
+                    {
+                        category = analysis.Category switch
+                        {
+                            DeploymentFailureCategory.CodeBuild => "code_build",
+                            DeploymentFailureCategory.Infrastructure => "infrastructure",
+                            _ => "unknown"
+                        },
+                        summary = analysis.Summary,
+                        errorExcerpt = analysis.ErrorExcerpt,
+                        referencedFiles = analysis.ReferencedFiles,
+                        canRequestClaudeFix = analysis.CanRequestClaudeFix
+                    },
+                    cancellationToken);
+        }
+
+        var hasLiveRailway = deployment.Targets.Any(t =>
+            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
+            t.Status == DeploymentStatuses.Success &&
+            !string.IsNullOrWhiteSpace(t.DeployUrl));
+        var hasLiveVercel = deployment.Targets.Any(t =>
+            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+            t.Status == DeploymentStatuses.Success &&
+            !string.IsNullOrWhiteSpace(t.DeployUrl));
+
+        if (hasLiveRailway && hasLiveVercel)
+        {
+            var syncResult = await _frontendEnvironmentWiring.SyncCrossProviderEnvironmentAsync(
+                deployment.ProjectId,
+                new EnvironmentSyncOptions(
+                    RedeployRailwayAfterUpdate: true,
+                    EnsureWebsiteWiring: true,
+                    ApplyVercelEnv: true,
+                    ApplyRailwayEnv: true,
+                    RunVerification: true,
+                    Source: "deploy"),
+                cancellationToken);
+
+            var logTarget = deployment.Targets.FirstOrDefault(t =>
+                string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+                ?? deployment.Targets.First();
+
+            var sequence = await NextSequenceAsync(logTarget.Id, cancellationToken);
+            await PersistAndBroadcastLogAsync(
+                logTarget,
+                deployment.Id,
+                sequence,
+                "Cross-provider environment sync completed.",
+                cancellationToken);
+
+            foreach (var message in syncResult.VerificationMessages)
+            {
+                sequence++;
+                await PersistAndBroadcastLogAsync(logTarget, deployment.Id, sequence, message, cancellationToken);
+            }
+        }
+
         await _hub.Clients.Group(deploymentId.ToString())
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
     }
@@ -461,5 +691,54 @@ public sealed class DeploymentJobRunner
         var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
         var token = _encryption.Decrypt(user.GitHubTokenEncrypted);
         return await _gitHubService.GetBranchHeadShaAsync(token, parts[0], parts[1], branch, cancellationToken);
+    }
+
+    private async Task ApplyResolvedDockerBuildEnvironmentAsync(
+        Project project,
+        DeployTargetConfig config,
+        string branch,
+        IDictionary<string, string> environment,
+        CancellationToken cancellationToken)
+    {
+        var serviceDirectory = config.ServiceDirectory?.Trim().Trim('/')
+            ?? config.RootDirectory?.Trim().Trim('/')
+            ?? string.Empty;
+
+        var dockerfilePathInRepo = config.DockerfilePath?.Trim().Trim('/');
+        if (string.IsNullOrWhiteSpace(dockerfilePathInRepo))
+        {
+            dockerfilePathInRepo = string.IsNullOrEmpty(serviceDirectory)
+                ? "Dockerfile"
+                : $"{serviceDirectory}/Dockerfile";
+        }
+
+        var parts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return;
+        }
+
+        var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
+        var token = _encryption.Decrypt(user.GitHubTokenEncrypted);
+        var dockerfileContent = await _gitHubService.GetFileContentAsync(
+            token,
+            parts[0],
+            parts[1],
+            dockerfilePathInRepo,
+            branch,
+            cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(dockerfileContent))
+        {
+            return;
+        }
+
+        foreach (var entry in DockerBuildEnvironmentResolver.Resolve(
+                     dockerfileContent,
+                     serviceDirectory,
+                     config.DockerfilePath))
+        {
+            environment[entry.Key] = entry.Value;
+        }
     }
 }

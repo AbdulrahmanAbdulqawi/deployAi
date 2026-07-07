@@ -76,12 +76,13 @@ public class DeployTargetConfigTests
     public void ToEnvironmentEntries_UsesRepositoryRoot_ForCrossFolderDockerfile()
     {
         var config = DeployTargetConfig.FromServerProfile(
-            new ServerBuildProfile(string.Empty, null, null, null, "docker", "iDaara.Server/Dockerfile", "iDaara.Server"),
+            new ServerBuildProfile(string.Empty, null, null, null, "docker", "iDaara.Server/Dockerfile", "iDaara.Server", true),
             "server");
 
         var entries = config.ToEnvironmentEntries();
 
         Assert.Equal(".", entries["rootDirectory"]);
         Assert.Equal("iDaara.Server/Dockerfile", entries["dockerfilePath"]);
+        Assert.Equal("true", entries["dockerUsesRepositoryRoot"]);
     }
 }

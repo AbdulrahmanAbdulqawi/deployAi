@@ -2,27 +2,29 @@ import { Component, OnDestroy, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
 import { DeploymentStore } from '../core/stores/deployment.store';
-import { DeploymentSummary } from '../core/models/api.models';
-import { ActivityLine } from '../shared/live-log-panel/live-log-panel.component';
-import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
+import { DeploymentDetail, DeploymentSummary } from '../core/models/api.models';
+import { ActivityLine, LiveLogPanelComponent } from '../shared/live-log-panel/live-log-panel.component';
 import { EmptyStateComponent } from '../shared/empty-state/empty-state.component';
-import { ProviderStatusCardComponent } from '../shared/provider-status-card/provider-status-card.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
+import { IconComponent, IconName, IconStatusClass } from '../shared/ui/icon/icon.component';
+import { providerLabel } from '../core/utils/target-config';
 
 @Component({
   selector: 'app-history',
   standalone: true,
   imports: [
-    StatusBadgeComponent,
     EmptyStateComponent,
-    ProviderStatusCardComponent,
-    ButtonComponent
+    ButtonComponent,
+    IconComponent,
+    LiveLogPanelComponent
   ],
   templateUrl: './history.component.html',
   styleUrl: './history.component.scss'
 })
 export class HistoryComponent implements OnInit, OnDestroy {
   readonly deployments = signal<DeploymentSummary[]>([]);
+  readonly projectName = signal('');
+  readonly searchQuery = signal('');
   readonly loading = signal(true);
   readonly selectedId = signal<string | null>(null);
   readonly expandedTargets = signal<Record<string, boolean>>({});
@@ -40,10 +42,19 @@ export class HistoryComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.projectId = this.route.snapshot.paramMap.get('id') ?? '';
+
+    this.api.getProject(this.projectId).subscribe({
+      next: (project) => this.projectName.set(project.name),
+      error: () => undefined
+    });
+
     this.api.listDeployments(this.projectId).subscribe({
       next: (response) => {
         this.deployments.set(response.deployments);
         this.loading.set(false);
+        if (response.deployments.length > 0) {
+          void this.open(response.deployments[0].id);
+        }
       },
       error: () => this.loading.set(false)
     });
@@ -53,31 +64,25 @@ export class HistoryComponent implements OnInit, OnDestroy {
     await this.deploymentStore.unload();
   }
 
+  filteredDeployments(): DeploymentSummary[] {
+    const query = this.searchQuery().trim().toLowerCase();
+    const items = this.deployments();
+    if (!query) {
+      return items;
+    }
+    return items.filter(item => item.branch.toLowerCase().includes(query));
+  }
+
+  onSearch(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.searchQuery.set(value);
+  }
+
   async open(deploymentId: string): Promise<void> {
     this.selectedId.set(deploymentId);
     this.expandedTargets.set({});
     this.redeployMessage.set(null);
     await this.deploymentStore.load(deploymentId);
-
-    const deployment = this.deploymentStore.deployment();
-    if (!deployment) {
-      return;
-    }
-
-    const nextExpanded: Record<string, boolean> = {};
-    for (const target of deployment.targets) {
-      if (target.status === 'failed') {
-        nextExpanded[target.id] = true;
-      }
-    }
-    this.expandedTargets.set(nextExpanded);
-  }
-
-  closeReplay(): void {
-    this.selectedId.set(null);
-    this.expandedTargets.set({});
-    this.redeployMessage.set(null);
-    void this.deploymentStore.unload();
   }
 
   back(): void {
@@ -91,35 +96,93 @@ export class HistoryComponent implements OnInit, OnDestroy {
     return new Date(value).toLocaleString();
   }
 
-  whereLabel(item: DeploymentSummary): string {
-    const urls = item.targets.filter(t => t.deployUrl).map(t => t.deployUrl);
-    if (urls.length === 0) {
-      return 'No live link saved';
+  statusIcon(status: string): IconName {
+    switch (status) {
+      case 'success':
+        return 'check';
+      case 'failed':
+        return 'x';
+      case 'in_progress':
+        return 'refresh';
+      default:
+        return 'info';
     }
-    return urls.length === 1 ? 'Live link saved' : `${urls.length} live links`;
   }
 
-  roleLabel(providerName: string): string {
-    return providerName === 'vercel' ? 'Your site' : 'Your API';
+  statusIconClass(status: string): IconStatusClass {
+    switch (status) {
+      case 'success':
+        return 'success';
+      case 'failed':
+        return 'danger';
+      case 'in_progress':
+        return 'accent';
+      default:
+        return 'muted';
+    }
   }
 
-  isExpanded(targetId: string): boolean {
-    return this.expandedTargets()[targetId] ?? false;
+  statusLabel(status: string): string {
+    switch (status) {
+      case 'success':
+        return 'Success';
+      case 'failed':
+        return 'Failed';
+      case 'in_progress':
+        return 'In Progress';
+      case 'partial':
+        return 'Partial';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return 'Pending';
+    }
   }
 
-  setTargetExpanded(targetId: string, expanded: boolean): void {
-    this.expandedTargets.update(state => ({
-      ...state,
-      [targetId]: expanded
-    }));
+  providerLabel = providerLabel;
+
+  targetRoleLabel(providerName: string): string {
+    return providerName === 'vercel' ? 'Static Build' : 'Containerization';
   }
 
-  linesForProvider(providerName: string): ActivityLine[] {
-    return this.deploymentStore.activity().filter(line => line.providerName === providerName);
+  targetStatusText(target: DeploymentDetail['targets'][number]): string {
+    switch (target.status) {
+      case 'success':
+        return target.deployUrl ? '200 OK' : 'Live';
+      case 'failed':
+        return 'Exit Code 1';
+      case 'in_progress':
+        return 'Building…';
+      default:
+        return 'Pending';
+    }
   }
 
-  canRedeployTarget(target: { status: string; deployTargetId?: string }): boolean {
-    return target.status === 'failed' && !!target.deployTargetId;
+  shortId(id: string): string {
+    return `#${id.slice(-4).toUpperCase()}`;
+  }
+
+  allLines(): ActivityLine[] {
+    return this.deploymentStore.activity();
+  }
+
+  failedTarget(): DeploymentDetail['targets'][number] | null {
+    const deployment = this.deploymentStore.deployment();
+    if (!deployment) {
+      return null;
+    }
+    return deployment.targets.find(t => t.status === 'failed' && t.deployTargetId) ?? null;
+  }
+
+  resolutionHint(deployment: DeploymentDetail): string {
+    const failed = deployment.targets.filter(t => t.status === 'failed');
+    if (failed.length === 0) {
+      return deployment.status === 'success' ? 'Deployment succeeded' : 'Review logs';
+    }
+    if (failed.some(t => t.providerName === 'railway')) {
+      return 'Check Railway credentials or env vars';
+    }
+    return 'Review build logs and redeploy';
   }
 
   redeployTarget(target: {
@@ -127,13 +190,17 @@ export class HistoryComponent implements OnInit, OnDestroy {
     deployTargetId: string;
     providerName: string;
   }): void {
+    const deployment = this.deploymentStore.deployment();
+    if (!deployment) {
+      return;
+    }
+
     this.redeployingTargets.update(state => ({ ...state, [target.id]: true }));
     this.redeployMessage.set(null);
-    this.api.redeployProjectService(this.projectId, target.deployTargetId).subscribe({
-      next: () => {
+    this.api.redeployDeployTarget(this.projectId, target.deployTargetId, deployment.branch).subscribe({
+      next: (response) => {
         this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));
-        this.redeployMessage.set(`${this.roleLabel(target.providerName)} redeploy started.`);
-        this.expandedTargets.update(state => ({ ...state, [target.id]: true }));
+        void this.router.navigate(['/projects', this.projectId, 'deploy', response.deploymentId]);
       },
       error: (err) => {
         this.redeployingTargets.update(state => ({ ...state, [target.id]: false }));

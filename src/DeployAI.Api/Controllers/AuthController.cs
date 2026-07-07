@@ -106,6 +106,7 @@ public sealed class AuthController : ControllerBase
 
         var hash = _jwtTokenService.HashRefreshToken(request.RefreshToken);
         var stored = await _db.RefreshTokens
+            .AsNoTracking()
             .Include(t => t.User)
             .FirstOrDefaultAsync(t => t.TokenHash == hash && t.ExpiresAt > DateTimeOffset.UtcNow, cancellationToken);
 
@@ -114,7 +115,16 @@ public sealed class AuthController : ControllerBase
             return Unauthorized(new { error = new { code = "invalid_refresh", message = "Your session expired. Sign in again." } });
         }
 
-        _db.RefreshTokens.Remove(stored);
+        // Atomic delete avoids DbUpdateConcurrencyException when two requests refresh with the same token.
+        var deleted = await _db.RefreshTokens
+            .Where(t => t.Id == stored.Id && t.ExpiresAt > DateTimeOffset.UtcNow)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted == 0)
+        {
+            return Unauthorized(new { error = new { code = "invalid_refresh", message = "Your session expired. Sign in again." } });
+        }
+
         var tokenPair = _jwtTokenService.CreateTokenPair(stored.UserId, stored.User.GitHubLogin);
         _db.RefreshTokens.Add(new RefreshToken
         {

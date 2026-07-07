@@ -61,6 +61,7 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
 
         await ApplyBuildConfigurationAsync(credentials, serviceId, environmentId, environment, cancellationToken);
+        await EnsurePublicServiceDomainAsync(credentials, serviceId, environmentId, environment, cancellationToken);
 
         environment.TryGetValue("commitSha", out var commitSha);
         var hasCommitSha = !string.IsNullOrWhiteSpace(commitSha);

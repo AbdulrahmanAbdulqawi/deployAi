@@ -22,7 +22,9 @@ export type IconName =
   | 'link'
   | 'log'
   | 'more'
-  | 'chevron-down';
+  | 'chevron-down'
+  | 'rocket'
+  | 'code';
 
 export type IconStatusClass = 'success' | 'accent' | 'danger' | 'warning' | 'muted' | '';
 

@@ -6,6 +6,7 @@ DeployAI is a non-technical deployment platform. Connect GitHub once, link Verce
 
 - **Frontend:** Angular 18 (`client/`)
 - **Backend:** .NET 8 Web API (`src/DeployAI.Api`)
+- **Claude fix builds:** Production API image (`src/Dockerfile`) includes .NET SDK 8 and Node.js 20 so fix generation can run `dotnet build` / `npm run build` locally before opening a PR
 - **Database:** PostgreSQL 16
 - **Jobs:** Hangfire
 - **Real-time:** SignalR

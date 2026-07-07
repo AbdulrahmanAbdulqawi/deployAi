@@ -9,6 +9,8 @@ public class Project
     public string DefaultBranch { get; set; } = "main";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public string? EnvironmentSyncJson { get; set; }
+    public string? DeploymentSetupJson { get; set; }
 
     public User User { get; set; } = null!;
     public ICollection<DeployTarget> DeployTargets { get; set; } = [];

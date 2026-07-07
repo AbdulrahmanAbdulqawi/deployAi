@@ -6,45 +6,231 @@
   </div>
 } @else if (store.deployment()) {
   <section class="live-deploy" [class.live-deploy--celebrate]="store.isComplete() && store.overallStatus() === 'success'">
-    <header class="live-deploy__header">
-      <div>
-        <h1 class="u-brand-text">{{ phaseHeading() }}</h1>
-        <p class="meta u-text-muted">{{ store.deployment()!.branch }}</p>
-      </div>
-      <app-status-badge [status]="store.overallStatus()" [live]="!store.isComplete()" />
-    </header>
-
-    @if (redeployMessage()) {
-      <p class="notice">{{ redeployMessage() }}</p>
-    }
-
-    @if (store.isComplete() && store.overallStatus() === 'success') {
-      <div class="celebration" role="status" aria-live="polite">
-        <app-ui-icon name="check" statusClass="success" />
-        <div class="celebration__links">
-          <p>Everything's live</p>
-          @for (link of liveLinks(); track link.url) {
-            <a class="live-link" [href]="link.url" target="_blank" rel="noopener">Open {{ link.label }}</a>
-          }
-        </div>
-      </div>
-    }
-
     @if (store.isComplete() && store.canRestore()) {
       <div class="restore-bar">
-        <p>Something didn't go through. You can restore the last working version.</p>
+        <div class="restore-bar__copy">
+          <app-ui-icon name="clock" size="sm" statusClass="accent" />
+          <p>You can go back to your last working version anytime.</p>
+        </div>
         <app-ui-button
           variant="secondary"
           icon="refresh"
           [disabled]="store.restoring()"
           (click)="store.restore()"
         >
-          {{ store.restoring() ? 'Restoring…' : 'Restore previous version' }}
+          {{ store.restoring() ? 'Going back…' : 'Go back' }}
         </app-ui-button>
       </div>
     }
 
-    @if (!store.isComplete() || showDetails() || store.overallStatus() !== 'success') {
+    <header class="live-deploy__header">
+      <div class="live-deploy__heading">
+        @if (projectName()) {
+          <p class="live-deploy__project u-label-caps">{{ projectName() }}</p>
+        }
+        <h1 class="u-headline-md">
+          {{ phaseHeading() }}
+          @if (!store.isComplete()) {
+            <span class="live-deploy__pill">
+              <span class="live-deploy__pill-dot" aria-hidden="true"></span>
+              <span class="u-label-caps">In progress</span>
+            </span>
+          }
+        </h1>
+        <div class="live-deploy__meta-row">
+          @if (githubRepoFullName(); as repo) {
+            <a class="meta meta-link" [href]="repoUrl()" target="_blank" rel="noopener">
+              <app-ui-icon name="code" size="sm" statusClass="muted" />
+              <span class="u-code-sm">{{ repo }}</span>
+            </a>
+          }
+
+          @if (store.deployment()!.gitCommitSha) {
+            @if (commitUrl(); as commit) {
+              <a class="meta commit-meta meta-link" [href]="commit" target="_blank" rel="noopener">
+                <app-ui-icon name="log" size="sm" statusClass="muted" />
+                <span class="u-code-sm">{{ store.deployment()!.gitCommitSha!.slice(0, 7) }}</span>
+                @if (store.deployment()!.gitCommitMessage) {
+                  · {{ store.deployment()!.gitCommitMessage }}
+                }
+              </a>
+            } @else {
+              <p class="meta commit-meta">
+                <app-ui-icon name="log" size="sm" statusClass="muted" />
+                <span class="u-code-sm">{{ store.deployment()!.gitCommitSha!.slice(0, 7) }}</span>
+                @if (store.deployment()!.gitCommitMessage) {
+                  · {{ store.deployment()!.gitCommitMessage }}
+                }
+              </p>
+            }
+          } @else {
+            <p class="meta u-code-sm">{{ store.deployment()!.branch }}</p>
+          }
+        </div>
+      </div>
+      @if (!store.isComplete()) {
+        <div class="live-deploy__elapsed">
+          <div class="u-code-md">{{ elapsedLabel() }}</div>
+          <div class="u-label-caps live-deploy__elapsed-label">Elapsed</div>
+        </div>
+      } @else {
+        <app-status-badge [status]="store.overallStatus()" [live]="false" />
+      }
+    </header>
+
+    @if (store.isComplete() && store.overallStatus() === 'success') {
+      <section class="summary u-glass-panel" role="status" aria-live="polite">
+        <div class="summary__main">
+          <span class="summary__badge" aria-hidden="true">
+            <app-ui-icon name="check" statusClass="success" />
+          </span>
+          <div class="summary__copy">
+            <h2 class="summary__title">{{ projectName() || 'Your app' }} is live</h2>
+            <p class="summary__subtitle">Your app is up and ready for people to use.</p>
+          </div>
+          @if (liveLinks().length > 0) {
+            <div class="summary__actions">
+              @for (link of liveLinks(); track link.url; let first = $first) {
+                <a
+                  class="summary__cta"
+                  [class.summary__cta--primary]="first"
+                  [href]="link.url"
+                  target="_blank"
+                  rel="noopener">
+                  <app-ui-icon name="external" size="sm" [statusClass]="first ? '' : 'accent'" />
+                  {{ link.label }}
+                </a>
+              }
+            </div>
+          }
+        </div>
+
+        @if (canSyncUrls() || environmentSync()) {
+          <div class="summary__meta">
+            @if (environmentSync()?.driftDetected) {
+              <span class="summary__chip summary__chip--warning">
+                <app-ui-icon name="alert" size="sm" statusClass="warning" />
+                Sync settings
+              </span>
+            } @else if (environmentSync()) {
+              <span class="summary__chip summary__chip--ok">
+                <app-ui-icon name="check" size="sm" statusClass="success" />
+                Site &amp; app connected
+              </span>
+            }
+            @if (environmentSync()?.lastSyncedAt) {
+              <span class="summary__meta-text">Last checked {{ environmentSync()!.lastSyncedAt | date: 'short' }}</span>
+            }
+            @if (canSyncUrls()) {
+              <app-ui-button
+                variant="secondary"
+                icon="refresh"
+                [ariaLabel]="syncingUrls() ? 'Reconnecting…' : 'Reconnect'"
+                [disabled]="syncingUrls()"
+                [loading]="syncingUrls()"
+                (click)="syncUrls()">
+              </app-ui-button>
+            }
+          </div>
+
+          <details class="summary__explainer">
+            <summary class="summary__explainer-toggle">
+              <app-ui-icon name="info" size="sm" statusClass="muted" />
+              What are sync settings?
+            </summary>
+            <div class="summary__explainer-body">
+              <p>
+                Your website and your API run on two different services. For them to work together,
+                each one needs to know the other's current web address:
+              </p>
+              <ul>
+                <li>Your website needs the API's address so it can load and save data.</li>
+                <li>Your API needs to allow your website's address so requests aren't blocked.</li>
+              </ul>
+              <p>
+                Most of the time this is handled automatically. You may need to reconnect when:
+              </p>
+              <ul>
+                <li>You just deployed and a service got a new address.</li>
+                <li>You added or changed a custom domain.</li>
+                <li>Sign-in or data starts failing with connection or "blocked" errors.</li>
+              </ul>
+              <p class="summary__explainer-note">
+                Reconnecting re-checks both addresses and points them at each other again.
+              </p>
+            </div>
+          </details>
+        }
+      </section>
+    }
+
+    @if (redeployMessage()) {
+      <p class="notice">{{ redeployMessage() }}</p>
+    }
+
+    @if (syncMessage()) {
+      <p class="notice">{{ syncMessage() }}</p>
+    }
+
+    @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {
+      <p class="notice notice--warning">Your site and app need reconnecting so they can talk to each other.</p>
+    }
+
+    @if (store.overallStatus() !== 'success' && canSyncUrls()) {
+      <div class="sync-bar">
+        <app-ui-button
+          variant="secondary"
+          icon="refresh"
+          [ariaLabel]="syncingUrls() ? 'Reconnecting…' : 'Reconnect'"
+          [disabled]="syncingUrls()"
+          [loading]="syncingUrls()"
+          (click)="syncUrls()"
+        >
+        </app-ui-button>
+        @if (environmentSync()?.lastSyncedAt) {
+          <p class="meta u-text-muted">Last checked {{ environmentSync()!.lastSyncedAt | date: 'short' }}</p>
+        }
+      </div>
+    }
+
+    @if (store.isComplete() && store.deployment()) {
+      @for (target of store.deployment()!.targets; track target.id) {
+        @if (canShowFixPanel(target) && repoOwner() && repoName()) {
+          <app-deployment-fix-panel
+            [deploymentId]="store.deployment()!.id"
+            [targetId]="target.id"
+            [owner]="repoOwner()!"
+            [repo]="repoName()!"
+            [failureAnalysis]="target.failureAnalysis!"
+          />
+        }
+      }
+    }
+
+    @if (!store.isComplete()) {
+      <section class="provider-grid">
+        @for (target of store.deployment()!.targets; track target.id) {
+          <app-provider-status-card
+            [roleLabel]="roleLabel(target.providerName)"
+            [providerName]="target.providerName"
+            [status]="target.status"
+            [deployUrl]="target.deployUrl"
+            [startedAt]="target.startedAt"
+            [showProviderName]="false"
+            [live]="true"
+          />
+        }
+      </section>
+
+      <app-live-log-panel
+        class="combined-terminal"
+        title="Live progress"
+        [lines]="store.activity()"
+        [connecting]="store.connectingLogs()"
+        [embedded]="true"
+        [showProviderPrefix]="true"
+      />
+    } @else if (showDetails() || store.overallStatus() !== 'success') {
       <div class="targets">
         @for (target of store.deployment()!.targets; track target.id) {
           <app-provider-status-card
@@ -54,6 +240,7 @@
             [deployUrl]="target.deployUrl"
             [startedAt]="target.startedAt"
             [showProviderName]="false"
+            [showOpenLink]="false"
             [expanded]="isExpanded(target.id)"
             [lines]="linesForProvider(target.providerName)"
             [connecting]="store.connectingLogs()"
@@ -67,9 +254,11 @@
     }
 
     @if (store.isComplete() && store.overallStatus() === 'success') {
-      <app-ui-button variant="quiet" icon="info" (click)="toggleDetails()">
-        {{ showDetails() ? 'Hide details' : 'See details' }}
-      </app-ui-button>
+      <div class="details-toggle">
+        <app-ui-button variant="quiet" icon="info" (click)="toggleDetails()">
+          {{ showDetails() ? 'Hide details' : 'See details' }}
+        </app-ui-button>
+      </div>
     }
   </section>
 }

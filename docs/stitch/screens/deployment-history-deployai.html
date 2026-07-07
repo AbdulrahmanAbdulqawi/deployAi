@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DeployAI - Deployment History</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-tertiary": "#3c0091",
+                      "primary-container": "#8083ff",
+                      "outline-variant": "#464554",
+                      "on-secondary-fixed-variant": "#004e5c",
+                      "outline": "#908fa0",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "on-background": "#dae2fd",
+                      "tertiary-container": "#a078ff",
+                      "secondary-fixed-dim": "#4cd7f6",
+                      "inverse-surface": "#dae2fd",
+                      "on-tertiary-fixed-variant": "#5516be",
+                      "on-secondary-container": "#00424e",
+                      "tertiary-fixed": "#e9ddff",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "surface-dim": "#0b1326",
+                      "secondary-fixed": "#acedff",
+                      "inverse-primary": "#494bd6",
+                      "surface-container-lowest": "#060e20",
+                      "on-secondary-fixed": "#001f26",
+                      "on-tertiary-container": "#340080",
+                      "surface-container-highest": "#2d3449",
+                      "primary": "#c0c1ff",
+                      "secondary": "#4cd7f6",
+                      "on-primary": "#1000a9",
+                      "on-tertiary-fixed": "#23005c",
+                      "on-surface": "#dae2fd",
+                      "error": "#ffb4ab",
+                      "surface-container": "#171f33",
+                      "surface-bright": "#31394d",
+                      "secondary-container": "#03b5d3",
+                      "background": "#0b1326",
+                      "surface-variant": "#2d3449",
+                      "surface-container-low": "#131b2e",
+                      "surface": "#0b1326",
+                      "on-error": "#690005",
+                      "inverse-on-surface": "#283044",
+                      "tertiary": "#d0bcff",
+                      "error-container": "#93000a",
+                      "primary-fixed": "#e1e0ff",
+                      "tertiary-fixed-dim": "#d0bcff",
+                      "on-surface-variant": "#c7c4d7",
+                      "surface-container-high": "#222a3d",
+                      "on-primary-fixed": "#07006c",
+                      "on-secondary": "#003640",
+                      "surface-tint": "#c0c1ff",
+                      "on-primary-container": "#0d0096",
+                      "on-error-container": "#ffdad6"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "unit": "4px",
+                      "stack-md": "16px",
+                      "margin-desktop": "32px",
+                      "stack-sm": "8px",
+                      "container-max": "1440px",
+                      "stack-lg": "24px",
+                      "margin-mobile": "16px",
+                      "gutter": "24px",
+                      "stack-xs": "4px"
+              },
+              "fontFamily": {
+                      "headline-sm": ["Inter"],
+                      "title-lg": ["Inter"],
+                      "label-caps": ["Inter"],
+                      "headline-md": ["Inter"],
+                      "display-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "code-sm": ["JetBrains Mono"],
+                      "code-md": ["JetBrains Mono"],
+                      "body-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "headline-sm": ["24px", {"lineHeight": "32px", "fontWeight": "500"}],
+                      "title-lg": ["20px", {"lineHeight": "28px", "fontWeight": "500"}],
+                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                      "headline-md": ["30px", {"lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "display-lg": ["48px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                      "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "code-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+                      "code-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .glass-panel {
+            background: rgba(11, 19, 38, 0.4);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .kinetic-gradient {
+            background: linear-gradient(135deg, #c0c1ff 0%, #4cd7f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .kinetic-btn {
+            background: linear-gradient(135deg, #8083ff 0%, #03b5d3 100%);
+            transition: all 0.3s ease;
+        }
+        .kinetic-btn:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+            box-shadow: 0 0 20px rgba(128, 131, 255, 0.3);
+        }
+        .terminal-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .terminal-scroll::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        .status-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+        .status-error {
+            background: rgba(244, 63, 94, 0.1);
+            color: #f43f5e;
+            border: 1px solid rgba(244, 63, 94, 0.2);
+        }
+        .status-progress {
+            background: rgba(192, 193, 255, 0.1);
+            color: #c0c1ff;
+            border: 1px solid rgba(192, 193, 255, 0.2);
+        }
+        .inner-glow {
+            box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md selection:bg-primary-container/30">
+<!-- TopNavBar -->
+<nav class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-surface/40 dark:bg-surface/40 backdrop-blur-md border-b border-white/10">
+<div class="flex items-center gap-stack-lg">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">DeployAI</span>
+<div class="hidden md:flex gap-stack-md">
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95" href="#">Apps</a>
+<a class="font-body-md text-body-md text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer active:scale-95" href="#">Settings</a>
+</div>
+</div>
+<div class="flex items-center gap-stack-md">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer transition-colors">dark_mode</span>
+<button class="font-body-md text-body-md text-primary border border-primary/20 px-4 py-1.5 rounded-lg hover:bg-primary/5 transition-all">Sign out</button>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="mt-24 pb-20 px-margin-mobile md:px-margin-desktop max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Header & History List Section -->
+<section class="lg:col-span-7 flex flex-col gap-stack-lg">
+<!-- Header -->
+<div class="flex flex-col gap-stack-xs">
+<button class="flex items-center gap-stack-xs text-on-surface-variant hover:text-primary transition-colors mb-2 w-fit">
+<span class="material-symbols-outlined text-[18px]">arrow_back</span>
+<span class="font-label-caps text-label-caps">Back</span>
+</button>
+<div class="flex justify-between items-end">
+<div>
+<h1 class="font-display-lg text-display-lg kinetic-gradient">History</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Past deploys for my-saas-app</p>
+</div>
+<div class="flex items-center gap-stack-sm bg-surface-container/50 p-2 rounded-lg border border-white/5 backdrop-blur-sm">
+<span class="material-symbols-outlined text-on-surface-variant">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-sm w-32 placeholder:text-outline" placeholder="Search branch..." type="text"/>
+</div>
+</div>
+</div>
+<!-- List of Deploy Rows -->
+<div class="flex flex-col gap-stack-sm">
+<!-- Row: Failed (Selected) -->
+<div class="glass-panel inner-glow p-stack-md rounded-xl cursor-pointer transition-all border-primary/40 bg-primary/5 ring-1 ring-primary/20">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-error-container/20 flex items-center justify-center border border-error/20">
+<span class="material-symbols-outlined text-error">close</span>
+</div>
+<div>
+<h3 class="font-title-lg text-title-lg text-on-surface">feat/oauth-provider</h3>
+<div class="flex items-center gap-stack-sm mt-1">
+<span class="font-body-sm text-body-sm text-on-surface-variant">2 hours ago</span>
+<span class="text-white/10">•</span>
+<span class="font-code-sm text-code-sm text-outline">commit: 8fa2e1c</span>
+</div>
+</div>
+</div>
+<div class="status-error px-3 py-1 rounded-full font-label-caps text-label-caps">Failed</div>
+</div>
+</div>
+<!-- Row: Success -->
+<div class="glass-panel p-stack-md rounded-xl cursor-pointer hover:bg-white/5 transition-all group">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-surface-variant/30 flex items-center justify-center border border-white/5 group-hover:border-primary/20">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">check</span>
+</div>
+<div>
+<h3 class="font-title-lg text-title-lg text-on-surface">main</h3>
+<div class="flex items-center gap-stack-sm mt-1">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Oct 24, 14:22</span>
+<span class="text-white/10">•</span>
+<span class="font-code-sm text-code-sm text-outline">commit: b45d1f0</span>
+</div>
+</div>
+</div>
+<div class="status-success px-3 py-1 rounded-full font-label-caps text-label-caps">Success</div>
+</div>
+</div>
+<!-- Row: In Progress -->
+<div class="glass-panel p-stack-md rounded-xl cursor-pointer hover:bg-white/5 transition-all group">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-surface-variant/30 flex items-center justify-center border border-white/5 group-hover:border-primary/20 overflow-hidden relative">
+<div class="absolute inset-0 bg-primary/10 animate-pulse"></div>
+<span class="material-symbols-outlined text-primary animate-spin">refresh</span>
+</div>
+<div>
+<h3 class="font-title-lg text-title-lg text-on-surface">hotfix/db-latency</h3>
+<div class="flex items-center gap-stack-sm mt-1">
+<span class="font-body-sm text-body-sm text-on-surface-variant">4 mins ago</span>
+<span class="text-white/10">•</span>
+<span class="font-code-sm text-code-sm text-outline">commit: 21c9e88</span>
+</div>
+</div>
+</div>
+<div class="status-progress px-3 py-1 rounded-full font-label-caps text-label-caps">In Progress</div>
+</div>
+</div>
+<!-- Row: Success -->
+<div class="glass-panel p-stack-md rounded-xl cursor-pointer hover:bg-white/5 transition-all group">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-surface-variant/30 flex items-center justify-center border border-white/5 group-hover:border-primary/20">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">check</span>
+</div>
+<div>
+<h3 class="font-title-lg text-title-lg text-on-surface">main</h3>
+<div class="flex items-center gap-stack-sm mt-1">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Oct 23, 09:12</span>
+<span class="text-white/10">•</span>
+<span class="font-code-sm text-code-sm text-outline">commit: f9e1a2d</span>
+</div>
+</div>
+</div>
+<div class="status-success px-3 py-1 rounded-full font-label-caps text-label-caps">Success</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Detail Panel -->
+<aside class="lg:col-span-5 flex flex-col gap-stack-lg sticky top-24 h-fit">
+<div class="glass-panel rounded-2xl overflow-hidden flex flex-col border-primary/20 shadow-2xl">
+<!-- Panel Header -->
+<div class="p-stack-lg border-b border-white/10 bg-surface-container-high/40">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-title-lg text-title-lg text-on-surface">Deployment Details</h2>
+<span class="font-code-sm text-code-sm text-primary px-2 py-0.5 rounded bg-primary/10 border border-primary/20">#4092</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Attempted deployment of <span class="text-on-surface">feat/oauth-provider</span></p>
+</div>
+<!-- Provider Status Cards -->
+<div class="p-stack-lg grid grid-cols-2 gap-stack-md bg-surface-container-low/20">
+<div class="glass-panel p-stack-md rounded-xl bg-white/5">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-caps text-label-caps text-outline">Vercel</span>
+<span class="material-symbols-outlined text-emerald-500 text-[16px]">check_circle</span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface">Static Build</div>
+<div class="font-code-sm text-code-sm text-emerald-400 mt-1">200 OK</div>
+</div>
+<div class="glass-panel p-stack-md rounded-xl bg-error/5 border-error/10">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-caps text-label-caps text-outline">Railway</span>
+<span class="material-symbols-outlined text-rose-500 text-[16px]">error</span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface">Containerization</div>
+<div class="font-code-sm text-code-sm text-rose-400 mt-1">Exit Code 1</div>
+</div>
+</div>
+<!-- Terminal Panel -->
+<div class="flex flex-col flex-grow bg-[#000000] border-t border-white/10 min-h-[300px]">
+<div class="px-4 py-2 bg-surface-container-highest/50 flex items-center gap-stack-sm border-b border-white/5">
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-error/40"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-yellow-500/40"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-emerald-500/40"></div>
+</div>
+<span class="font-code-sm text-code-sm text-outline ml-2">logs-pipe-4092.txt</span>
+</div>
+<div class="p-4 font-code-md text-code-md terminal-scroll overflow-y-auto max-h-[400px]">
+<div class="flex gap-stack-md mb-1 opacity-60">
+<span class="text-outline w-12 text-right">08:22:01</span>
+<span class="text-white">Setting up deployment environment...</span>
+</div>
+<div class="flex gap-stack-md mb-1">
+<span class="text-outline w-12 text-right">08:22:05</span>
+<span class="text-emerald-400">Successfully fetched 42 dependencies.</span>
+</div>
+<div class="flex gap-stack-md mb-1">
+<span class="text-outline w-12 text-right">08:22:12</span>
+<span class="text-white">Running build optimization for Vercel...</span>
+</div>
+<div class="flex gap-stack-md mb-1 border-l-2 border-primary pl-2 bg-primary/5">
+<span class="text-outline w-12 text-right">08:22:45</span>
+<span class="text-emerald-400">Vercel: Build finished in 32.4s.</span>
+</div>
+<div class="flex gap-stack-md mb-1">
+<span class="text-outline w-12 text-right">08:22:46</span>
+<span class="text-white">Pushing container image to Railway registry...</span>
+</div>
+<div class="flex gap-stack-md mb-1">
+<span class="text-outline w-12 text-right">08:23:10</span>
+<span class="text-white">Authenticating with Railway API...</span>
+</div>
+<div class="flex gap-stack-md mb-1 border-l-2 border-rose-500 pl-2 bg-rose-500/5">
+<span class="text-outline w-12 text-right">08:23:15</span>
+<span class="text-rose-400">Error: RAILWAY_TOKEN expired or invalid.</span>
+</div>
+<div class="flex gap-stack-md mb-1">
+<span class="text-outline w-12 text-right">08:23:16</span>
+<span class="text-rose-400">Critical: Process terminated with Exit Code 1.</span>
+</div>
+<div class="flex gap-stack-md mb-1 opacity-40">
+<span class="text-outline w-12 text-right">08:23:16</span>
+<span class="text-white">Cleaning up build cache...</span>
+</div>
+</div>
+</div>
+<!-- Footer Action -->
+<div class="p-stack-lg border-t border-white/10 bg-surface-container-high/40 flex justify-between items-center">
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-outline">Resolution</span>
+<span class="font-body-sm text-body-sm text-on-surface">Update API Secrets</span>
+</div>
+<button class="kinetic-btn font-body-md text-body-md text-white px-6 py-2.5 rounded-lg flex items-center gap-stack-sm">
+<span class="material-symbols-outlined text-[20px]">refresh</span>
+                        Redeploy
+                    </button>
+</div>
+</div>
+<!-- Suggestion Card -->
+<div class="glass-panel p-stack-md rounded-xl border-dashed border-primary/30 flex items-center gap-stack-md">
+<div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">auto_awesome</span>
+</div>
+<div>
+<h4 class="font-label-caps text-label-caps text-primary">AI Insight</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">The Railway deployment failed due to an expired token. Head to <a class="text-secondary hover:underline" href="#">Environment Variables</a> to refresh it.</p>
+</div>
+</div>
+</aside>
+</main>
+<!-- Subtle Background Atmosphere -->
+<div class="fixed inset-0 pointer-events-none z-[-1] overflow-hidden">
+<div class="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-primary/10 rounded-full blur-[120px]"></div>
+<div class="absolute bottom-[-20%] right-[-10%] w-[800px] h-[800px] bg-secondary/5 rounded-full blur-[160px]"></div>
+</div>
+<script>
+        // Simple micro-interaction for rows
+        document.querySelectorAll('.glass-panel.cursor-pointer').forEach(row => {
+            row.addEventListener('click', () => {
+                // In a real app, this would update the detail panel
+                // For now, we just simulate the selection visual
+                document.querySelectorAll('.glass-panel.cursor-pointer').forEach(r => {
+                    r.classList.remove('border-primary/40', 'bg-primary/5', 'ring-1', 'ring-primary/20');
+                });
+                row.classList.add('border-primary/40', 'bg-primary/5', 'ring-1', 'ring-primary/20');
+            });
+        });
+    </script>
+</body></html>

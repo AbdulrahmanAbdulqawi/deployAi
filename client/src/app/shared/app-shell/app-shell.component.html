@@ -1,10 +1,14 @@
 <div class="shell">
+  <div class="u-ambient-glow" aria-hidden="true"></div>
+
   <header class="topbar">
-    <a routerLink="/dashboard" class="brand">DeployAI</a>
-    <nav>
-      <a routerLink="/dashboard" routerLinkActive="active">Apps</a>
-      <a routerLink="/settings" routerLinkActive="active">Settings</a>
-    </nav>
+    <div class="topbar__start">
+      <a routerLink="/dashboard" class="brand">DeployAI</a>
+      <nav>
+        <a routerLink="/dashboard" routerLinkActive="active">Apps</a>
+        <a routerLink="/settings" routerLinkActive="active">Settings</a>
+      </nav>
+    </div>
     <div class="topbar__actions">
       <button type="button" class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="theme.mode() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
         @if (theme.mode() === 'dark') {
@@ -13,9 +17,10 @@
           <app-ui-icon name="moon" size="sm" statusClass="muted" />
         }
       </button>
-      <app-ui-button variant="quiet" icon="x" (click)="signOut()">Sign out</app-ui-button>
+      <button type="button" class="sign-out-btn u-label-caps" (click)="signOut()">Sign out</button>
     </div>
   </header>
+
   <main>
     <router-outlet />
   </main>

@@ -1,0 +1,11 @@
+query ServiceInstanceDomains($serviceId: String!, $environmentId: String!) {
+  serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
+    domains {
+      serviceDomains {
+        id
+        domain
+        syncStatus
+      }
+    }
+  }
+}

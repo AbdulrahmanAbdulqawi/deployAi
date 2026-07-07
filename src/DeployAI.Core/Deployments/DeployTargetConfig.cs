@@ -32,6 +32,9 @@ public sealed class DeployTargetConfig
     [JsonPropertyName("serviceDirectory")]
     public string? ServiceDirectory { get; set; }
 
+    [JsonPropertyName("dockerUsesRepositoryRoot")]
+    public bool DockerUsesRepositoryRoot { get; set; }
+
     [JsonPropertyName("databaseEngine")]
     public string? DatabaseEngine { get; set; }
 
@@ -104,7 +107,8 @@ public sealed class DeployTargetConfig
             StartCommand = profile.StartCommand,
             Framework = profile.Framework,
             DockerfilePath = profile.DockerfilePath,
-            ServiceDirectory = profile.ServiceDirectory ?? profile.RootDirectory
+            ServiceDirectory = profile.ServiceDirectory ?? profile.RootDirectory,
+            DockerUsesRepositoryRoot = profile.DockerUsesRepositoryRoot
         };
 
     public IReadOnlyDictionary<string, string> ToEnvironmentEntries()
@@ -112,6 +116,10 @@ public sealed class DeployTargetConfig
         var entries = new Dictionary<string, string>();
         AddEntry(entries, "dockerfilePath", DockerfilePath?.Trim().Trim('/'));
         AddEntry(entries, "serviceDirectory", ServiceDirectory?.Trim().Trim('/'));
+        if (DockerUsesRepositoryRoot)
+        {
+            entries["dockerUsesRepositoryRoot"] = "true";
+        }
 
         AddEntry(entries, "rootDirectory", RootDirectory?.Trim().Trim('/'));
         if (!entries.ContainsKey("rootDirectory") && !string.IsNullOrWhiteSpace(DockerfilePath))
@@ -124,6 +132,7 @@ public sealed class DeployTargetConfig
         AddEntry(entries, "installCommand", InstallCommand);
         AddEntry(entries, "startCommand", StartCommand);
         AddEntry(entries, "framework", Framework);
+        AddEntry(entries, "role", Role);
         return entries;
     }
 

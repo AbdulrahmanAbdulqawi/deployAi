@@ -1,105 +1,189 @@
 @if (project()) {
-  <section>
-    <h1 class="u-brand-text">Edit app</h1>
-    <p class="page-intro">{{ project()!.name }} · {{ project()!.githubRepoFullName }}</p>
+  <section class="edit">
+    <header class="edit__header">
+      <h1 class="u-headline-md">Edit App</h1>
+      <p class="edit__subtitle">
+        <app-ui-icon name="folder" size="sm" statusClass="muted" />
+        <span class="u-code-md">{{ project()!.githubRepoFullName }}</span>
+      </p>
+    </header>
 
     @if (message()) {
-      <p class="message" [class.error]="isError()">{{ message() }}</p>
+      <p class="edit__message" [class.edit__message--error]="isError()">{{ message() }}</p>
     }
 
-    <div class="card">
-      <label>
-        App name
-        <input type="text" [(ngModel)]="name" />
-      </label>
-
-      <label>
-        Version
-        <select [(ngModel)]="defaultBranch">
-          @for (branch of branches(); track branch.name) {
-            <option [value]="branch.name">{{ branch.name }}</option>
-          }
-        </select>
-      </label>
-
-      <p class="readonly">{{ project()!.githubRepoFullName }}</p>
-
-      @for (target of editableTargets(); track target.providerName) {
-        <div class="target-block">
-          <h2>{{ targetLabel(target) }}</h2>
-          @if (repoOwner() && repoName()) {
-            <app-repo-folder-picker
-              [owner]="repoOwner()!"
-              [repo]="repoName()!"
-              [gitRef]="defaultBranch"
-              [initialPath]="target.serviceDirectory ?? target.rootDirectory ?? ''"
-              (pathSelected)="onFolderSelected(target.providerName, $event)"
-            />
-          }
-          @if (target.providerName === 'vercel' || target.providerName === 'railway') {
-            @if (target.providerName === 'railway' && isMisconfiguredRailwayTarget(target)) {
-              <p class="warning">
-                Looks like a frontend folder. Pick your API folder.
-              </p>
-            }
-            <div class="target-actions">
-              @if (target.providerName === 'railway') {
-                <app-ui-button
-                  variant="secondary"
-                  icon="refresh"
-                  [disabled]="autoDetectingServer() || detectingProvider() === target.providerName"
-                  [loading]="autoDetectingServer()"
-                  (click)="autoDetectServerFolder()">
-                  Auto-detect
-                </app-ui-button>
-              }
-              <app-ui-button
-                variant="secondary"
-                icon="refresh"
-                [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
-                [loading]="detectingProvider() === target.providerName"
-                (click)="redetectBuildSettings(target)">
-                Re-detect
-              </app-ui-button>
+    <div class="edit__card u-glass-panel">
+      <section class="edit__section">
+        <h2 class="edit__section-title">
+          <app-ui-icon name="settings" size="sm" statusClass="accent" />
+          General Settings
+        </h2>
+        <div class="edit__grid">
+          <label class="edit__field">
+            <span class="u-label-caps">App Name</span>
+            <input class="edit__input" type="text" [(ngModel)]="name" />
+          </label>
+          <label class="edit__field">
+            <span class="u-label-caps">Version Branch</span>
+            <div class="edit__select-wrap">
+              <select class="edit__input edit__select" [(ngModel)]="defaultBranch">
+                @for (branch of branches(); track branch.name) {
+                  <option [value]="branch.name">{{ branch.name }}</option>
+                }
+              </select>
+              <app-ui-icon class="edit__select-icon" name="chevron-down" size="sm" statusClass="muted" />
             </div>
-            @if (target.outputDirectory || target.buildCommand || target.startCommand || target.framework) {
-              <ul class="build-summary">
-                @if (target.outputDirectory) {
-                  <li>Output: {{ target.outputDirectory }}</li>
-                }
-                @if (target.buildCommand) {
-                  <li>Build: {{ target.buildCommand }}</li>
-                }
-                @if (target.startCommand) {
-                  <li>Start: {{ target.startCommand }}</li>
-                }
-                @if (target.framework) {
-                  <li>Framework: {{ target.framework }}</li>
-                }
-              </ul>
-            }
+          </label>
+          <div class="edit__field edit__field--full">
+            <span class="u-label-caps">Repository (Read-only)</span>
+            <div class="edit__readonly">
+              <app-ui-icon name="link" size="sm" statusClass="muted" />
+              <span class="u-code-md">github.com/{{ project()!.githubRepoFullName }}.git</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="edit__section">
+        <h2 class="edit__section-title">
+          <app-ui-icon name="folder" size="sm" statusClass="accent" />
+          Deployment Targets
+        </h2>
+        <div class="edit__targets">
+          @for (target of editableTargets(); track target.providerName) {
+            <article class="edit__target" [class.edit__target--vercel]="target.providerName === 'vercel'">
+              <div class="edit__target-header">
+                <div class="edit__target-brand">
+                  <div class="edit__target-logo" [class.edit__target-logo--vercel]="target.providerName === 'vercel'">
+                    @if (target.providerName === 'vercel') {
+                      <svg width="18" height="16" viewBox="0 0 20 18" fill="none" aria-hidden="true">
+                        <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+                      </svg>
+                    } @else {
+                      <app-ui-icon name="link" size="sm" statusClass="accent" />
+                    }
+                  </div>
+                  <div>
+                    <h3>{{ targetSectionTitle(target) }}</h3>
+                    <p>{{ targetSectionSubtitle(target) }}</p>
+                  </div>
+                </div>
+                <span class="edit__target-badge" [class.edit__target-badge--active]="hasTargetPath(target)">
+                  {{ hasTargetPath(target) ? 'Active' : 'Standby' }}
+                </span>
+              </div>
+
+              @if (repoOwner() && repoName()) {
+                <label class="edit__field">
+                  <span class="u-label-caps">Folder Path</span>
+                  <div class="edit__folder-row">
+                    <app-repo-folder-picker
+                      [owner]="repoOwner()!"
+                      [repo]="repoName()!"
+                      [gitRef]="defaultBranch"
+                      [initialPath]="target.serviceDirectory ?? target.rootDirectory ?? ''"
+                      (pathSelected)="onFolderSelected(target.providerName, $event)"
+                    />
+                    @if (target.providerName === 'railway') {
+                      <app-ui-button
+                        variant="primary"
+                        icon="refresh"
+                        [disabled]="autoDetectingServer() || detectingProvider() === target.providerName"
+                        [loading]="autoDetectingServer()"
+                        (click)="autoDetectServerFolder()">
+                        Auto-detect
+                      </app-ui-button>
+                    } @else {
+                      <app-ui-button
+                        variant="secondary"
+                        icon="refresh"
+                        [disabled]="detectingProvider() === target.providerName || !(target.serviceDirectory ?? target.rootDirectory)"
+                        [loading]="detectingProvider() === target.providerName"
+                        (click)="redetectBuildSettings(target)">
+                        Re-detect
+                      </app-ui-button>
+                    }
+                  </div>
+                </label>
+              }
+
+              @if (target.providerName === 'railway' && isMisconfiguredRailwayTarget(target)) {
+                <p class="edit__warning">Looks like a frontend folder. Pick your API folder.</p>
+              }
+
+              @if (target.providerName === 'railway' && hasTargetPath(target)) {
+                <div class="edit__target-actions">
+                  <app-ui-button
+                    variant="secondary"
+                    icon="refresh"
+                    [disabled]="detectingProvider() === target.providerName"
+                    [loading]="detectingProvider() === target.providerName"
+                    (click)="redetectBuildSettings(target)">
+                    Re-detect
+                  </app-ui-button>
+                </div>
+              }
+            </article>
           }
         </div>
+      </section>
+
+      @if (buildSummaryRows().length > 0) {
+        <section class="edit__section">
+          <h2 class="edit__section-title">
+            <app-ui-icon name="log" size="sm" statusClass="accent" />
+            Build Summary
+          </h2>
+          <div class="edit__table-wrap">
+            <table class="edit__table">
+              <thead>
+                <tr>
+                  <th class="u-label-caps">Component</th>
+                  <th class="u-label-caps">Framework</th>
+                  <th class="u-label-caps">Build Command</th>
+                  <th class="u-label-caps">Start Command</th>
+                </tr>
+              </thead>
+              <tbody class="u-code-sm">
+                @for (row of buildSummaryRows(); track row.component) {
+                  <tr>
+                    <td>{{ row.component }}</td>
+                    <td class="edit__table-accent">{{ row.framework || '—' }}</td>
+                    <td class="edit__table-success">{{ row.buildCommand || '—' }}</td>
+                    <td class="edit__table-success">{{ row.startCommand || '—' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </section>
       }
 
-      @if (hasRailwayTarget()) {
-        <p class="hint">DBs: manage on app overview → Services.</p>
-      }
-
-      <div class="nav">
-        <app-ui-button variant="secondary" icon="x" (click)="cancel()">Cancel</app-ui-button>
-        <app-ui-button variant="primary" tone="success" icon="check" [disabled]="saving() || !name || !defaultBranch" [loading]="saving()" (click)="save()">
-          Save
+      <div class="edit__actions">
+        <button type="button" class="edit__cancel u-label-caps" (click)="cancel()">Cancel</button>
+        <app-ui-button
+          variant="primary"
+          icon="check"
+          [disabled]="saving() || !name || !defaultBranch"
+          [loading]="saving()"
+          (click)="save()">
+          Save Changes
         </app-ui-button>
       </div>
-    </div>
 
-    <div class="danger-zone">
-      <h2>Delete</h2>
-      <p class="hint">Permanently removes this app from DeployAI, deletes all deployment history, and removes hosting on Railway and Vercel.</p>
-      <app-ui-button variant="primary" icon="trash" [disabled]="deleting()" [loading]="deleting()" (click)="remove()">
-        Delete
-      </app-ui-button>
+      <section class="edit__danger">
+        <div class="edit__danger-inner">
+          <div>
+            <h3 class="u-title-lg edit__danger-title">Delete App</h3>
+            <p class="edit__danger-desc">
+              Permanently remove this application and all associated deployment history. This action is irreversible.
+            </p>
+          </div>
+          <button type="button" class="edit__danger-btn u-label-caps" [disabled]="deleting()" (click)="remove()">
+            Delete Permanently
+          </button>
+        </div>
+      </section>
     </div>
 
     @if (showDeleteConfirm()) {
@@ -114,5 +198,5 @@
     }
   </section>
 } @else {
-  <p>Loading…</p>
+  <p class="edit__loading">Loading…</p>
 }

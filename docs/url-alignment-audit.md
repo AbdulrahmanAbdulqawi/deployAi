@@ -1,5 +1,7 @@
 # DeployAI URL Alignment Audit Report
 
+> **Update (2026-07-06):** For Angular + Vercel + Railway apps, use the [split-origin playbook](./split-origin-playbook.md). Vercel `/api` proxy rewrites are **not** recommended for split-origin stacks; the browser should call Railway directly.
+
 **Date:** 2026-07-06  
 **Scope:** DeployAI self-hosted production (Vercel client + Railway API)
 

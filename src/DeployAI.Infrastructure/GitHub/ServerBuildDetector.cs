@@ -49,7 +49,8 @@ public sealed class ServerBuildDetector : IServerBuildDetector
                 null,
                 "docker",
                 dockerfilePath,
-                normalizedRoot);
+                normalizedRoot,
+                string.Equals(layout.RootDirectory, ".", StringComparison.Ordinal));
         }
 
         if (!string.IsNullOrWhiteSpace(csprojContent))

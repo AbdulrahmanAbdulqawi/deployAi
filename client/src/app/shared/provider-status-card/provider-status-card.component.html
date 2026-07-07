@@ -1,41 +1,116 @@
 <article
-  class="provider-card u-card"
+  class="provider-card u-card u-glass-panel"
   [class.provider-card--expanded]="expanded"
+  [class.provider-card--live]="live"
   [class.provider-card--vercel]="providerName === 'vercel'"
   [class.provider-card--railway]="providerName === 'railway'">
-  <button type="button" class="provider-card__toggle" (click)="toggleExpanded()" [attr.aria-expanded]="expanded">
+  @if (live) {
     <div class="provider-card__header">
-      <div>
-        <strong>{{ roleLabel }}</strong>
-        @if (showProviderName) {
-          <p class="u-text-muted">{{ providerDisplayName }}</p>
-        }
+      <div class="provider-card__brand">
+        <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
+          @if (providerName === 'vercel') {
+            <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+            </svg>
+          } @else {
+            <app-ui-icon name="link" size="sm" statusClass="accent" />
+          }
+        </div>
+        <div>
+          <strong class="u-title-lg">{{ roleLabel }}</strong>
+          <p class="u-text-muted">{{ providerSubtitle }}</p>
+        </div>
       </div>
       <div class="provider-card__header-end">
-        <app-status-badge [status]="status" [live]="status === 'in_progress'" />
-        <app-ui-icon
-          name="chevron-down"
-          size="sm"
-          statusClass="muted"
-          class="provider-card__chevron"
-          [class.provider-card__chevron--open]="expanded"
-        />
+        @if (status === 'in_progress') {
+          <span class="provider-card__status u-code-sm">{{ statusLabel }}</span>
+        } @else {
+          <app-status-badge [status]="status" [live]="false" />
+        }
       </div>
     </div>
-  </button>
+  } @else {
+    <button type="button" class="provider-card__toggle" (click)="toggleExpanded()" [attr.aria-expanded]="expanded">
+      <div class="provider-card__header">
+        <div class="provider-card__brand">
+          <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
+            @if (providerName === 'vercel') {
+              <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+              </svg>
+            } @else {
+              <app-ui-icon name="link" size="sm" statusClass="accent" />
+            }
+          </div>
+          <div>
+            <strong class="u-title-lg">{{ roleLabel }}</strong>
+            @if (showProviderName) {
+              <p class="u-text-muted">{{ providerDisplayName }}</p>
+            } @else {
+              <p class="u-text-muted">{{ providerSubtitle }}</p>
+            }
+          </div>
+        </div>
+        <div class="provider-card__header-end">
+          @if (status === 'in_progress') {
+            <span class="provider-card__status u-code-sm">{{ statusLabel }}</span>
+          } @else {
+            <app-status-badge [status]="status" [live]="status === 'in_progress'" />
+          }
+          <app-ui-icon
+            name="chevron-down"
+            size="sm"
+            statusClass="muted"
+            class="provider-card__chevron"
+            [class.provider-card__chevron--open]="expanded"
+          />
+        </div>
+      </div>
+    </button>
+  }
 
-  @if (status === 'in_progress' && elapsedLabel) {
+  @if (live) {
+    <div class="provider-card__step">
+      @if (status === 'in_progress') {
+        <app-ui-icon name="refresh" size="sm" statusClass="accent" class="provider-card__step-spin" />
+      } @else if (status === 'success') {
+        <app-ui-icon name="check" size="sm" statusClass="success" />
+      } @else if (status === 'failed') {
+        <app-ui-icon name="x" size="sm" statusClass="danger" />
+      } @else {
+        <app-ui-icon name="clock" size="sm" statusClass="muted" />
+      }
+      <span class="provider-card__step-text">{{ liveStatusText }}</span>
+    </div>
+    <div
+      class="provider-card__bar"
+      [class.provider-card__bar--indeterminate]="status === 'in_progress'"
+      [class.provider-card__bar--done]="status === 'success'"
+      [class.provider-card__bar--failed]="status === 'failed'"
+      role="progressbar"
+      aria-label="Deployment progress">
+      <span class="provider-card__bar-fill"></span>
+    </div>
+    @if (status === 'success' && deployUrl) {
+      <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener">
+        <app-ui-icon name="external" size="sm" statusClass="success" />
+        Open
+      </a>
+    }
+  }
+
+  @if (!live && status === 'in_progress' && elapsedLabel) {
     <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
   }
 
-  @if (status === 'success' && deployUrl) {
+  @if (!live && showOpenLink && status === 'success' && deployUrl) {
     <a class="live-link" [href]="deployUrl" target="_blank" rel="noopener" (click)="$event.stopPropagation()">
       <app-ui-icon name="external" size="sm" statusClass="success" />
       Open
     </a>
   }
 
-  @if (status === 'failed') {
+  @if (!live && status === 'failed') {
     <div class="provider-card__actions">
       <p class="failure">Failed</p>
       @if (canRedeploy) {
@@ -51,7 +126,7 @@
     </div>
   }
 
-  @if (expanded) {
+  @if (!live && expanded) {
     <div class="provider-card__logs">
       <app-live-log-panel
         [lines]="lines"
@@ -60,7 +135,5 @@
         [showProviderPrefix]="false"
       />
     </div>
-  } @else if (lines.length > 0 || connecting) {
-    <p class="logs-hint u-text-muted">Expand to view logs</p>
   }
 </article>

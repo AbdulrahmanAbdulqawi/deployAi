@@ -180,8 +180,21 @@ public sealed partial class RailwayProvider
         ProviderCredentials credentials,
         string serviceId,
         string environmentId,
+        CancellationToken cancellationToken) =>
+        await RedeployServiceInstanceAsync(credentials, serviceId, environmentId, ensurePublicDomain: false, cancellationToken);
+
+    private async Task RedeployServiceInstanceAsync(
+        ProviderCredentials credentials,
+        string serviceId,
+        string environmentId,
+        bool ensurePublicDomain,
         CancellationToken cancellationToken)
     {
+        if (ensurePublicDomain)
+        {
+            await EnsurePublicServiceDomainAsync(credentials, serviceId, environmentId, environment: null, cancellationToken);
+        }
+
         await using var gql = _graphQl.CreateSession(credentials);
         var result = await gql.Client.RedeployService.ExecuteAsync(serviceId, environmentId, cancellationToken);
         RailwayApiSupport.EnsureSuccess(result);

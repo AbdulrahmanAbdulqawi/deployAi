@@ -43,18 +43,221 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
     {
         var projectId = await ResolveProjectIdAsync(credentials, providerProjectId, cancellationToken);
         var project = await GetProjectAsync(credentials, projectId, cancellationToken);
-        var alias = VercelApiSupport.ExtractPrimaryProductionAlias(project.Aliases, project.Name);
+        var aliases = await CollectProductionWebsiteAliasesAsync(
+            credentials,
+            projectId,
+            project,
+            cancellationToken);
+        var alias = VercelApiSupport.ExtractPrimaryProductionAlias(aliases, project.Name);
         if (!string.IsNullOrWhiteSpace(alias))
         {
             return VercelApiSupport.NormalizeExternalOrigin(alias);
         }
 
-        if (!string.IsNullOrWhiteSpace(deploymentUrl))
+        if (!string.IsNullOrWhiteSpace(deploymentUrl) &&
+            !VercelApiSupport.IsPreviewAlias(deploymentUrl))
         {
             return VercelApiSupport.NormalizeExternalOrigin(deploymentUrl);
         }
 
         return null;
+    }
+
+    public async Task<IReadOnlyList<string>> ListProductionWebsiteOriginsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var projectId = await ResolveProjectIdAsync(credentials, providerProjectId, cancellationToken);
+        var project = await GetProjectAsync(credentials, projectId, cancellationToken);
+        var aliases = await CollectProductionWebsiteAliasesAsync(
+            credentials,
+            projectId,
+            project,
+            cancellationToken);
+
+        return aliases
+            .Where(alias => !string.IsNullOrWhiteSpace(alias) && !VercelApiSupport.IsPreviewAlias(alias))
+            .Select(alias => VercelApiSupport.NormalizeExternalOrigin(alias!))
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(origin => origin, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<string>> CollectProductionWebsiteAliasesAsync(
+        ProviderCredentials credentials,
+        string projectId,
+        VercelProjectWithLink project,
+        CancellationToken cancellationToken)
+    {
+        var aliases = new List<string>();
+        if (project.Aliases is not null)
+        {
+            aliases.AddRange(project.Aliases);
+        }
+
+        aliases.AddRange(await ListProductionDomainNamesAsync(credentials, projectId, project.AccountId, cancellationToken));
+        aliases.AddRange(await GetLatestProductionDeploymentAliasesAsync(credentials, projectId, project.AccountId, cancellationToken));
+        return aliases;
+    }
+
+    private async Task<IReadOnlyList<string>> ListProductionDomainNamesAsync(
+        ProviderCredentials credentials,
+        string projectId,
+        string? accountId,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            AppendTeamQuery(
+                $"v9/projects/{Uri.EscapeDataString(projectId)}/domains?production=true",
+                accountId),
+            credentials.Token);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<VercelProjectDomainsResponse>(cancellationToken);
+        if (payload?.Domains is null)
+        {
+            return [];
+        }
+
+        return payload.Domains
+            .Select(domain => domain.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<string>> GetLatestProductionDeploymentAliasesAsync(
+        ProviderCredentials credentials,
+        string projectId,
+        string? accountId,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            AppendTeamQuery(
+                $"v6/deployments?projectId={Uri.EscapeDataString(projectId)}&target=production&limit=1",
+                accountId),
+            credentials.Token);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return [];
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<VercelDeploymentsListResponse>(cancellationToken);
+        var deployment = payload?.Deployments?.FirstOrDefault();
+        if (deployment is null)
+        {
+            return [];
+        }
+
+        var aliases = new List<string>();
+        if (deployment.Aliases is not null)
+        {
+            aliases.AddRange(deployment.Aliases.Where(alias => !string.IsNullOrWhiteSpace(alias))!);
+        }
+
+        if (!string.IsNullOrWhiteSpace(deployment.Url))
+        {
+            aliases.Add(deployment.Url);
+        }
+
+        return aliases;
+    }
+
+    public async Task<string?> GetLatestProductionDeploymentIdAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var projectId = await ResolveProjectIdAsync(credentials, providerProjectId, cancellationToken);
+        var project = await GetProjectAsync(credentials, projectId, cancellationToken);
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            AppendTeamQuery(
+                $"v6/deployments?projectId={Uri.EscapeDataString(projectId)}&target=production&limit=20",
+                project.AccountId),
+            credentials.Token);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<VercelDeploymentsListResponse>(cancellationToken);
+        return payload?.Deployments?
+            .FirstOrDefault(deployment =>
+                string.Equals(deployment.ReadyState, "READY", StringComparison.OrdinalIgnoreCase))
+            ?.Uid;
+    }
+
+    public async Task AssignProductionDomainsToDeploymentAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        string deploymentId,
+        CancellationToken cancellationToken)
+    {
+        var projectId = await ResolveProjectIdAsync(credentials, providerProjectId, cancellationToken);
+        var project = await GetProjectAsync(credentials, projectId, cancellationToken);
+        var domains = await ListProductionDomainNamesAsync(credentials, projectId, project.AccountId, cancellationToken);
+        if (domains.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var domain in domains.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            using var request = CreateRequest(
+                HttpMethod.Post,
+                AppendTeamQuery(
+                    $"v2/deployments/{Uri.EscapeDataString(deploymentId)}/aliases",
+                    project.AccountId),
+                credentials.Token);
+            request.Content = JsonContent.Create(new { alias = domain });
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode &&
+                response.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                var message = VercelApiSupport.ParseErrorMessage(body) ?? string.Empty;
+                if (message.Contains("already associated", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+            }
+
+            if (!response.IsSuccessStatusCode &&
+                response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                var message = VercelApiSupport.ParseErrorMessage(body) ?? string.Empty;
+                if (message.Contains("readyState", StringComparison.OrdinalIgnoreCase) &&
+                    message.Contains("READY", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
+        }
+    }
+
+    private static string AppendTeamQuery(string path, string? accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId) || !accountId.StartsWith("team_", StringComparison.Ordinal))
+        {
+            return path;
+        }
+
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{path}{separator}teamId={Uri.EscapeDataString(accountId)}";
     }
 
     private async Task<string> ResolveProjectIdAsync(
@@ -166,13 +369,55 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
         string projectId,
         CancellationToken cancellationToken)
     {
+        var versionId = await GetRouteVersionIdToPromoteAsync(credentials, projectId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            throw new DeployAI.Core.Exceptions.DeployAIException(
+                "vercel_route_promote_failed",
+                "Vercel API proxy routes were updated but no staged routing version was available to promote.");
+        }
+
         using var request = CreateRequest(
             HttpMethod.Post,
             $"v1/projects/{Uri.EscapeDataString(projectId)}/routes/versions",
             credentials.Token);
-        request.Content = JsonContent.Create(new { action = "promote" });
+        request.Content = JsonContent.Create(new { id = versionId, action = "promote" });
         var response = await _httpClient.SendAsync(request, cancellationToken);
         await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
+    }
+
+    private async Task<string?> GetRouteVersionIdToPromoteAsync(
+        ProviderCredentials credentials,
+        string projectId,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            $"v1/projects/{Uri.EscapeDataString(projectId)}/routes/versions",
+            credentials.Token);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var payload = await response.Content.ReadFromJsonAsync<VercelRouteVersionsResponse>(cancellationToken);
+        if (payload?.Versions is null || payload.Versions.Count == 0)
+        {
+            return null;
+        }
+
+        var staging = payload.Versions.FirstOrDefault(version => version.IsStaging == true);
+        if (!string.IsNullOrWhiteSpace(staging?.Id))
+        {
+            return staging.Id;
+        }
+
+        return payload.Versions
+            .Where(version => version.IsLive != true && !string.IsNullOrWhiteSpace(version.Id))
+            .OrderByDescending(version => version.LastModified ?? 0)
+            .Select(version => version.Id)
+            .FirstOrDefault();
     }
 
     private static object BuildRouteBody(string routeName, string source, string destination) =>
@@ -182,11 +427,18 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
             {
                 name = routeName,
                 enabled = true,
+                srcSyntax = "path-to-regexp",
                 route = new
                 {
                     src = source,
-                    dest = destination
+                    dest = destination,
+                    @override = true,
+                    important = true
                 }
+            },
+            position = new
+            {
+                placement = "start"
             }
         };
 
@@ -202,6 +454,27 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
         public List<VercelRouteSummary>? Routes { get; set; }
     }
 
+    private sealed class VercelRouteVersionsResponse
+    {
+        [JsonPropertyName("versions")]
+        public List<VercelRouteVersion>? Versions { get; set; }
+    }
+
+    private sealed class VercelRouteVersion
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; set; }
+
+        [JsonPropertyName("isStaging")]
+        public bool? IsStaging { get; set; }
+
+        [JsonPropertyName("isLive")]
+        public bool? IsLive { get; set; }
+
+        [JsonPropertyName("lastModified")]
+        public long? LastModified { get; set; }
+    }
+
     private sealed class VercelRouteSummary
     {
         [JsonPropertyName("id")]
@@ -209,5 +482,38 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
 
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+    }
+
+    private sealed class VercelProjectDomainsResponse
+    {
+        [JsonPropertyName("domains")]
+        public List<VercelProjectDomain>? Domains { get; set; }
+    }
+
+    private sealed class VercelProjectDomain
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+    }
+
+    private sealed class VercelDeploymentsListResponse
+    {
+        [JsonPropertyName("deployments")]
+        public List<VercelDeploymentSummary>? Deployments { get; set; }
+    }
+
+    private sealed class VercelDeploymentSummary
+    {
+        [JsonPropertyName("uid")]
+        public string? Uid { get; set; }
+
+        [JsonPropertyName("readyState")]
+        public string? ReadyState { get; set; }
+
+        [JsonPropertyName("url")]
+        public string? Url { get; set; }
+
+        [JsonPropertyName("alias")]
+        public List<string>? Aliases { get; set; }
     }
 }

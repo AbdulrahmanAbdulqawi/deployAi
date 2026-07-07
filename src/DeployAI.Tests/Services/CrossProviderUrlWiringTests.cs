@@ -1,4 +1,5 @@
 using DeployAI.Api.Services;
+using DeployAI.Core.Deployments;
 
 namespace DeployAI.Tests.Services;
 
@@ -15,23 +16,73 @@ public class CrossProviderUrlWiringTests
     }
 
     [Fact]
-    public void ResolveApiEnvKeys_IncludesAngularKey()
+    public void ResolveApiEnvKeys_IncludesAngularSplitOriginKeys()
     {
         var keys = CrossProviderUrlWiring.ResolveApiEnvKeys("angular");
+        Assert.Contains("IDAARA_API_URL", keys);
         Assert.Contains("NG_APP_API_URL", keys);
         Assert.Contains("API_URL", keys);
     }
 
     [Fact]
-    public void ResolveServerCorsEnvKeys_IncludesDotnetKeys()
+    public void ShouldUseSplitOrigin_ForAngularDockerStack()
     {
-        var keys = CrossProviderUrlWiring.ResolveServerCorsEnvKeys("dotnet");
-        Assert.Contains("App__FrontendUrl", keys);
+        Assert.True(CrossProviderUrlWiring.ShouldUseSplitOrigin("angular", "docker"));
+        Assert.False(CrossProviderUrlWiring.ShouldUseSplitOrigin("vite", "docker"));
     }
 
     [Fact]
-    public void NormalizeOrigin_AddsHttpsAndTrimsSlash()
+    public void BuildServerRuntimeEnvAssignments_UsesIndexedAllowedOrigins_ForSplitOrigin()
     {
-        Assert.Equal("https://api.example.com", CrossProviderUrlWiring.NormalizeOrigin("api.example.com/"));
+        var assignments = CrossProviderUrlWiring.BuildServerRuntimeEnvAssignments(
+            "docker",
+            "angular",
+            "https://idaara-kappa.vercel.app",
+            ["https://idaara-kappa.vercel.app"],
+            "https://idaara-api-production.up.railway.app");
+
+        Assert.Contains(assignments, a => a.Key == "AllowedOrigins__0" && a.Value == "https://idaara-kappa.vercel.app");
+        Assert.Contains(assignments, a => a.Key == "App__BaseUrl" && a.Value == "https://idaara-kappa.vercel.app");
+        Assert.DoesNotContain(assignments, a => a.Key == "App__ApiUrl");
+        Assert.DoesNotContain(assignments, a => a.Key == "CORS_ALLOWED_ORIGINS");
+    }
+
+    [Fact]
+    public void BuildServerRuntimeEnvAssignments_UsesRailwayApi_ForViteClient()
+    {
+        var assignments = CrossProviderUrlWiring.BuildServerRuntimeEnvAssignments(
+            "dotnet",
+            "vite",
+            "https://app.vercel.app",
+            ["https://app.vercel.app"],
+            "https://api-production.up.railway.app");
+
+        Assert.Contains(assignments, a => a.Key == "App__ApiUrl" && a.Value == "https://api-production.up.railway.app");
+    }
+
+    [Fact]
+    public void ValidateIgnoredRailwayEnvKeys_WarnsOnCorsAllowedOrigins()
+    {
+        var warnings = CrossProviderUrlWiring.ValidateIgnoredRailwayEnvKeys(
+        [
+            new CrossProviderUrlWiring.ProviderEnvVarSnapshot("CORS_ALLOWED_ORIGINS", "https://app.vercel.app")
+        ]);
+
+        Assert.Single(warnings);
+    }
+}
+
+public class SplitOriginDetectionTests
+{
+    [Fact]
+    public void PlanUsesSplitOrigin_WhenAngularVercelAndRailwayServer()
+    {
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "vercel", "idaara.client", null, null, null, null, null, "angular", null, null),
+            new("server", "railway", ".", "iDaara.Server", null, null, null, null, "docker", "iDaara.Server/Dockerfile", null)
+        };
+
+        Assert.True(SplitOriginDetection.PlanUsesSplitOrigin(parts));
     }
 }

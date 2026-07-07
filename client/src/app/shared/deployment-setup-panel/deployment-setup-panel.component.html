@@ -1,0 +1,118 @@
+<section class="setup-panel u-glass-panel">
+  <div class="setup-panel__header">
+    <div class="setup-panel__icon" aria-hidden="true">
+      <app-ui-icon name="settings" size="sm" statusClass="accent" />
+    </div>
+    <div>
+      <h3 class="setup-panel__title">Split-origin deployment setup</h3>
+      <p class="setup-panel__summary">
+        Claude will explore your repository and add or fix split-origin deployment files and configuration patches.
+      </p>
+    </div>
+  </div>
+
+  @if (readiness()) {
+    @if (hasMissingFiles()) {
+      @if (blockingFiles().length > 0) {
+        <h4 class="setup-panel__group-title">Required</h4>
+        <ul class="missing-list">
+          @for (file of blockingFiles(); track file.path) {
+            <li [class]="severityClass(file.severity)">
+              <strong>{{ file.path }}</strong>
+              <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
+              <span>{{ file.reason }}</span>
+            </li>
+          }
+        </ul>
+      }
+
+      @if (recommendedFiles().length > 0) {
+        <h4 class="setup-panel__group-title">Recommended</h4>
+        <ul class="missing-list">
+          @for (file of recommendedFiles(); track file.path) {
+            <li [class]="severityClass(file.severity)">
+              <strong>{{ file.path }}</strong>
+              <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
+              <span>{{ file.reason }}</span>
+            </li>
+          }
+        </ul>
+      }
+    } @else {
+      <p class="setup-panel__complete">
+        Setup scan looks complete. Regenerate if the first run was wrong or you changed the repository.
+      </p>
+    }
+
+    @for (warning of readiness()!.warnings; track warning) {
+      <p class="setup-panel__warning">{{ warning }}</p>
+    }
+  }
+
+  @if (showClaudeActivity()) {
+    <div class="setup-panel__activity">
+      <div class="setup-panel__activity-label">
+        <app-ui-icon name="code" size="sm" statusClass="accent" />
+        <span class="u-label-caps">Claude activity</span>
+      </div>
+      <app-live-log-panel
+        [embedded]="true"
+        [readOnly]="true"
+        [showToggle]="false"
+        [showProviderPrefix]="false"
+        title="Claude"
+        [connecting]="claudeLive()"
+        [lines]="claudeLines()" />
+    </div>
+  }
+
+  @if (setupResult()) {
+    <div class="setup-panel__result">
+      <p>
+        Setup branch <code>{{ setupResult()!.branchName }}</code> created.
+        <a class="setup-panel__link" [href]="setupResult()!.pullRequestUrl" target="_blank" rel="noopener">Open pull request</a>
+      </p>
+    </div>
+    <div class="setup-panel__actions">
+      <app-ui-button (click)="mergeSetup()">Merge to default branch</app-ui-button>
+      <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
+        Regenerate setup
+      </app-ui-button>
+    </div>
+  } @else {
+    <div class="setup-panel__actions">
+      @if (hasMissingFiles()) {
+        <app-ui-button [disabled]="generating()" [loading]="generating()" (click)="generateSetup()">
+          Generate full setup with Claude
+        </app-ui-button>
+      }
+      <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
+        {{ hasMissingFiles() ? 'Regenerate setup' : 'Regenerate setup with Claude' }}
+      </app-ui-button>
+    </div>
+  }
+
+  @if (mergeResult()) {
+    @if (mergeResult()!.envSync === 'completed') {
+      <p class="setup-panel__env-sync">
+        Environment variables synced.
+        @if (mergeResult()!.vercelKeysApplied.length) {
+          Vercel: {{ mergeResult()!.vercelKeysApplied.join(', ') }}.
+        }
+        @if (mergeResult()!.railwayKeysApplied.length) {
+          Railway: {{ mergeResult()!.railwayKeysApplied.join(', ') }}.
+        }
+      </p>
+    } @else if (mergeResult()!.envSync === 'pending') {
+      <p class="setup-panel__env-sync setup-panel__env-sync--pending">
+        {{ mergeResult()!.envSyncReason ?? 'Environment variables will sync after the first successful deploy.' }}
+      </p>
+    } @else if (mergeResult()!.envSyncReason) {
+      <p class="setup-panel__env-sync setup-panel__env-sync--pending">{{ mergeResult()!.envSyncReason }}</p>
+    }
+  }
+
+  @if (error()) {
+    <p class="setup-panel__error">{{ error() }}</p>
+  }
+</section>

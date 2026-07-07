@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
@@ -6,6 +6,8 @@ import { ProjectsStore } from '../core/stores/projects.store';
 import {
   DatabaseRequirementProfile,
   DataServiceInfo,
+  DeploymentPlanPart,
+  DeploymentReadinessResult,
   ProjectDetail,
   ProjectServiceView,
   ProjectServicesResponse,
@@ -19,18 +21,20 @@ import {
   serviceStatusLabel
 } from '../core/utils/target-config';
 import { ButtonComponent } from '../shared/ui/button/button.component';
-import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
+import { IconComponent, IconName } from '../shared/ui/icon/icon.component';
 import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/dropdown-menu.component';
-import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
+import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 
 @Component({
   selector: 'app-project-detail',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, StatusBadgeComponent, DropdownMenuComponent, ConfirmDialogComponent],
+  imports: [FormsModule, ButtonComponent, IconComponent, DropdownMenuComponent, DeploymentSetupPanelComponent],
   templateUrl: './project-detail.component.html',
   styleUrl: './project-detail.component.scss'
 })
 export class ProjectDetailComponent implements OnInit {
+  private readonly setupAnchor = viewChild<ElementRef<HTMLElement>>('setupAnchor');
+
   readonly project = signal<ProjectDetail | null>(null);
   readonly services = signal<ProjectServicesResponse | null>(null);
   readonly message = signal<string | null>(null);
@@ -47,9 +51,11 @@ export class ProjectDetailComponent implements OnInit {
   readonly dataServiceInfo = signal<Record<string, DataServiceInfo | null>>({});
   readonly loadingDataInfo = signal<Record<string, boolean>>({});
   readonly expandedDataInfo = signal<Record<string, boolean>>({});
-  readonly showAdvanced = signal(false);
+  readonly showAdvanced = signal(true);
   readonly showDeleteConfirm = signal(false);
   readonly deleting = signal(false);
+  readonly deploymentReadiness = signal<DeploymentReadinessResult | null>(null);
+  readonly loadingDeploymentReadiness = signal(false);
 
   setupPostgres = true;
   setupRedis = true;
@@ -57,7 +63,7 @@ export class ProjectDetailComponent implements OnInit {
   newEnvKey: Record<string, string> = {};
   newEnvValue: Record<string, string> = {};
 
-  private projectId = '';
+  projectId = '';
 
   constructor(
     private readonly route: ActivatedRoute,
@@ -94,6 +100,25 @@ export class ProjectDetailComponent implements OnInit {
 
   toggleAdvanced(): void {
     this.showAdvanced.update(open => !open);
+  }
+
+  scrollToSetup(): void {
+    this.setupAnchor()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+    return readiness.usesSplitOrigin;
+  }
+
+  showSetupBanner(readiness: DeploymentReadinessResult): boolean {
+    return readiness.usesSplitOrigin && readiness.missingFiles.length > 0;
+  }
+
+  databaseIcon(engine?: string): IconName {
+    if (engine?.toLowerCase().includes('redis')) {
+      return 'settings';
+    }
+    return 'folder';
   }
 
   hasPostgresService(): boolean {
@@ -262,7 +287,60 @@ export class ProjectDetailComponent implements OnInit {
   }
 
   publish(): void {
+    const readiness = this.deploymentReadiness();
+    if (readiness?.usesSplitOrigin && !readiness.isReady) {
+      this.message.set('Generate split-origin deployment files before publishing.');
+      return;
+    }
+
     this.projectsStore.triggerDeploy(this.projectId);
+  }
+
+  onSetupComplete(): void {
+    this.loadDeploymentReadiness();
+  }
+
+  repoOwner(): string | null {
+    const project = this.project();
+    if (!project) {
+      return null;
+    }
+
+    const [owner] = project.githubRepoFullName.split('/');
+    return owner || null;
+  }
+
+  repoName(): string | null {
+    const project = this.project();
+    if (!project) {
+      return null;
+    }
+
+    const parts = project.githubRepoFullName.split('/');
+    return parts[1] || null;
+  }
+
+  planParts(): DeploymentPlanPart[] {
+    const project = this.project();
+    if (!project) {
+      return [];
+    }
+
+    return project.targets.map(target => {
+      const config = parseTargetConfig(target.config);
+      return {
+        role: config.role ?? target.providerName,
+        providerName: target.providerName,
+        rootDirectory: config.rootDirectory,
+        serviceDirectory: config.serviceDirectory,
+        buildCommand: config.buildCommand,
+        installCommand: config.installCommand,
+        startCommand: config.startCommand,
+        outputDirectory: config.outputDirectory,
+        framework: config.framework,
+        dockerfilePath: config.dockerfilePath
+      };
+    });
   }
 
   openHistory(): void {
@@ -365,24 +443,6 @@ export class ProjectDetailComponent implements OnInit {
     return inspection.connected ? 'running' : 'failed';
   }
 
-  readonly headerMenuItems: DropdownMenuItem[] = [
-    { id: 'edit', label: 'Edit', icon: 'pencil' },
-    { id: 'history', label: 'History', icon: 'clock' }
-  ];
-
-  onHeaderMenuAction(action: string): void {
-    switch (action) {
-      case 'edit':
-        this.openEdit();
-        break;
-      case 'history':
-        this.openHistory();
-        break;
-      default:
-        break;
-    }
-  }
-
   removeApp(): void {
     this.showDeleteConfirm.set(true);
   }
@@ -450,8 +510,28 @@ export class ProjectDetailComponent implements OnInit {
       next: (project) => {
         this.project.set(project);
         this.loadServices();
+        this.loadDeploymentReadiness();
       },
       error: (err) => this.message.set(err?.error?.error?.message ?? 'Could not load that app.')
+    });
+  }
+
+  private loadDeploymentReadiness(): void {
+    const project = this.project();
+    if (!project) {
+      return;
+    }
+
+    this.loadingDeploymentReadiness.set(true);
+    this.api.getProjectDeploymentReadiness(this.projectId, project.defaultBranch).subscribe({
+      next: (result) => {
+        this.deploymentReadiness.set(result);
+        this.loadingDeploymentReadiness.set(false);
+      },
+      error: () => {
+        this.deploymentReadiness.set(null);
+        this.loadingDeploymentReadiness.set(false);
+      }
     });
   }
 

@@ -1,28 +1,80 @@
+.dashboard {
+  position: relative;
+}
+
 .header {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: var(--space-4);
-  align-items: center;
   margin-bottom: var(--space-6);
 }
 
-h1 {
-  margin: 0;
-  font-weight: 600;
+@media (min-width: 640px) {
+  .header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
 }
 
-p {
+.header__copy h1 {
+  margin: 0;
+}
+
+.header__subtitle {
   margin: var(--space-1) 0 0;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+:host ::ng-deep .dashboard__add-btn .ui-btn--primary {
+  font-size: var(--font-size-code-sm);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 0 15px rgba(128, 131, 255, 0.2);
+
+  &:hover:not(:disabled) {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+      0 0 20px rgba(128, 131, 255, 0.4);
+  }
 }
 
 .grid {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-6);
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .skeleton-grid {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-6);
+}
+
+@media (min-width: 768px) {
+  .skeleton-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .skeleton-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .skeleton-card {
@@ -41,7 +93,7 @@ p {
 }
 
 .skeleton-btn {
-  height: 2.75rem;
+  height: 2rem;
   width: 120px;
 }
 

@@ -96,6 +96,38 @@ public class RailwayProviderContractTests
             Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
         };
 
+    private static HttpResponseMessage EmptyServiceInstanceDomainsResponse() =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent("""{"data":{"serviceInstance":{"domains":{"serviceDomains":[]}}}}""")
+        };
+
+    private static HttpResponseMessage ServiceDomainCreateResponse(string domain = "api-production.up.railway.app") =>
+        new(HttpStatusCode.OK)
+        {
+            Content = GraphQlContent(
+                "{\"data\":{\"serviceDomainCreate\":{\"id\":\"dom_1\",\"domain\":\"" +
+                domain +
+                "\",\"syncStatus\":\"ACTIVE\"}}}")
+        };
+
+    private static HttpResponseMessage? TryRespondToNetworkingGraphQl(string body)
+    {
+        if (body.Contains("ServiceInstanceDomains", StringComparison.Ordinal) ||
+            (body.Contains("serviceInstance", StringComparison.Ordinal) &&
+             body.Contains("serviceDomains", StringComparison.Ordinal)))
+        {
+            return EmptyServiceInstanceDomainsResponse();
+        }
+
+        if (body.Contains("serviceDomainCreate", StringComparison.Ordinal))
+        {
+            return ServiceDomainCreateResponse();
+        }
+
+        return null;
+    }
+
     private static HttpResponseMessage PostgresProjectServicesResponse(string image, string serviceId = "svc_pg") =>
         new(HttpStatusCode.OK)
         {
@@ -254,12 +286,16 @@ public class RailwayProviderContractTests
     public async Task TriggerDeploymentAsync_ReturnsDeploymentId()
     {
         var handler = new MockHttpMessageHandler();
-        var callCount = 0;
         handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
             .Respond(_ =>
             {
-                callCount++;
                 var body = _.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
@@ -284,7 +320,80 @@ public class RailwayProviderContractTests
 
         Assert.Equal("dep_1", response.DeploymentId);
         Assert.Null(response.DeployUrl);
-        Assert.Equal(2, callCount);
+    }
+
+    [Fact]
+    public async Task TriggerDeploymentAsync_CreatesPublicServiceDomain_WhenMissing()
+    {
+        var handler = new MockHttpMessageHandler();
+        var bodies = new List<string>();
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                bodies.Add(body);
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
+                if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""{"data":{"serviceInstanceUpdate":true}}""")
+                    };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.TriggerDeploymentAsync(
+            new ProviderCredentials("token"),
+            "svc_1|env_1",
+            "main",
+            new Dictionary<string, string>
+            {
+                ["framework"] = "dotnet",
+                ["role"] = "server"
+            },
+            CancellationToken.None);
+
+        Assert.Contains(bodies, b => b.Contains("ServiceInstanceDomains", StringComparison.Ordinal));
+        Assert.Contains(bodies, b => b.Contains("serviceDomainCreate", StringComparison.Ordinal));
+        Assert.Contains(bodies, b => b.Contains("\"targetPort\":8080", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TriggerDeploymentAsync_SkipsPublicServiceDomain_ForDatabaseRole()
+    {
+        var handler = new MockHttpMessageHandler();
+        var bodies = new List<string>();
+        handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+            .Respond(request =>
+            {
+                var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                bodies.Add(body);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.TriggerDeploymentAsync(
+            new ProviderCredentials("token"),
+            "svc_1|env_1",
+            "main",
+            new Dictionary<string, string> { ["role"] = "database" },
+            CancellationToken.None);
+
+        Assert.DoesNotContain(bodies, b => b.Contains("serviceDomainCreate", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -296,6 +405,12 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     updateBody = body;
@@ -340,6 +455,12 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     updateBody = body;
@@ -385,6 +506,12 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceDeployV2", StringComparison.Ordinal))
                 {
                     deployBody = body;
@@ -425,6 +552,12 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     updateBody = body;
@@ -466,7 +599,9 @@ public class RailwayProviderContractTests
             {
                 ["framework"] = "docker",
                 ["dockerfilePath"] = "iDaara.Server/Dockerfile",
-                ["rootDirectory"] = "."
+                ["serviceDirectory"] = "iDaara.Server",
+                ["rootDirectory"] = ".",
+                ["dockerUsesRepositoryRoot"] = "true"
             },
             CancellationToken.None);
 
@@ -487,6 +622,12 @@ public class RailwayProviderContractTests
             .Respond(request =>
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 if (body.Contains("serviceInstanceUpdate", StringComparison.Ordinal))
                 {
                     updateBody = body;
@@ -529,7 +670,8 @@ public class RailwayProviderContractTests
                 ["framework"] = "docker",
                 ["dockerfilePath"] = "src/Dockerfile",
                 ["serviceDirectory"] = "src",
-                ["rootDirectory"] = "."
+                ["rootDirectory"] = ".",
+                ["dockerUsesRepositoryRoot"] = "false"
             },
             CancellationToken.None);
 
@@ -1033,6 +1175,9 @@ public class RailwayProviderContractTests
                                     "edges": [{
                                       "node": {
                                         "environmentId": "env_1",
+                                        "domains": {
+                                          "serviceDomains": []
+                                        },
                                         "latestDeployment": {
                                           "status": "SUCCESS",
                                           "url": "https://example.up.railway.app",
@@ -1074,6 +1219,12 @@ public class RailwayProviderContractTests
             {
                 var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
                 bodies.Add(body);
+                var networkingResponse = TryRespondToNetworkingGraphQl(body);
+                if (networkingResponse is not null)
+                {
+                    return networkingResponse;
+                }
+
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = GraphQlContent("""{"data":{"serviceInstanceDeployV2":"dep_1"}}""")

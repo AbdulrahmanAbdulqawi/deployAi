@@ -20,6 +20,8 @@ public class Deployment
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public string? GitCommitSha { get; set; }
+    public string? GitCommitMessage { get; set; }
 
     public Project Project { get; set; } = null!;
     public ICollection<DeploymentTarget> Targets { get; set; } = [];

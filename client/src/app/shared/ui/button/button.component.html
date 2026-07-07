@@ -6,6 +6,8 @@
   [class.ui-btn--quiet]="variant === 'quiet'"
   [class.ui-btn--success]="tone === 'success'"
   [class.ui-btn--block]="block"
+  [attr.aria-label]="ariaLabel || null"
+  [attr.title]="ariaLabel || null"
   [disabled]="disabled || loading">
   @if (displayIcon) {
     <app-ui-icon [name]="displayIcon" size="sm" />

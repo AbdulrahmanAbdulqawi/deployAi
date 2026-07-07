@@ -1,19 +1,57 @@
-<article class="project-card u-card">
-  <div class="project-card__header">
-    <div class="project-card__title">
-      <h3>{{ project.name }}</h3>
-      <p class="meta u-text-muted">{{ project.githubRepoFullName }} · {{ targetSummary }}</p>
+<article
+  class="project-card u-card"
+  [class.project-card--deploying]="isDeploying"
+  tabindex="0"
+  role="link"
+  (click)="onCardClick()"
+  (keydown.enter)="onCardClick()"
+  (keydown.space)="$event.preventDefault(); onCardClick()">
+  @if (isDeploying) {
+    <div class="project-card__progress" aria-hidden="true">
+      <div class="project-card__progress-fill"></div>
     </div>
-    @if (project.latestDeployment) {
-      <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
-    } @else {
-      <app-status-badge status="idle" />
-    }
-  </div>
-  <div class="project-card__actions">
-    <app-ui-button variant="primary" [disabled]="publishing" [loading]="publishing" icon="upload" (click)="publish.emit(project.id)">
-      Publish
-    </app-ui-button>
-    <app-ui-dropdown [items]="moreItems" (select)="onMoreAction($event)" />
+  }
+
+  <div class="project-card__body">
+    <div class="project-card__header">
+      <div class="project-card__title">
+        <div class="project-card__name-row">
+          <h3 class="u-title-lg">{{ project.name }}</h3>
+          @if (isLive) {
+            <span class="project-card__live-dot" aria-label="Live"></span>
+          }
+        </div>
+        <p class="project-card__repo">
+          <app-ui-icon name="code" size="sm" statusClass="muted" />
+          <span class="u-code-sm">{{ project.githubRepoFullName }}</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="project-card__footer">
+      @if (project.latestDeployment) {
+        <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
+      } @else {
+        <app-status-badge status="idle" />
+      }
+      <div class="project-card__actions">
+        @if (canFix) {
+          <app-ui-button
+            variant="secondary"
+            icon="code"
+            (click)="onFixClick($event)">
+            Fix
+          </app-ui-button>
+        }
+        <app-ui-button
+          variant="secondary"
+          [disabled]="publishing"
+          [loading]="publishing"
+          icon="upload"
+          (click)="onPublishClick($event)">
+          Publish
+        </app-ui-button>
+      </div>
+    </div>
   </div>
 </article>

@@ -6,6 +6,18 @@ export interface DeploymentEventHandlers {
   onLogLine?: (deploymentId: string, providerName: string, sequence: number, line: string) => void;
   onStatusChanged?: (deploymentId: string, providerName: string, status: string) => void;
   onCompleted?: (deploymentId: string, finalStatus: string) => void;
+  onFailureAnalysisReady?: (
+    deploymentId: string,
+    targetId: string,
+    providerName: string,
+    analysis: {
+      category: string;
+      summary: string;
+      errorExcerpt?: string;
+      referencedFiles: string[];
+      canRequestClaudeFix: boolean;
+    }
+  ) => void;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -37,6 +49,24 @@ export class SignalRService {
     this.connection.on('DeploymentCompleted', (deploymentId: string, finalStatus: string) => {
       handlers.onCompleted?.(deploymentId, finalStatus);
     });
+
+    this.connection.on(
+      'FailureAnalysisReady',
+      (
+        deploymentId: string,
+        targetId: string,
+        providerName: string,
+        analysis: {
+          category: string;
+          summary: string;
+          errorExcerpt?: string;
+          referencedFiles: string[];
+          canRequestClaudeFix: boolean;
+        }
+      ) => {
+        handlers.onFailureAnalysisReady?.(deploymentId, targetId, providerName, analysis);
+      }
+    );
 
     await this.connection.start();
   }

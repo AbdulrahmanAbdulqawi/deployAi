@@ -23,6 +23,8 @@ export class ProviderStatusCardComponent {
   @Input() connecting = false;
   @Input() canRedeploy = false;
   @Input() redeploying = false;
+  @Input() live = false;
+  @Input() showOpenLink = true;
 
   @Output() expandedChange = new EventEmitter<boolean>();
   @Output() redeploy = new EventEmitter<void>();
@@ -42,6 +44,37 @@ export class ProviderStatusCardComponent {
 
   get providerDisplayName(): string {
     return this.providerName === 'vercel' ? 'Vercel' : 'Railway';
+  }
+
+  get providerSubtitle(): string {
+    return this.providerName === 'vercel' ? 'What your visitors see' : 'Powers your app behind the scenes';
+  }
+
+  get statusLabel(): string {
+    switch (this.status) {
+      case 'in_progress':
+        return 'Working…';
+      case 'success':
+        return 'Live';
+      case 'failed':
+        return 'Needs attention';
+      default:
+        return 'Waiting';
+    }
+  }
+
+  get liveStatusText(): string {
+    const isSite = this.providerName === 'vercel';
+    switch (this.status) {
+      case 'in_progress':
+        return isSite ? 'Publishing your website…' : 'Starting your backend…';
+      case 'success':
+        return isSite ? 'Your website is live' : 'Your backend is live';
+      case 'failed':
+        return isSite ? "Your website didn't finish" : "Your backend didn't finish";
+      default:
+        return 'Waiting to start…';
+    }
   }
 
   toggleExpanded(): void {

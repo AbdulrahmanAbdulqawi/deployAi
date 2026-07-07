@@ -74,6 +74,12 @@ namespace DeployAI.Data.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("GitCommitMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("GitCommitSha")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
@@ -141,6 +147,9 @@ namespace DeployAI.Data.Migrations
                     b.Property<Guid>("DeploymentId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FailureAnalysisJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("ProviderDeploymentId")
                         .HasColumnType("text");
 
@@ -175,6 +184,12 @@ namespace DeployAI.Data.Migrations
 
                     b.Property<string>("DefaultBranch")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeploymentSetupJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("EnvironmentSyncJson")
                         .HasColumnType("text");
 
                     b.Property<string>("GitHubRepoFullName")

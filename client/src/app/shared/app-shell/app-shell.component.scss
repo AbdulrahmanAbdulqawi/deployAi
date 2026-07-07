@@ -1,95 +1,150 @@
 .shell {
   min-height: 100vh;
+  position: relative;
 }
 
 .topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
-  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
+  height: 4rem;
+  padding: 0 var(--space-8);
+  background: color-mix(in srgb, var(--surface-page) 40%, transparent);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-default);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--brand-indigo) 12%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.topbar__start {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
 }
 
 .brand {
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
-  font-size: var(--font-size-lg);
-  background: var(--brand-text-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-size: var(--font-size-headline-sm);
+  color: var(--text-primary);
   letter-spacing: -0.02em;
 }
 
 nav {
-  display: flex;
+  display: none;
   gap: var(--space-4);
-  flex: 1;
 }
 
 nav a {
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 500;
-  font-size: var(--font-size-sm);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  padding: var(--space-1) 0;
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+
+nav a:hover {
+  color: var(--brand-indigo);
 }
 
 nav a.active {
   color: var(--brand-indigo);
-  background: var(--status-accent-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-indigo) 25%, transparent);
+  font-weight: 700;
+  border-bottom-color: var(--brand-indigo);
 }
 
 .topbar__actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-4);
 }
 
 .theme-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-height);
-  height: var(--control-height);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--surface-subtle);
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
   cursor: pointer;
-  color: var(--brand-indigo);
+  color: var(--text-muted);
   transition:
     background var(--motion-fast) var(--motion-ease),
-    box-shadow var(--motion-fast) var(--motion-ease);
+    color var(--motion-fast) var(--motion-ease);
 
   &:hover {
-    background: var(--status-accent-bg);
-    box-shadow: var(--glow-accent);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--brand-indigo);
+  }
+}
+
+.sign-out-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: color var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    color: var(--brand-indigo);
   }
 }
 
 main {
-  max-width: 960px;
+  position: relative;
+  z-index: 1;
+  max-width: 90rem;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-5);
+  padding: 6.5rem var(--space-8) var(--space-8);
+}
+
+@media (min-width: 768px) {
+  nav {
+    display: flex;
+  }
+
+  .sign-out-btn {
+    display: inline-flex;
+  }
 }
 
 @media (max-width: 640px) {
   .topbar {
-    flex-wrap: wrap;
-    gap: var(--space-3);
-  }
-
-  nav {
-    order: 3;
-    width: 100%;
+    padding: 0 var(--space-4);
   }
 
   main {
-    padding: var(--space-6) var(--space-4);
+    padding: 5.5rem var(--space-4) var(--space-6);
   }
+}
+
+[data-theme='light'] .topbar {
+  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
+  border-bottom-color: var(--border-default);
+}
+
+[data-theme='light'] nav a.active {
+  background: var(--status-accent-bg);
+  border-bottom-color: transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
 }

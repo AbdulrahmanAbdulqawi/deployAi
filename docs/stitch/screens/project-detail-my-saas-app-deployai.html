@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DeployAI - my-saas-app</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                "tertiary-container": "#a078ff",
+                "surface-container-high": "#222a3d",
+                "primary": "#c0c1ff",
+                "inverse-surface": "#dae2fd",
+                "surface-container-highest": "#2d3449",
+                "primary-container": "#8083ff",
+                "outline": "#908fa0",
+                "secondary": "#4cd7f6",
+                "on-surface": "#dae2fd",
+                "on-surface-variant": "#c7c4d7",
+                "on-secondary-container": "#00424e",
+                "tertiary-fixed-dim": "#d0bcff",
+                "surface-bright": "#31394d",
+                "outline-variant": "#464554",
+                "tertiary-fixed": "#e9ddff",
+                "on-tertiary": "#3c0091",
+                "on-secondary": "#003640",
+                "on-primary-container": "#0d0096",
+                "on-secondary-fixed-variant": "#004e5c",
+                "error-container": "#93000a",
+                "on-tertiary-container": "#340080",
+                "on-primary": "#1000a9",
+                "on-primary-fixed-variant": "#2f2ebe",
+                "inverse-on-surface": "#283044",
+                "secondary-fixed-dim": "#4cd7f6",
+                "secondary-container": "#03b5d3",
+                "on-tertiary-fixed": "#23005c",
+                "surface-tint": "#c0c1ff",
+                "surface": "#0b1326",
+                "secondary-fixed": "#acedff",
+                "surface-dim": "#0b1326",
+                "on-primary-fixed": "#07006c",
+                "on-secondary-fixed": "#001f26",
+                "surface-container-lowest": "#060e20",
+                "inverse-primary": "#494bd6",
+                "on-error": "#690005",
+                "background": "#0b1326",
+                "primary-fixed": "#e1e0ff",
+                "surface-container-low": "#131b2e",
+                "primary-fixed-dim": "#c0c1ff",
+                "surface-container": "#171f33",
+                "surface-variant": "#2d3449",
+                "on-background": "#dae2fd",
+                "error": "#ffb4ab",
+                "on-error-container": "#ffdad6",
+                "tertiary": "#d0bcff",
+                "on-tertiary-fixed-variant": "#5516be"
+              },
+              "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+              },
+              "spacing": {
+                "unit": "4px",
+                "container-max": "1440px",
+                "margin-mobile": "16px",
+                "stack-xs": "4px",
+                "margin-desktop": "32px",
+                "gutter": "24px",
+                "stack-sm": "8px",
+                "stack-md": "16px",
+                "stack-lg": "24px"
+              },
+              "fontFamily": {
+                "headline-md": ["Inter"],
+                "display-lg": ["Inter"],
+                "headline-sm": ["Inter"],
+                "code-md": ["JetBrains Mono"],
+                "code-sm": ["JetBrains Mono"],
+                "title-lg": ["Inter"],
+                "label-caps": ["Inter"],
+                "body-md": ["Inter"],
+                "body-sm": ["Inter"]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0b1326;
+            color: #dae2fd;
+            font-family: 'Inter', sans-serif;
+            background-image: radial-gradient(circle at 50% -20%, #1e1b4b 0%, #0b1326 70%);
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(23, 31, 51, 0.4);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .inner-glow {
+            box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+        }
+        .gradient-button {
+            background: linear-gradient(135deg, #8083ff 0%, #4cd7f6 100%);
+            transition: all 0.2s ease;
+        }
+        .gradient-button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body class="antialiased">
+<!-- TopNavBar -->
+<nav class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16 bg-surface/40 backdrop-blur-md border-b border-white/10">
+<div class="flex items-center gap-stack-lg">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">DeployAI</span>
+<div class="hidden md:flex items-center gap-stack-md ml-stack-lg">
+<a class="font-body-md text-body-md text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer active:scale-95 transition-colors" href="#">Apps</a>
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95" href="#">Settings</a>
+</div>
+</div>
+<div class="flex items-center gap-stack-md">
+<button class="material-symbols-outlined p-2 text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:scale-95" data-icon="dark_mode">dark_mode</button>
+<button class="text-primary font-body-md text-body-md font-medium hover:text-primary/80 transition-colors cursor-pointer active:scale-95">Sign out</button>
+</div>
+</nav>
+<main class="pt-24 pb-16 px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto">
+<!-- Header Section -->
+<header class="flex flex-col md:flex-row md:items-end justify-between gap-stack-lg mb-stack-lg">
+<div class="flex flex-col gap-stack-xs">
+<h1 class="font-display-lg text-display-lg text-on-surface tracking-tight">my-saas-app</h1>
+<p class="font-code-md text-code-md text-outline flex items-center gap-stack-sm">
+<span class="material-symbols-outlined text-[18px]" data-icon="terminal">terminal</span>
+                    acme-corp/my-saas-app · main · Vercel + Railway
+                </p>
+</div>
+<div class="flex items-center gap-stack-sm">
+<button class="gradient-button px-6 h-10 rounded-lg text-on-primary-container font-medium flex items-center gap-stack-sm cursor-pointer">
+<span class="material-symbols-outlined" data-icon="rocket_launch" style="font-variation-settings: 'FILL' 1;">rocket_launch</span>
+                    Publish
+                </button>
+<button class="glass-panel inner-glow w-10 h-10 flex items-center justify-center rounded-lg text-on-surface hover:bg-white/5 transition-all cursor-pointer">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</header>
+<!-- Readiness Banner -->
+<div class="glass-panel inner-glow rounded-xl p-stack-md flex items-center gap-stack-md mb-stack-lg border-l-4 border-l-secondary/50">
+<div class="w-10 h-10 rounded-full bg-secondary/10 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="warning" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="flex-1">
+<p class="font-title-lg text-title-lg text-on-surface leading-none">Readiness Banner</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Deployment setup required: missing split-origin configuration</p>
+</div>
+<button class="text-secondary font-label-caps text-label-caps hover:underline">CONFIGURE</button>
+</div>
+<!-- Advanced Section (Main Content) -->
+<section class="glass-panel inner-glow rounded-xl overflow-hidden transition-all duration-300" id="advanced-section">
+<button class="w-full flex items-center justify-between p-stack-lg hover:bg-white/5 transition-colors text-left border-b border-white/5" onclick="toggleSection()">
+<div class="flex items-center gap-stack-md">
+<span class="material-symbols-outlined text-primary" data-icon="settings_input_component">settings_input_component</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface">Advanced</h2>
+</div>
+<span class="material-symbols-outlined text-outline transition-transform duration-300" data-icon="expand_less" id="chevron">expand_less</span>
+</button>
+<div class="p-stack-lg flex flex-col gap-stack-lg" id="section-content">
+<!-- Services Group -->
+<div class="flex flex-col gap-stack-lg">
+<!-- Apps Subsection -->
+<div class="flex flex-col gap-stack-md">
+<div class="flex items-center gap-stack-sm">
+<h3 class="font-label-caps text-label-caps text-outline uppercase tracking-widest">Apps</h3>
+<div class="h-[1px] flex-1 bg-white/10"></div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Card 1: Vercel -->
+<div class="glass-panel inner-glow p-stack-md rounded-lg flex flex-col gap-stack-md group hover:border-primary/30 transition-all">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-stack-sm">
+<div class="w-8 h-8 rounded bg-white flex items-center justify-center">
+<img class="w-5 h-5" data-alt="A minimalist black and white geometric logo for Vercel, isolated on a clean white square background with soft shadows, representing technical reliability and high-performance cloud infrastructure." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA2lSUr_KsmcIE4ee_eJUyLLAQooOaCUXezoAqHxagNpbNPEdAmI-vEtlkszXojredmrd156BHDo44ftnIK3RhnVamsOjXGYcJnqwK5fYOWaW7PgKsN42JzAdRUCyzL5Lk4RsBTDAv9NClJXdJD3RXKhD-XcvWSd5k2bN-kydFM9O5tG8OhuWTZ-EVGG7nEDL_EwfrQTJ1si8K6627bXrqI_KqpfVWSMNWUAOjakNnSmyF7EnyrgE0wVi0gWdahTH0fEx_c_aOYWowR"/>
+</div>
+<span class="font-title-lg text-title-lg text-on-surface">Vercel</span>
+</div>
+<span class="bg-emerald-500/20 text-emerald-400 text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                        Live
+                                    </span>
+</div>
+<div class="flex items-center justify-between pt-stack-sm">
+<div class="flex gap-stack-sm">
+<button class="bg-surface-variant hover:bg-surface-container-highest text-on-surface-variant font-body-sm text-body-sm px-4 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="refresh">refresh</span>
+                                            Restart
+                                        </button>
+<a class="text-primary font-body-sm text-body-sm flex items-center gap-1 hover:underline px-2" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="variable">variables</span>
+                                            Env vars
+                                        </a>
+</div>
+</div>
+</div>
+<!-- Card 2: Railway -->
+<div class="glass-panel inner-glow p-stack-md rounded-lg flex flex-col gap-stack-md group hover:border-primary/30 transition-all">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-stack-sm">
+<div class="w-8 h-8 rounded bg-[#13111b] flex items-center justify-center border border-white/10">
+<img class="w-5 h-5" data-alt="The Railway app icon logo featuring a sleek, minimalist purple and black design on a dark circular background, capturing the essence of modern back-end infrastructure management and seamless deployment services." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOg0ISuBxujq-J59A0WdpVgPQpHNiZpCMuJ9GNNuq9LdPRl9WuuZSDZGcIeVSYwOXTT0FRTGBqNoF8EfGFyH4rQRB4n59qGs-q2Iehwxa7FqQWKEcFI9tc3q6-PnKHyy2TA7PX-t7N4AQhF89H82I-Du1rALURvPZLGy27IalIXKPo25fwCIy6yaPIK9U2XBfPBprukZUCownrOBodCUzKEm3ENhRofjYn4jdsuQIud_UM2zQIK5D7-E8afOEYTwx6qQjsijJr9XY2"/>
+</div>
+<span class="font-title-lg text-title-lg text-on-surface">Railway</span>
+</div>
+<span class="bg-emerald-500/20 text-emerald-400 text-[11px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                        Live
+                                    </span>
+</div>
+<div class="flex items-center justify-between pt-stack-sm">
+<div class="flex gap-stack-sm">
+<button class="bg-surface-variant hover:bg-surface-container-highest text-on-surface-variant font-body-sm text-body-sm px-4 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="refresh">refresh</span>
+                                            Restart
+                                        </button>
+<a class="text-primary font-body-sm text-body-sm flex items-center gap-1 hover:underline px-2" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="variable">variables</span>
+                                            Env vars
+                                        </a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Databases Subsection -->
+<div class="flex flex-col gap-stack-md">
+<div class="flex items-center gap-stack-sm">
+<h3 class="font-label-caps text-label-caps text-outline uppercase tracking-widest">Databases</h3>
+<div class="h-[1px] flex-1 bg-white/10"></div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Card 1: Postgres -->
+<div class="glass-panel inner-glow p-stack-md rounded-lg flex items-center justify-between group hover:border-secondary/30 transition-all">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="database">database</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-lg text-title-lg text-on-surface">Postgres</span>
+<span class="font-code-sm text-code-sm text-outline">v14.x · US-East</span>
+</div>
+</div>
+<span class="bg-secondary/20 text-secondary text-[11px] font-bold px-3 py-1 rounded-full border border-secondary/20">
+                                    Connected
+                                </span>
+</div>
+<!-- Card 2: Redis -->
+<div class="glass-panel inner-glow p-stack-md rounded-lg flex items-center justify-between group hover:border-secondary/30 transition-all">
+<div class="flex items-center gap-stack-md">
+<div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="memory">memory</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-lg text-title-lg text-on-surface">Redis</span>
+<span class="font-code-sm text-code-sm text-outline">v6.x · Cache Tier</span>
+</div>
+</div>
+<span class="bg-secondary/20 text-secondary text-[11px] font-bold px-3 py-1 rounded-full border border-secondary/20">
+                                    Connected
+                                </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Stats Grid (Extra for design quality) -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-gutter mt-stack-lg">
+<div class="glass-panel inner-glow p-stack-lg rounded-xl flex flex-col gap-stack-xs">
+<span class="font-label-caps text-label-caps text-outline uppercase">Build Time</span>
+<span class="font-headline-md text-headline-md text-on-surface">42s</span>
+<div class="w-full h-1 bg-white/10 rounded-full mt-stack-sm overflow-hidden">
+<div class="h-full bg-secondary w-3/4 rounded-full"></div>
+</div>
+</div>
+<div class="glass-panel inner-glow p-stack-lg rounded-xl flex flex-col gap-stack-xs">
+<span class="font-label-caps text-label-caps text-outline uppercase">Health Score</span>
+<span class="font-headline-md text-headline-md text-emerald-400">99.8%</span>
+<div class="flex items-center gap-1 mt-stack-sm">
+<div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+<span class="text-body-sm font-body-sm text-outline">All systems operational</span>
+</div>
+</div>
+<div class="glass-panel inner-glow p-stack-lg rounded-xl flex flex-col gap-stack-xs">
+<span class="font-label-caps text-label-caps text-outline uppercase">Total Requests</span>
+<span class="font-headline-md text-headline-md text-on-surface">1.2M</span>
+<span class="text-body-sm font-body-sm text-secondary mt-stack-sm">↑ 12% from last week</span>
+</div>
+</section>
+</main>
+<!-- Side Decoration (Subtle Indigo Glow) -->
+<div class="fixed top-1/2 -right-64 w-[500px] h-[500px] bg-primary/10 blur-[120px] pointer-events-none rounded-full"></div>
+<div class="fixed bottom-0 -left-64 w-[500px] h-[500px] bg-secondary/5 blur-[120px] pointer-events-none rounded-full"></div>
+<script>
+        function toggleSection() {
+            const content = document.getElementById('section-content');
+            const chevron = document.getElementById('chevron');
+            
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+            } else {
+                content.classList.add('hidden');
+                chevron.style.transform = 'rotate(180deg)';
+            }
+        }
+
+        // Ripple micro-interaction for buttons
+        document.querySelectorAll('button').forEach(button => {
+            button.addEventListener('mousedown', (e) => {
+                const circle = document.createElement('span');
+                const diameter = Math.max(button.clientWidth, button.clientHeight);
+                const radius = diameter / 2;
+
+                circle.style.width = circle.style.height = `${diameter}px`;
+                circle.style.left = `${e.clientX - button.getBoundingClientRect().left - radius}px`;
+                circle.style.top = `${e.clientY - button.getBoundingClientRect().top - radius}px`;
+                circle.classList.add('ripple');
+
+                const ripple = button.getElementsByClassName('ripple')[0];
+                if (ripple) { ripple.remove(); }
+                button.appendChild(circle);
+            });
+        });
+    </script>
+<style>
+        .ripple {
+            position: absolute;
+            border-radius: 50%;
+            transform: scale(0);
+            animation: ripple 600ms linear;
+            background-color: rgba(255, 255, 255, 0.3);
+            pointer-events: none;
+        }
+        @keyframes ripple {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+    </style>
+</body></html>

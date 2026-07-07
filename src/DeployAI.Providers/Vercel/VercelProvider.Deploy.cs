@@ -40,29 +40,39 @@ public sealed partial class VercelProvider
         if (repoId.HasValue)
         {
             gitSource["repoId"] = repoId.Value;
-            return gitSource;
         }
-
-        var githubRepo = environment.GetValueOrDefault("githubRepoFullName");
-        if (string.IsNullOrWhiteSpace(githubRepo) && !string.IsNullOrWhiteSpace(link?.Repo))
+        else
         {
-            githubRepo = link.Repo;
-        }
-
-        if (!string.IsNullOrWhiteSpace(githubRepo))
-        {
-            var parts = githubRepo.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2)
+            var githubRepo = environment.GetValueOrDefault("githubRepoFullName");
+            if (string.IsNullOrWhiteSpace(githubRepo) && !string.IsNullOrWhiteSpace(link?.Repo))
             {
-                gitSource["org"] = parts[0];
-                gitSource["repo"] = parts[1];
-                return gitSource;
+                githubRepo = link.Repo;
+            }
+
+            if (!string.IsNullOrWhiteSpace(githubRepo))
+            {
+                var parts = githubRepo.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2)
+                {
+                    gitSource["org"] = parts[0];
+                    gitSource["repo"] = parts[1];
+                }
             }
         }
 
-        throw new DeployAIException(
-            "vercel_api_error",
-            "This Vercel app is not linked to GitHub. Reconnect the repository in Vercel, then try publishing again.");
+        if (environment.TryGetValue("commitSha", out var commitSha) && !string.IsNullOrWhiteSpace(commitSha))
+        {
+            gitSource["sha"] = commitSha;
+        }
+
+        if (!gitSource.ContainsKey("repoId") && !gitSource.ContainsKey("repo"))
+        {
+            throw new DeployAIException(
+                "vercel_api_error",
+                "This Vercel app is not linked to GitHub. Reconnect the repository in Vercel, then try publishing again.");
+        }
+
+        return gitSource;
     }
 
     private static Dictionary<string, object?> BuildProjectSettings(
@@ -144,6 +154,9 @@ public sealed partial class VercelProvider
 
         [JsonPropertyName("rootDirectory")]
         public string? RootDirectory { get; set; }
+
+        [JsonPropertyName("accountId")]
+        public string? AccountId { get; set; }
 
         [JsonPropertyName("link")]
         public VercelProjectLink? Link { get; set; }

@@ -19,6 +19,7 @@ export class ButtonComponent {
   @Input() block = false;
   @Input() icon?: IconName;
   @Input() loading = false;
+  @Input() ariaLabel?: string;
 
   get displayIcon(): IconName | undefined {
     if (this.loading) {

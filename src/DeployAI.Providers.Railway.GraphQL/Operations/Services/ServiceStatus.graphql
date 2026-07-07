@@ -4,6 +4,12 @@ query ServiceStatus($serviceId: String!) {
       edges {
         node {
           environmentId
+          domains {
+            serviceDomains {
+              domain
+              syncStatus
+            }
+          }
           latestDeployment {
             status
             url

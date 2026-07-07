@@ -107,6 +107,18 @@ internal static class RailwayGraphQlResponseNormalizer
         {
             writer.WriteString("__typename", "Service");
         }
+        else if (parentProperty is "serviceInstance")
+        {
+            writer.WriteString("__typename", "ServiceInstance");
+        }
+        else if (parentProperty is "serviceDomainCreate")
+        {
+            writer.WriteString("__typename", "ServiceDomain");
+            if (!element.TryGetProperty("id", out _))
+            {
+                writer.WriteString("id", "dom_1");
+            }
+        }
         else if (parentProperty is "template")
         {
             writer.WriteString("__typename", "Template");
@@ -145,6 +157,24 @@ internal static class RailwayGraphQlResponseNormalizer
             if (property.Name == "latestDeployment" && property.Value.ValueKind == JsonValueKind.Object)
             {
                 WriteObject(writer, property.Value, "deployment");
+                continue;
+            }
+
+            if (property.Name == "domains" && property.Value.ValueKind == JsonValueKind.Object)
+            {
+                WriteTypedObject(writer, property.Value, "AllDomains");
+                continue;
+            }
+
+            if (property.Name == "serviceDomains" && property.Value.ValueKind == JsonValueKind.Array)
+            {
+                writer.WriteStartArray();
+                foreach (var item in property.Value.EnumerateArray())
+                {
+                    WriteTypedObject(writer, item, "ServiceDomain");
+                }
+
+                writer.WriteEndArray();
                 continue;
             }
 

@@ -221,20 +221,25 @@ public class VercelProviderContractTests
         var handler = new MockHttpMessageHandler();
         handler.When(HttpMethod.Get, "https://api.vercel.com/v10/projects/prj_1/env")
             .Respond(HttpStatusCode.OK, "application/json", """
-            [
-              { "id": "env_1", "key": "PUBLIC_URL", "value": "https://example.com", "type": "plain", "target": ["production"] },
-              { "id": "env_2", "key": "API_KEY", "value": "secret-value", "type": "secret", "target": ["production"] }
-            ]
+            {
+              "envs": [
+                { "id": "env_1", "key": "PUBLIC_URL", "value": "https://example.com", "type": "plain", "target": ["production"] },
+                { "id": "env_2", "key": "API_KEY", "value": "secret-value", "type": "secret", "target": ["production"] },
+                { "id": "env_3", "key": "API_URL", "value": "https://api.example.com", "type": "encrypted", "target": ["production"] }
+              ]
+            }
             """);
 
         var provider = CreateProvider(handler);
         var envVars = await provider.ListEnvVarsAsync(new ProviderCredentials("token"), "prj_1", CancellationToken.None);
 
-        Assert.Equal(2, envVars.Count);
+        Assert.Equal(3, envVars.Count);
         Assert.Equal("https://example.com", envVars[0].Value);
         Assert.False(envVars[0].ValueHidden);
         Assert.Null(envVars[1].Value);
         Assert.True(envVars[1].ValueHidden);
+        Assert.Null(envVars[2].Value);
+        Assert.True(envVars[2].ValueHidden);
     }
 
     [Fact]
@@ -243,7 +248,12 @@ public class VercelProviderContractTests
         var handler = new MockHttpMessageHandler();
         handler.When(HttpMethod.Post, "https://api.vercel.com/v10/projects/prj_1/env*")
             .Respond(HttpStatusCode.OK, "application/json", """
-            [{ "id": "env_new", "key": "API_URL", "value": "https://api.example.com", "type": "encrypted", "target": ["production"] }]
+            {
+              "created": [
+                { "id": "env_new", "key": "API_URL", "value": "https://api.example.com", "type": "encrypted", "target": ["production"] }
+              ],
+              "failed": []
+            }
             """);
 
         var provider = CreateProvider(handler);

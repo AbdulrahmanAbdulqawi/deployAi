@@ -52,6 +52,10 @@ export class LiveLogPanelComponent implements AfterViewChecked {
   }
 
   get terminalTitle(): string {
+    if (this.title && this.title !== 'Build output') {
+      return this.title;
+    }
+
     if (!this.showProviderPrefix || this.lines.length === 0) {
       return this.title;
     }

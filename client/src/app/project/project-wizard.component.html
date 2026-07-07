@@ -1,160 +1,230 @@
-<section>
-  <h1 class="u-brand-text">Add app</h1>
-  <p class="page-intro">We'll figure out where your code should live.</p>
-  <div class="steps" role="status" [attr.aria-label]="'Step ' + step() + ' of ' + stepTotal()">
-    <div class="steps__track">
-      <div class="steps__fill" [style.width.%]="(step() / stepTotal()) * 100"></div>
-    </div>
-    <span class="steps__label">Step {{ step() }} of {{ stepTotal() }}</span>
+<section class="wizard">
+  <div class="wizard-stepper" role="status" [attr.aria-label]="'Step ' + step() + ' of ' + stepTotal()">
+    <div class="wizard-stepper__track" aria-hidden="true"></div>
+    <div class="wizard-stepper__fill" [style.width.%]="stepFillPercent()" aria-hidden="true"></div>
+    @for (wizardStep of wizardSteps(); track wizardStep.num) {
+      <div
+        class="wizard-stepper__step"
+        [class.wizard-stepper__step--complete]="stepState(wizardStep.num) === 'complete'"
+        [class.wizard-stepper__step--active]="stepState(wizardStep.num) === 'active'">
+        <div class="wizard-stepper__node">
+          @if (stepState(wizardStep.num) === 'complete') {
+            <app-ui-icon name="check" size="sm" />
+          } @else {
+            {{ wizardStep.num }}
+          }
+        </div>
+        <span class="wizard-stepper__label">{{ wizardStep.label }}</span>
+      </div>
+    }
   </div>
 
+  <header class="wizard__intro">
+    <h1 class="u-headline-md">{{ introTitle() }}</h1>
+    <p class="wizard__subtitle">{{ introSubtitle() }}</p>
+  </header>
+
   @if (error()) {
-    <p class="error">{{ error() }}</p>
+    <p class="wizard__error">{{ error() }}</p>
   }
 
   @switch (step()) {
     @case (1) {
-      <div class="card">
-        <h2>Repository</h2>
-        <input type="search" [(ngModel)]="search" (ngModelChange)="loadRepos()" placeholder="Search repos" />
-        <div class="options">
+      <div class="wizard__panel u-glass-panel">
+        <div class="wizard__section-header">
+          <app-ui-icon name="link" size="sm" statusClass="accent" />
+          <h2>Repository</h2>
+        </div>
+
+        <label class="wizard__field">
+          <span class="u-label-caps">Search repositories</span>
+          <div class="wizard__search">
+            <app-ui-icon name="folder" size="sm" statusClass="muted" />
+            <input type="search" [(ngModel)]="search" (ngModelChange)="loadRepos()" placeholder="Search repos" />
+          </div>
+        </label>
+
+        <div class="wizard__options">
           @for (repo of repos(); track repo.fullName) {
-            <button type="button" class="option" [class.selected]="selectedRepo()?.fullName === repo.fullName" (click)="selectRepo(repo)">
-              {{ repo.fullName }}
+            <button
+              type="button"
+              class="wizard__option"
+              [class.wizard__option--selected]="selectedRepo()?.fullName === repo.fullName"
+              (click)="selectRepo(repo)">
+              <app-ui-icon name="folder" size="sm" statusClass="accent" />
+              <span class="u-code-md">{{ repo.fullName }}</span>
             </button>
           }
         </div>
-        <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedRepo()" (click)="nextFromRepo()">Continue</app-ui-button>
+
+        <div class="wizard__actions">
+          <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedRepo()" (click)="nextFromRepo()">
+            Continue
+          </app-ui-button>
+        </div>
       </div>
     }
     @case (2) {
-      <div class="card">
-        <h2>Branch</h2>
-        <div class="options">
+      <div class="wizard__panel u-glass-panel">
+        <div class="wizard__section-header">
+          <app-ui-icon name="code" size="sm" statusClass="accent" />
+          <h2>Branch</h2>
+        </div>
+
+        <div class="wizard__options">
           @for (branch of branches(); track branch.name) {
-            <button type="button" class="option" [class.selected]="selectedBranch() === branch.name" (click)="selectedBranch.set(branch.name)">
-              {{ branch.name }}
+            <button
+              type="button"
+              class="wizard__option"
+              [class.wizard__option--selected]="selectedBranch() === branch.name"
+              (click)="selectedBranch.set(branch.name)">
+              <app-ui-icon name="code" size="sm" statusClass="accent" />
+              <span class="u-code-md">{{ branch.name }}</span>
             </button>
           }
         </div>
-        <div class="nav">
+
+        <div class="wizard__actions">
           <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(1)">Back</app-ui-button>
-          <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedBranch()" (click)="enterPartsStep()">Continue</app-ui-button>
+          <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedBranch()" (click)="enterPartsStep()">
+            Continue
+          </app-ui-button>
         </div>
       </div>
     }
     @case (3) {
-      <div class="card">
-        <app-deploy-plan
-          [loading]="loadingDeploymentPlan()"
-          [plan]="deploymentPlan()"
-          [activeParts]="activePlanParts()"
-          [showManualOverride]="showManualOverride()"
-          [deploying]="saving()"
-          [missingConnections]="missingConnections()"
-          (accept)="acceptDeploymentPlan()"
-          (override)="showManualConfiguration()"
-          (selectOption)="selectClarifyingOption($event)"
-          (connectProviders)="goToConnections()"
-          (back)="step.set(2)">
-          <h2>What to deploy</h2>
+      <app-deploy-plan
+        [loading]="loadingDeploymentPlan()"
+        [plan]="deploymentPlan()"
+        [activeParts]="activePlanParts()"
+        [showManualOverride]="showManualOverride()"
+        [deploying]="saving()"
+        [missingConnections]="missingConnections()"
+        (accept)="acceptDeploymentPlan()"
+        (override)="showManualConfiguration()"
+        (selectOption)="selectClarifyingOption($event)"
+        (connectProviders)="goToConnections()"
+        (back)="step.set(2)">
+        <div class="wizard__panel u-glass-panel">
+          <div class="wizard__section-header">
+            <app-ui-icon name="rocket" size="sm" statusClass="accent" />
+            <h2>What to deploy</h2>
+          </div>
 
-          <div class="deployment-choices">
-            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
+          <div class="wizard__mode-grid">
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
               <strong>Website</strong>
+              <span>Frontend on Vercel</span>
             </button>
-            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
               <strong>Server</strong>
+              <span>API on Railway</span>
             </button>
-            <button type="button" class="deployment-choice" [class.selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
               <strong>Both</strong>
+              <span>Full-stack split origin</span>
             </button>
           </div>
 
+          @if (deploymentReadiness(); as readiness) {
+            @if (showDeploymentSetupPanel(readiness) && repoOwner() && repoName() && selectedBranch()) {
+              <app-deployment-setup-panel
+                [owner]="repoOwner()!"
+                [repo]="repoName()!"
+                [gitRef]="selectedBranch()!"
+                [parts]="activePlanParts().length ? activePlanParts() : deploymentPlan()?.parts ?? []"
+                [readiness]="readiness"
+                (setupComplete)="onSetupComplete()" />
+            }
+          }
+
           @if (publishWebsite) {
-            <div class="part-block">
-              <p class="part-label">Website folder</p>
+            <div class="wizard__folder">
+              <p class="u-label-caps">Website folder</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"
                   [repo]="repoName()!"
                   [gitRef]="selectedBranch()!"
                   [initialPath]="websiteRootPath"
-                  (pathSelected)="onWebsiteFolderSelected($event)"
-                />
+                  (pathSelected)="onWebsiteFolderSelected($event)" />
               }
             </div>
           }
 
           @if (publishServer) {
-            <div class="part-block">
-              <p class="part-label">Server folder</p>
+            <div class="wizard__folder">
+              <p class="u-label-caps">Server folder</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"
                   [repo]="repoName()!"
                   [gitRef]="selectedBranch()!"
                   [initialPath]="serverRootPath"
-                  (pathSelected)="onServerFolderSelected($event)"
-                />
+                  (pathSelected)="onServerFolderSelected($event)" />
               }
             </div>
           }
 
-          <div class="nav">
+          <div class="wizard__actions">
             <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(2)">Back</app-ui-button>
             @if (partsStepBlockedHint()) {
-              <p class="hint">{{ partsStepBlockedHint() }}</p>
+              <p class="wizard__hint">{{ partsStepBlockedHint() }}</p>
             }
-            <app-ui-button variant="primary" icon="arrow-right" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">Continue</app-ui-button>
+            <app-ui-button variant="primary" icon="arrow-right" [disabled]="!canContinueFromPartsStep()" (click)="enterHostingStep()">
+              Continue
+            </app-ui-button>
           </div>
-        </app-deploy-plan>
-      </div>
+        </div>
+      </app-deploy-plan>
     }
     @case (4) {
-      <div class="card">
-        <h2>Hosting setup</h2>
+      <div class="wizard__panel u-glass-panel">
+        <div class="wizard__section-header">
+          <app-ui-icon name="settings" size="sm" statusClass="accent" />
+          <h2>Hosting setup</h2>
+        </div>
 
         @if (publishWebsite) {
-          <section class="host-block">
-            <h3>Your site</h3>
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Your site</h3>
             @if (loadingCredentials()) {
-              <p class="muted">Loading…</p>
+              <p class="wizard__muted">Loading…</p>
             } @else if (vercelCredentials().length === 0) {
-              <div class="callout">
+              <div class="wizard__callout">
                 <app-ui-button variant="primary" icon="link" [disabled]="connectingVercelOAuth()" [loading]="connectingVercelOAuth()" (click)="connectWithVercel()">
                   Connect hosting
                 </app-ui-button>
                 <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Settings</app-ui-button>
               </div>
             } @else {
-              <label>
-                Connection
+              <label class="wizard__field">
+                <span class="u-label-caps">Connection</span>
                 <select [(ngModel)]="selectedVercelCredentialId" (ngModelChange)="onVercelCredentialChange()">
                   @for (cred of vercelCredentials(); track cred.id) {
                     <option [value]="cred.id">{{ cred.label }}</option>
                   }
                 </select>
               </label>
-              <div class="mode-toggle">
-                <button type="button" class="mode-btn" [class.active]="vercelHostingMode() === 'existing'" (click)="setVercelHostingMode('existing')">Use existing</button>
-                <button type="button" class="mode-btn" [class.active]="vercelHostingMode() === 'create'" (click)="setVercelHostingMode('create')">Create new</button>
+              <div class="wizard__mode-toggle">
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="vercelHostingMode() === 'existing'" (click)="setVercelHostingMode('existing')">Use existing</button>
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="vercelHostingMode() === 'create'" (click)="setVercelHostingMode('create')">Create new</button>
               </div>
               @if (vercelHostingMode() === 'existing') {
                 @if (loadingVercelProjects()) {
-                  <p class="muted">Loading…</p>
+                  <p class="wizard__muted">Loading…</p>
                 } @else {
-                  <div class="options">
+                  <div class="wizard__options">
                     @for (project of vercelProjects(); track project.id) {
-                      <button type="button" class="option" [class.selected]="selectedVercelProjectId() === project.id" (click)="selectedVercelProjectId.set(project.id)">
+                      <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedVercelProjectId() === project.id" (click)="selectedVercelProjectId.set(project.id)">
                         {{ project.name }}
                       </button>
                     }
                   </div>
                 }
               } @else {
-                <label>
-                  New app name
+                <label class="wizard__field">
+                  <span class="u-label-caps">New app name</span>
                   <input type="text" [(ngModel)]="newVercelProjectName" placeholder="my-app" />
                 </label>
                 <app-ui-button variant="secondary" icon="plus" [disabled]="!newVercelProjectName || creatingVercelProject()" [loading]="creatingVercelProject()" (click)="createVercelProject()">
@@ -166,45 +236,45 @@
         }
 
         @if (publishServer) {
-          <section class="host-block">
-            <h3>Your API</h3>
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Your API</h3>
             @if (loadingCredentials()) {
-              <p class="muted">Loading…</p>
+              <p class="wizard__muted">Loading…</p>
             } @else if (railwayCredentials().length === 0) {
-              <div class="callout">
+              <div class="wizard__callout">
                 <app-ui-button variant="primary" icon="link" [disabled]="connectingRailwayOAuth()" [loading]="connectingRailwayOAuth()" (click)="connectWithRailway()">
                   Connect hosting
                 </app-ui-button>
                 <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Settings</app-ui-button>
               </div>
             } @else {
-              <label>
-                Connection
+              <label class="wizard__field">
+                <span class="u-label-caps">Connection</span>
                 <select [(ngModel)]="selectedRailwayCredentialId" (ngModelChange)="onRailwayCredentialChange()">
                   @for (cred of railwayCredentials(); track cred.id) {
                     <option [value]="cred.id">{{ cred.label }}</option>
                   }
                 </select>
               </label>
-              <div class="mode-toggle">
-                <button type="button" class="mode-btn" [class.active]="railwayHostingMode() === 'existing'" (click)="setRailwayHostingMode('existing')">Use existing</button>
-                <button type="button" class="mode-btn" [class.active]="railwayHostingMode() === 'create'" (click)="setRailwayHostingMode('create')">Create new</button>
+              <div class="wizard__mode-toggle">
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="railwayHostingMode() === 'existing'" (click)="setRailwayHostingMode('existing')">Use existing</button>
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="railwayHostingMode() === 'create'" (click)="setRailwayHostingMode('create')">Create new</button>
               </div>
               @if (railwayHostingMode() === 'existing') {
                 @if (loadingRailwayProjects()) {
-                  <p class="muted">Loading…</p>
+                  <p class="wizard__muted">Loading…</p>
                 } @else {
-                  <div class="options">
+                  <div class="wizard__options">
                     @for (project of railwayProjects(); track project.id) {
-                      <button type="button" class="option" [class.selected]="selectedRailwayProjectId() === project.id" (click)="selectedRailwayProjectId.set(project.id)">
+                      <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedRailwayProjectId() === project.id" (click)="selectedRailwayProjectId.set(project.id)">
                         {{ project.name }}
                       </button>
                     }
                   </div>
                 }
               } @else {
-                <label>
-                  New service name
+                <label class="wizard__field">
+                  <span class="u-label-caps">New service name</span>
                   <input type="text" [(ngModel)]="newRailwayProjectName" placeholder="my-api" />
                 </label>
                 <app-ui-button variant="secondary" icon="plus" [disabled]="!newRailwayProjectName || creatingRailwayProject()" [loading]="creatingRailwayProject()" (click)="createRailwayProject()">
@@ -213,59 +283,64 @@
               }
 
               @if (detectingDatabaseRequirements()) {
-                <p class="muted">Checking DB…</p>
+                <p class="wizard__muted">Checking DB…</p>
               } @else if (detectedDatabaseSummary()) {
-                <p class="hint detected">{{ detectedDatabaseSummary() }}</p>
+                <p class="wizard__detected">{{ detectedDatabaseSummary() }}</p>
               }
             }
           </section>
         }
 
-        <div class="nav">
+        <div class="wizard__actions">
           <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(3)">Back</app-ui-button>
           @if (canContinueFromHostingStep()) {
             <app-ui-button variant="primary" icon="arrow-right" (click)="step.set(5)">Continue</app-ui-button>
           } @else {
-            <p class="hint inline">{{ hostingStepBlockedHint() }}</p>
+            <p class="wizard__hint">{{ hostingStepBlockedHint() }}</p>
           }
         </div>
       </div>
     }
     @case (5) {
-      <div class="card">
-        <h2>Review</h2>
-        <label>
-          App name
+      <div class="wizard__panel u-glass-panel">
+        <div class="wizard__section-header">
+          <app-ui-icon name="check" size="sm" statusClass="accent" />
+          <h2>Review</h2>
+        </div>
+
+        <label class="wizard__field">
+          <span class="u-label-caps">App name</span>
           <input type="text" [(ngModel)]="projectName" />
         </label>
-        <ul class="summary">
-          <li>App: {{ selectedRepo()?.fullName }}</li>
-          <li>Version: {{ selectedBranch() }}</li>
+
+        <ul class="wizard__summary">
+          <li><span class="u-label-caps">App</span><span class="u-code-md">{{ selectedRepo()?.fullName }}</span></li>
+          <li><span class="u-label-caps">Version</span><span class="u-code-md">{{ selectedBranch() }}</span></li>
           @if (publishWebsite) {
-            <li>Site: {{ websiteRootPath || 'app root' }}</li>
+            <li><span class="u-label-caps">Site</span><span class="u-code-md">{{ websiteRootPath || 'app root' }}</span></li>
             @if (websiteBuildProfile()) {
-              <li class="detected">Build output: {{ websiteBuildProfile()!.outputDirectory }}</li>
+              <li><span class="u-label-caps">Build output</span><span class="u-code-md">{{ websiteBuildProfile()!.outputDirectory }}</span></li>
             }
           }
-              @if (publishServer) {
-                <li>API: {{ serverRootPath || 'app root' }}</li>
-                @if (detectedDatabaseSummary()) {
-                  <li class="detected">{{ detectedDatabaseSummary() }}</li>
-                }
-                @if (serverBuildProfile()?.startCommand) {
-                  <li class="detected">Start command: {{ serverBuildProfile()!.startCommand }}</li>
-                }
-              }
+          @if (publishServer) {
+            <li><span class="u-label-caps">API</span><span class="u-code-md">{{ serverRootPath || 'app root' }}</span></li>
+            @if (detectedDatabaseSummary()) {
+              <li><span class="u-label-caps">Database</span><span>{{ detectedDatabaseSummary() }}</span></li>
+            }
+            @if (serverBuildProfile()?.startCommand) {
+              <li><span class="u-label-caps">Start command</span><span class="u-code-md">{{ serverBuildProfile()!.startCommand }}</span></li>
+            }
+          }
         </ul>
 
         @if (publishWebsite) {
-          <button type="button" class="link-btn" (click)="showAdvancedEnv.set(!showAdvancedEnv())">
+          <button type="button" class="wizard__link" (click)="showAdvancedEnv.set(!showAdvancedEnv())">
             {{ showAdvancedEnv() ? 'Hide env vars' : 'Env vars' }}
           </button>
           @if (showAdvancedEnv()) {
-            <div class="advanced">
+            <div class="wizard__env">
               @for (row of envRows; track $index) {
-                <div class="env-row">
+                <div class="wizard__env-row">
                   <input type="text" [(ngModel)]="row.key" placeholder="Setting name" />
                   <input type="password" [(ngModel)]="row.value" placeholder="Value" />
                 </div>
@@ -275,7 +350,7 @@
           }
         }
 
-        <div class="nav">
+        <div class="wizard__actions">
           <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(4)">Back</app-ui-button>
           <app-ui-button variant="primary" tone="success" icon="check" [disabled]="saving() || !projectName" [loading]="saving()" (click)="create()">
             Save

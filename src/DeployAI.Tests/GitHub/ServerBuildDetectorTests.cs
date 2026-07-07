@@ -30,6 +30,7 @@ public class ServerBuildDetectorTests
         Assert.Equal("iDaara.Server/Dockerfile", profile.DockerfilePath);
         Assert.Equal("iDaara.Server", profile.ServiceDirectory);
         Assert.Equal("docker", profile.Framework);
+        Assert.True(profile.DockerUsesRepositoryRoot);
     }
 
     [Fact]
@@ -47,6 +48,7 @@ public class ServerBuildDetectorTests
         Assert.Null(profile.DockerfilePath);
         Assert.Equal("src", profile.ServiceDirectory);
         Assert.Equal("docker", profile.Framework);
+        Assert.False(profile.DockerUsesRepositoryRoot);
     }
 
     [Fact]

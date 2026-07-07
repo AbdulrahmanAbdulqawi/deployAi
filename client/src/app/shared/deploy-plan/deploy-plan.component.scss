@@ -1,102 +1,214 @@
-.plan-state h2 {
-  margin: 0 0 var(--space-3);
+.plan-card {
+  position: relative;
+  display: grid;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  overflow: hidden;
+}
+
+.plan-card--loading {
+  min-height: 8rem;
+}
+
+.plan-card__watermark {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  opacity: 0.1;
+  pointer-events: none;
+
+  .ui-icon-host {
+    width: 7.5rem;
+    height: 7.5rem;
+  }
+}
+
+.plan-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.plan-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--brand-indigo) 30%, transparent);
+  background: color-mix(in srgb, var(--brand-indigo) 20%, transparent);
+  flex-shrink: 0;
+}
+
+.plan-card__title {
+  margin: 0;
+  font-size: var(--font-size-title);
   font-weight: 500;
+  color: var(--text-primary);
 }
 
-.hint,
-.plan-summary {
-  margin: 0 0 var(--space-4);
+.plan-card__subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
 }
 
-.plan-summary {
-  font-size: 1.0625rem;
+.plan-card__summary {
+  margin: 0;
+  font-size: var(--font-size-base);
   line-height: 1.5;
+  color: var(--text-secondary);
 }
 
-.destinations {
-  margin: 0 0 var(--space-6);
+.plan-card__grid {
+  display: grid;
+  gap: var(--space-4);
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.plan-card__stat {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-page) 50%, transparent);
+}
+
+.plan-card__stat-value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+}
+
+.plan-card__destinations {
+  margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
   gap: var(--space-3);
 }
 
-.destinations li {
+.plan-card__destinations li {
+  display: grid;
+  gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
-  padding-left: calc(var(--space-4) + 4px);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  background: var(--surface-inset);
-  color: var(--text-primary);
-  border-left: 4px solid var(--brand-indigo);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--brand-cyan) 8%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface-page) 35%, transparent);
 }
 
-.destinations strong {
-  display: block;
-  margin-bottom: var(--space-1);
+.plan-card__destinations strong {
   color: var(--brand-indigo);
+  font-weight: 500;
 }
 
-.connection-notice {
-  margin: 0 0 var(--space-4);
+.plan-card__destinations span {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.plan-card__config {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.plan-card__config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.plan-card__config-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: none;
+  background: transparent;
+  color: var(--brand-indigo);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--space-1);
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.plan-card__config-grid {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: var(--space-2);
+  margin: 0;
+  align-items: baseline;
+}
+
+.plan-card__config-grid dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.plan-card__config-grid dd {
+  margin: 0;
+  color: var(--brand-cyan);
+}
+
+.plan-card__notice {
+  margin: 0;
   padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   border: 1px solid var(--status-warning-border);
   background: var(--status-warning-bg);
   color: var(--status-warning);
 }
 
-.nav {
+.plan-card__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
   align-items: center;
-}
-
-.plan-actions {
-  margin-top: var(--space-4);
   justify-content: space-between;
-  width: 100%;
+  gap: var(--space-4);
+  padding-top: var(--space-6);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.plan-actions__end {
+.plan-card__actions-end {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   margin-left: auto;
-  flex-wrap: wrap;
 }
 
-.override-link {
-  background: none;
-  border: none;
-  padding: var(--space-1) var(--space-2);
-  color: var(--text-link);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  cursor: pointer;
-  text-decoration: none;
-
-  &:hover {
-    text-decoration: underline;
-  }
-}
-
-.deployment-choices {
+.plan-card__choices {
   display: grid;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
 }
 
-.deployment-choice {
+.plan-card__choice {
   display: grid;
   gap: var(--space-1);
   text-align: left;
   padding: var(--space-4);
-  border: 1px solid var(--border-default);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
-  background: var(--surface-card);
+  background: color-mix(in srgb, var(--surface-page) 35%, transparent);
   color: var(--text-primary);
   cursor: pointer;
   transition:
@@ -119,6 +231,21 @@
 
   span {
     color: var(--text-muted);
-    font-size: 0.9375rem;
+    font-size: var(--font-size-sm);
+  }
+}
+
+.plan-card__link {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--text-link);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+
+  &:hover {
+    text-decoration: underline;
   }
 }

@@ -51,6 +51,17 @@ public sealed class ProjectsController : ControllerBase
 
         var latestByProject = latestDeployments.ToDictionary(d => d.ProjectId);
 
+        var latestDeploymentIds = latestDeployments.Select(d => d.Id).ToList();
+        var latestTargets = latestDeploymentIds.Count == 0
+            ? []
+            : await _db.DeploymentTargets
+                .Where(t => latestDeploymentIds.Contains(t.DeploymentId))
+                .ToListAsync(cancellationToken);
+
+        var targetsByDeployment = latestTargets
+            .GroupBy(t => t.DeploymentId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<Data.Entities.DeploymentTarget>)g.ToList());
+
         return Ok(new
         {
             projects = projects.Select(p => new
@@ -64,15 +75,48 @@ public sealed class ProjectsController : ControllerBase
                     .GroupBy(t => t.ProviderName, StringComparer.OrdinalIgnoreCase)
                     .Select(g => new { providerName = g.Key }),
                 latestDeployment = latestByProject.TryGetValue(p.Id, out var latest)
-                    ? new
-                    {
-                        id = latest.Id,
-                        status = latest.Status,
-                        completedAt = latest.CompletedAt
-                    }
+                    ? MapLatestDeployment(latest, targetsByDeployment)
                     : null
             })
         });
+    }
+
+    private static object MapLatestDeployment(
+        Data.Entities.Deployment latest,
+        IReadOnlyDictionary<Guid, IReadOnlyList<Data.Entities.DeploymentTarget>> targetsByDeployment)
+    {
+        var (canRequestClaudeFix, fixTargetId) = targetsByDeployment.TryGetValue(latest.Id, out var targets)
+            ? GetFixInfo(targets)
+            : (false, (Guid?)null);
+
+        return new
+        {
+            id = latest.Id,
+            status = latest.Status,
+            completedAt = latest.CompletedAt,
+            canRequestClaudeFix,
+            fixTargetId
+        };
+    }
+
+    private static (bool CanRequestClaudeFix, Guid? FixTargetId) GetFixInfo(
+        IReadOnlyList<Data.Entities.DeploymentTarget> targets)
+    {
+        foreach (var target in targets)
+        {
+            if (!string.Equals(target.Status, DeploymentStatuses.Failed, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var analysis = DeploymentFailureAnalysisJson.Parse(target.FailureAnalysisJson);
+            if (analysis?.CanRequestClaudeFix == true)
+            {
+                return (true, target.Id);
+            }
+        }
+
+        return (false, null);
     }
 
     [HttpPost]
@@ -368,6 +412,7 @@ public sealed class ProjectsController : ControllerBase
             name = project.Name,
             githubRepoFullName = project.GitHubRepoFullName,
             defaultBranch = project.DefaultBranch,
+            environmentSync = MapEnvironmentSync(project.EnvironmentSyncJson),
             targets = project.DeployTargets.Select(t => new
             {
                 id = t.Id,
@@ -376,6 +421,27 @@ public sealed class ProjectsController : ControllerBase
                 providerProjectId = t.ProviderProjectId,
                 config = t.ConfigJson
             })
+        };
+    }
+
+    private static object? MapEnvironmentSync(string? json)
+    {
+        var state = ProjectEnvironmentSyncState.Parse(json);
+        if (state is null)
+        {
+            return null;
+        }
+
+        return new
+        {
+            lastSyncedAt = state.LastSyncedAt,
+            source = state.Source,
+            success = state.Success,
+            driftDetected = state.DriftDetected,
+            resolvedWebsiteUrl = state.ResolvedWebsiteUrl,
+            resolvedApiUrl = state.ResolvedApiUrl,
+            verificationMessages = state.VerificationMessages,
+            driftDetails = state.DriftDetails
         };
     }
 

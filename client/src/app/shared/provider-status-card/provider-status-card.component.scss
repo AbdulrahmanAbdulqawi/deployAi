@@ -1,9 +1,141 @@
 .provider-card {
-  border-left: 4px solid var(--border-default);
+  position: relative;
+  overflow: hidden;
+  border-left: none;
+  padding: var(--space-5);
+}
+
+.provider-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 .provider-card--expanded {
-  box-shadow: var(--glow-accent);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.provider-card--live {
+  cursor: default;
+
+  .provider-card__header {
+    margin-bottom: var(--space-4);
+  }
+}
+
+.provider-card__step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 1.25rem;
+}
+
+.provider-card__step-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-base);
+  color: var(--text-secondary);
+}
+
+.provider-card__step-spin {
+  animation: provider-spin 1s linear infinite;
+}
+
+@keyframes provider-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.provider-card__bar {
+  position: relative;
+  height: 4px;
+  margin-top: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  overflow: hidden;
+}
+
+.provider-card__bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--brand-bar-gradient);
+  transform-origin: left center;
+}
+
+.provider-card__bar--done .provider-card__bar-fill {
+  background: var(--status-success);
+}
+
+.provider-card__bar--failed .provider-card__bar-fill {
+  background: var(--status-danger);
+}
+
+.provider-card__bar--indeterminate .provider-card__bar-fill {
+  width: 40%;
+  animation: provider-bar-slide 1.4s var(--motion-ease) infinite;
+}
+
+@keyframes provider-bar-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-card__step-spin,
+  .provider-card__bar--indeterminate .provider-card__bar-fill {
+    animation: none;
+  }
+
+  .provider-card__bar--indeterminate .provider-card__bar-fill {
+    width: 100%;
+    opacity: 0.6;
+  }
+}
+
+.provider-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  margin-bottom: var(--space-4);
+}
+
+.provider-card__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.provider-card__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+.provider-card__logo--vercel {
+  background: #fff;
+  color: #000;
+}
+
+.provider-card__logo--railway {
+  background: #0b0d19;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--provider-railway);
 }
 
 .provider-card__toggle {
@@ -17,36 +149,27 @@
   cursor: pointer;
 }
 
-.provider-card--vercel {
-  border-left-color: var(--provider-vercel);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--provider-vercel) 4%, var(--surface-card)),
-    var(--surface-card)
-  );
-}
-
-.provider-card--railway {
-  border-left-color: var(--provider-railway);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--provider-railway) 8%, var(--surface-card)),
-    var(--surface-card)
-  );
-}
-
-.provider-card__header {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  align-items: flex-start;
-}
-
 .provider-card__header-end {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-shrink: 0;
+}
+
+.provider-card__status {
+  color: var(--brand-indigo);
+  animation: provider-pulse 2s ease-in-out infinite;
+}
+
+@keyframes provider-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 .provider-card__chevron {
@@ -58,25 +181,19 @@
 }
 
 .provider-card__header strong {
-  font-weight: 500;
-}
-
-.provider-card--vercel .provider-card__header strong {
-  color: var(--provider-vercel);
-}
-
-.provider-card--railway .provider-card__header strong {
-  color: var(--provider-railway);
+  display: block;
+  color: var(--text-primary);
 }
 
 .provider-card__header p {
   margin: var(--space-1) 0 0;
   font-size: 0.875rem;
 }
-
 .progress {
   margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
   font-size: 0.875rem;
+  color: var(--brand-indigo);
 }
 
 .live-link {
@@ -85,19 +202,15 @@
   gap: var(--space-2);
   margin-top: var(--space-4);
   padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-emerald) 12%, var(--surface-card)),
-    var(--status-success-bg)
-  );
+  border-radius: var(--radius-md);
+  background: rgba(16, 185, 129, 0.1);
   color: var(--status-success);
   font-weight: 500;
   text-decoration: none;
-  border: 1px solid color-mix(in srgb, var(--status-success) 30%, transparent);
+  border: 1px solid rgba(16, 185, 129, 0.2);
 
   &:hover {
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--status-success) 25%, transparent);
+    background: rgba(16, 185, 129, 0.15);
   }
 }
 

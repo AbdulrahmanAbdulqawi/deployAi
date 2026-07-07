@@ -6,8 +6,8 @@
 .settings-panel {
   display: grid;
   gap: var(--space-4);
-  padding-left: calc(var(--space-4) + 4px);
-  border-left: 4px solid var(--border-strong);
+  padding: var(--space-6);
+  border-left: none;
 }
 
 .settings-panel--github {

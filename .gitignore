@@ -80,3 +80,4 @@ yarn-error.log*
 
 # Cursor (local editor state; keep .cursor/rules if you want them shared)
 .cursor/plans/
+.cursor/mcp.json

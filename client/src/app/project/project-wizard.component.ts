@@ -8,6 +8,7 @@ import {
   DatabaseRequirementProfile,
   DeploymentPlan,
   DeploymentPlanPart,
+  DeploymentReadinessResult,
   FrontendBuildProfile,
   ProjectDetail,
   ServerBuildProfile,
@@ -17,7 +18,9 @@ import {
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
+import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
+import { IconComponent } from '../shared/ui/icon/icon.component';
 import { ProjectsStore } from '../core/stores/projects.store';
 
 interface EnvRow {
@@ -30,7 +33,7 @@ type DeploymentMode = 'website' | 'server' | 'both';
 @Component({
   selector: 'app-project-wizard',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, ButtonComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ButtonComponent, IconComponent],
   templateUrl: './project-wizard.component.html',
   styleUrl: './project-wizard.component.scss'
 })
@@ -64,6 +67,8 @@ export class ProjectWizardComponent implements OnInit {
   readonly databaseRequirements = signal<DatabaseRequirementProfile | null>(null);
   readonly detectingDatabaseRequirements = signal(false);
   readonly deploymentPlan = signal<DeploymentPlan | null>(null);
+  readonly deploymentReadiness = signal<DeploymentReadinessResult | null>(null);
+  readonly loadingDeploymentReadiness = signal(false);
   readonly loadingDeploymentPlan = signal(false);
   readonly showManualOverride = signal(false);
   readonly activePlanParts = signal<DeploymentPlanPart[]>([]);
@@ -74,6 +79,78 @@ export class ProjectWizardComponent implements OnInit {
     }
     return 3;
   });
+
+  readonly wizardSteps = computed(() => {
+    if (this.stepTotal() === 5) {
+      return [
+        { num: 1, label: 'Repository' },
+        { num: 2, label: 'Branch' },
+        { num: 3, label: 'What to deploy' },
+        { num: 4, label: 'Hosting' },
+        { num: 5, label: 'Review' }
+      ];
+    }
+    return [
+      { num: 1, label: 'Repository' },
+      { num: 2, label: 'Branch' },
+      { num: 3, label: 'Deploy' }
+    ];
+  });
+
+  stepFillPercent(): number {
+    const total = this.stepTotal();
+    if (total <= 1) {
+      return 0;
+    }
+    return ((this.step() - 1) / (total - 1)) * 100;
+  }
+
+  stepState(stepNum: number): 'complete' | 'active' | 'pending' {
+    const current = this.step();
+    if (stepNum < current) {
+      return 'complete';
+    }
+    if (stepNum === current) {
+      return 'active';
+    }
+    return 'pending';
+  }
+
+  introTitle(): string {
+    switch (this.step()) {
+      case 1:
+        return 'Add app';
+      case 2:
+        return 'Select branch';
+      case 3:
+        return this.showManualOverride() ? 'What to deploy' : 'Deployment Plan';
+      case 4:
+        return 'Hosting setup';
+      case 5:
+        return 'Review & save';
+      default:
+        return 'Add app';
+    }
+  }
+
+  introSubtitle(): string {
+    switch (this.step()) {
+      case 1:
+        return 'Choose the GitHub repository you want DeployAI to analyze and deploy.';
+      case 2:
+        return 'Pick the branch DeployAI will use for deployment.';
+      case 3:
+        return this.showManualOverride()
+          ? 'Tell us what parts of your repository should be deployed.'
+          : 'We\'ve analyzed your repository and prepared a recommended configuration.';
+      case 4:
+        return 'Connect or select the hosting targets for your deployment.';
+      case 5:
+        return 'Confirm your app details before saving.';
+      default:
+        return 'We\'ll figure out where your code should live.';
+    }
+  }
 
   search = '';
   projectName = '';
@@ -254,11 +331,37 @@ export class ProjectWizardComponent implements OnInit {
         if (plan.confidence === 'high') {
           this.activePlanParts.set(plan.parts);
         }
+        this.loadDeploymentReadiness();
       },
       error: (err) => {
         this.loadingDeploymentPlan.set(false);
         this.error.set(err?.error?.error?.message ?? 'Could not inspect that app.');
         this.showManualOverride.set(true);
+      }
+    });
+  }
+
+  loadDeploymentReadiness(): void {
+    const owner = this.repoOwner();
+    const name = this.repoName();
+    const branch = this.selectedBranch();
+    const parts = this.activePlanParts().length > 0
+      ? this.activePlanParts()
+      : this.deploymentPlan()?.parts ?? [];
+    if (!owner || !name || !branch || parts.length === 0) {
+      this.deploymentReadiness.set(null);
+      return;
+    }
+
+    this.loadingDeploymentReadiness.set(true);
+    this.api.scanDeploymentReadiness(owner, name, branch, parts).subscribe({
+      next: (result) => {
+        this.deploymentReadiness.set(result);
+        this.loadingDeploymentReadiness.set(false);
+      },
+      error: () => {
+        this.deploymentReadiness.set(null);
+        this.loadingDeploymentReadiness.set(false);
       }
     });
   }
@@ -282,7 +385,7 @@ export class ProjectWizardComponent implements OnInit {
 
     this.activePlanParts.set(option.resolvesToParts);
     this.applyPlanParts(option.resolvesToParts);
-    this.deployFromPlan();
+    this.loadDeploymentReadiness();
   }
 
   showManualConfiguration(): void {
@@ -298,7 +401,20 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   canAcceptPlan(): boolean {
+    const readiness = this.deploymentReadiness();
+    if (readiness?.usesSplitOrigin && !readiness.isReady) {
+      return false;
+    }
+
     return this.activePlanParts().length > 0;
+  }
+
+  onSetupComplete(): void {
+    this.loadDeploymentReadiness();
+  }
+
+  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+    return readiness.usesSplitOrigin;
   }
 
   deployFromPlan(): void {

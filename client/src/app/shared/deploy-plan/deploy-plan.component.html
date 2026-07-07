@@ -1,48 +1,119 @@
 @if (loading) {
-  <div class="plan-state">
-    <h2>Looking at your project…</h2>
+  <div class="plan-card u-glass-panel plan-card--loading">
+    <div class="plan-card__header">
+      <div class="plan-card__icon">
+        <app-ui-icon name="loader" size="sm" statusClass="accent" />
+      </div>
+      <div>
+        <h2 class="plan-card__title">Analyzing your repository…</h2>
+        <p class="plan-card__subtitle">DeployAI is inspecting your code to recommend a setup.</p>
+      </div>
+    </div>
   </div>
 } @else if (!showManualOverride && plan?.confidence === 'high') {
-  <div class="plan-state">
-    <h2>Deploy plan</h2>
-    <p class="plan-summary">{{ plan!.plainSummary }}</p>
+  <div class="plan-card u-glass-panel">
+    <div class="plan-card__watermark" aria-hidden="true">
+      <app-ui-icon name="code" size="md" />
+    </div>
+
+    <div class="plan-card__header">
+      <div class="plan-card__icon">
+        <app-ui-icon name="rocket" size="sm" statusClass="accent" />
+      </div>
+      <div>
+        <h2 class="plan-card__title">AI Recommended Setup</h2>
+        <p class="plan-card__subtitle">Based on source code analysis</p>
+      </div>
+    </div>
+
+    @if (plan!.plainSummary) {
+      <p class="plan-card__summary">{{ plan!.plainSummary }}</p>
+    }
+
+    <div class="plan-card__grid">
+      <div class="plan-card__stat">
+        <span class="u-label-caps">Detected Framework</span>
+        <div class="plan-card__stat-value">
+          <app-ui-icon name="code" size="sm" statusClass="accent" />
+          <span>{{ detectedFramework() }}</span>
+        </div>
+      </div>
+      <div class="plan-card__stat">
+        <span class="u-label-caps">Runtime Environment</span>
+        <div class="plan-card__stat-value">
+          <app-ui-icon name="log" size="sm" statusClass="accent" />
+          <span>{{ runtimeEnvironment() }}</span>
+        </div>
+      </div>
+    </div>
 
     @if (activeParts.length > 0) {
-      <ul class="destinations">
+      <ul class="plan-card__destinations">
         @for (part of activeParts; track part.role + part.providerName) {
           <li>
             <strong>{{ roleLabel(part.role) }}</strong>
-            <span class="u-text-muted">{{ roleDescription(part.role) }}</span>
+            <span>{{ roleDescription(part.role) }}</span>
           </li>
         }
       </ul>
     }
 
-    @if (missingConnections.length > 0) {
-      <p class="connection-notice">Connect hosting first to deploy.</p>
-      <div class="nav plan-actions">
-        <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
-        <app-ui-button variant="primary" icon="link" (click)="connectProviders.emit()">Connect hosting</app-ui-button>
-      </div>
-    } @else {
-      <div class="nav plan-actions">
-        <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
-        <div class="plan-actions__end">
-          <button type="button" class="override-link" (click)="override.emit()">Change how this deploys</button>
-          <app-ui-button variant="primary" icon="upload" [disabled]="deploying || activeParts.length === 0" [loading]="deploying" (click)="accept.emit()">
-            Yes, deploy it
-          </app-ui-button>
+    @if (buildConfigRows().length > 0) {
+      <div class="plan-card__config">
+        <div class="plan-card__config-header">
+          <span class="u-label-caps">Build Configuration</span>
+          <button type="button" class="plan-card__config-edit" (click)="override.emit()">
+            <app-ui-icon name="pencil" size="sm" statusClass="accent" />
+            Edit
+          </button>
         </div>
+        <dl class="plan-card__config-grid">
+          @for (row of buildConfigRows(); track row.label) {
+            <dt>{{ row.label }}</dt>
+            <dd class="u-code-sm">{{ row.value }}</dd>
+          }
+        </dl>
       </div>
     }
+
+    @if (missingConnections.length > 0) {
+      <p class="plan-card__notice">Connect {{ missingConnections.join(' and ') }} first to deploy.</p>
+    }
+
+    <div class="plan-card__actions">
+      <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
+      <div class="plan-card__actions-end">
+        @if (missingConnections.length > 0) {
+          <app-ui-button variant="primary" icon="link" (click)="connectProviders.emit()">Connect hosting</app-ui-button>
+        } @else {
+          <app-ui-button variant="secondary" icon="settings" (click)="override.emit()">Manual override</app-ui-button>
+          <app-ui-button
+            variant="primary"
+            icon="arrow-right"
+            [disabled]="deploying || activeParts.length === 0"
+            [loading]="deploying"
+            (click)="accept.emit()">
+            Yes, deploy it
+          </app-ui-button>
+        }
+      </div>
+    </div>
   </div>
 } @else if (!showManualOverride && plan?.clarifyingQuestion) {
-  <div class="plan-state">
-    <h2>{{ plan!.clarifyingQuestion!.prompt }}</h2>
+  <div class="plan-card u-glass-panel">
+    <div class="plan-card__header">
+      <div class="plan-card__icon">
+        <app-ui-icon name="info" size="sm" statusClass="accent" />
+      </div>
+      <div>
+        <h2 class="plan-card__title">{{ plan!.clarifyingQuestion!.prompt }}</h2>
+        <p class="plan-card__subtitle">Choose the setup that best matches your project.</p>
+      </div>
+    </div>
 
-    <div class="deployment-choices">
+    <div class="plan-card__choices">
       @for (option of plan!.clarifyingQuestion!.options; track option.id) {
-        <button type="button" class="deployment-choice" [disabled]="deploying" (click)="selectOption.emit(option.id)">
+        <button type="button" class="plan-card__choice" [disabled]="deploying" (click)="selectOption.emit(option.id)">
           <strong>{{ option.label }}</strong>
           @if (option.description) {
             <span>{{ option.description }}</span>
@@ -51,9 +122,9 @@
       }
     </div>
 
-    <div class="nav">
+    <div class="plan-card__actions">
       <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
-      <button type="button" class="override-link" (click)="override.emit()">Change how this deploys</button>
+      <button type="button" class="plan-card__link" (click)="override.emit()">Manual override</button>
     </div>
   </div>
 } @else {

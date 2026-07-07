@@ -21,6 +21,7 @@ public sealed class ProjectServicesController : ControllerBase
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
     private readonly IDataServiceInspectionService _dataServiceInspection;
+    private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
 
     public ProjectServicesController(
         DeployAIDbContext db,
@@ -28,7 +29,8 @@ public sealed class ProjectServicesController : ControllerBase
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IProviderCredentialTokenService tokens,
         IProviderServiceOperationsFactory serviceOperationsFactory,
-        IDataServiceInspectionService dataServiceInspection)
+        IDataServiceInspectionService dataServiceInspection,
+        IFrontendEnvironmentWiringService frontendEnvironmentWiring)
     {
         _db = db;
         _currentUser = currentUser;
@@ -36,6 +38,7 @@ public sealed class ProjectServicesController : ControllerBase
         _tokens = tokens;
         _serviceOperationsFactory = serviceOperationsFactory;
         _dataServiceInspection = dataServiceInspection;
+        _frontendEnvironmentWiring = frontendEnvironmentWiring;
     }
 
     [HttpGet]
@@ -77,6 +80,21 @@ public sealed class ProjectServicesController : ControllerBase
     {
         var project = await GetOwnedProjectAsync(projectId, cancellationToken);
         var target = GetTarget(project, targetId);
+
+        if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        {
+            await _frontendEnvironmentWiring.SyncCrossProviderEnvironmentAsync(
+                projectId,
+                new EnvironmentSyncOptions(
+                    RedeployRailwayAfterUpdate: false,
+                    EnsureWebsiteWiring: true,
+                    ApplyVercelEnv: true,
+                    ApplyRailwayEnv: true,
+                    RunVerification: false,
+                    Source: "manual"),
+                cancellationToken);
+        }
+
         var operations = GetServiceOperations(target);
 
         var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);

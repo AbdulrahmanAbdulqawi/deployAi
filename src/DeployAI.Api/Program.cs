@@ -11,7 +11,9 @@ using Hangfire;
 using Hangfire.PostgreSql;
 using Hangfire.MemoryStorage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -35,6 +37,33 @@ builder.Services.AddSingleton<IOAuthStateStore, InMemoryOAuthStateStore>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IProviderCredentialTokenService, ProviderCredentialTokenService>();
 builder.Services.AddScoped<IFrontendEnvironmentWiringService, FrontendEnvironmentWiringService>();
+builder.Services.AddScoped<IDeploymentReadinessService, DeploymentReadinessService>();
+builder.Services.AddScoped<IDeploymentSetupService, DeploymentSetupService>();
+builder.Services.Configure<FixBuildOptions>(builder.Configuration.GetSection(FixBuildOptions.SectionName));
+builder.Services.AddScoped<IProcessBuildRunner, ProcessBuildRunner>();
+builder.Services.AddScoped<IFixBuildWorkspaceService, FixBuildWorkspaceService>();
+builder.Services.AddScoped<IDeploymentFailureAnalyzer, DeploymentFailureAnalyzer>();
+builder.Services.AddScoped<IDeploymentFixService, DeploymentFixService>();
+builder.Services.AddScoped<IDeploymentFixGenerator, ClaudeDeploymentFixGenerator>();
+builder.Services.AddScoped<TemplateDeploymentFileGenerator>();
+builder.Services.AddScoped<IDeploymentFileGenerator, ClaudeDeploymentFileGenerator>();
+builder.Services.Configure<DeployAI.Infrastructure.Options.AnthropicOptions>(
+    builder.Configuration.GetSection(DeployAI.Infrastructure.Options.AnthropicOptions.SectionName));
+builder.Services.AddHttpClient<AnthropicMessageClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<AnthropicOptions>>().Value;
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(60, options.RequestTimeoutSeconds));
+});
+builder.Services.AddRequestTimeouts(options =>
+{
+    var anthropic = builder.Configuration
+        .GetSection(AnthropicOptions.SectionName)
+        .Get<AnthropicOptions>() ?? new AnthropicOptions();
+    options.AddPolicy(
+        "claude-agent",
+        TimeSpan.FromMinutes(Math.Max(5, anthropic.AgentRequestTimeoutMinutes)));
+});
+builder.Services.AddScoped<EnvironmentDriftCheckJob>();
 builder.Services.AddScoped<IDeploymentRestoreService, DeploymentRestoreService>();
 builder.Services.AddSingleton<IProviderHealthService, ProviderHealthService>();
 builder.Services.AddHttpClient();
@@ -126,6 +155,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+app.UseRequestTimeouts();
 app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -133,6 +163,14 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<DeploymentHub>("/hubs/deployments");
 app.MapHangfireDashboard("/hangfire");
+
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    RecurringJob.AddOrUpdate<EnvironmentDriftCheckJob>(
+        "environment-drift-check",
+        job => job.RunAsync(CancellationToken.None),
+        "0 */6 * * *");
+}
 
 app.Run();
 

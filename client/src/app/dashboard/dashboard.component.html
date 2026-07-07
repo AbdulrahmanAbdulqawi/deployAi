@@ -1,8 +1,11 @@
-<section>
+<section class="dashboard">
   <div class="header">
-    <h1 class="u-brand-text">Apps</h1>
+    <div class="header__copy">
+      <h1 class="u-display-lg u-brand-text">Apps</h1>
+      <p class="header__subtitle">Manage and monitor your active deployments.</p>
+    </div>
     @if (store.hasProjects() || store.loading()) {
-      <app-ui-button variant="primary" icon="plus" (click)="createProject()">Add app</app-ui-button>
+      <app-ui-button class="dashboard__add-btn" variant="primary" icon="plus" (click)="createProject()">Add app</app-ui-button>
     }
   </div>
 
@@ -35,21 +38,9 @@
           [publishing]="store.deployingProjectId() === project.id"
           (publish)="publish($event)"
           (open)="openProject($event)"
-          (history)="openHistory($event)"
-          (delete)="requestDelete($event)"
+          (fix)="openFix($event)"
         />
       }
     </div>
   }
 </section>
-
-@if (showDeleteConfirm()) {
-  <app-confirm-dialog
-    title="Delete app?"
-    [message]="'This permanently removes ' + deleteProjectName() + ' from DeployAI, deletes all deployment history, and removes hosting on Railway and Vercel. This cannot be undone.'"
-    confirmLabel="Delete"
-    [destructive]="true"
-    (confirm)="confirmDelete()"
-    (cancel)="cancelDelete()"
-  />
-}

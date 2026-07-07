@@ -13,19 +13,22 @@
 
   @if (store.loading() && store.credentials().length === 0) {
     <div class="providers" aria-busy="true" aria-label="Loading connections">
-      <div class="provider-card u-card u-skeleton skeleton-card"></div>
-      <div class="provider-card u-card u-skeleton skeleton-card"></div>
+      <div class="provider-card u-glass-panel u-skeleton skeleton-card"></div>
+      <div class="provider-card u-glass-panel u-skeleton skeleton-card"></div>
     </div>
   } @else if (store.error()) {
     <p class="error">{{ store.error() }}</p>
   }
 
   <div class="providers">
-    <article class="provider-card u-card provider-card--vercel">
+    <article class="provider-card u-glass-panel provider-card--vercel">
       <header class="provider-card__header">
-        <div>
-          <h2>Vercel</h2>
-          <p class="provider-card__desc">Frontends and serverless apps</p>
+        <div class="provider-card__brand">
+          <div class="provider-card__icon provider-card__icon--vercel" aria-hidden="true">▲</div>
+          <div>
+            <h2>Vercel</h2>
+            <p class="provider-card__desc">Frontends and serverless apps</p>
+          </div>
         </div>
         @if (statusFor(vercelCredential()); as badge) {
           <app-status-badge [status]="badge.status" [labelOverride]="badge.label" />
@@ -52,21 +55,24 @@
 
       <div class="provider-card__actions">
         <app-ui-button
-          [variant]="vercelConnected() || vercelCredential() ? 'secondary' : 'primary'"
+          class="provider-card__oauth"
+          variant="primary"
           [icon]="oauthIcon(!!vercelCredential(), vercelConnected())"
           [disabled]="connectingOAuth()"
           [loading]="connectingOAuth()"
           (click)="connectWithVercel()">
-          {{ oauthLabel(!!vercelCredential(), vercelConnected()) }}
+          {{ oauthLabel(!!vercelCredential(), vercelConnected()) }} with OAuth
         </app-ui-button>
 
-        <app-ui-button variant="quiet" (click)="toggleToken('vercel')">
-          {{ tokenToggleLabel(!!vercelCredential(), showAdvanced()) }}
-        </app-ui-button>
+        <div class="provider-card__links">
+          <app-ui-button variant="quiet" (click)="toggleToken('vercel')">
+            {{ tokenToggleLabel(!!vercelCredential(), showAdvanced()) }}
+          </app-ui-button>
 
-        @if (vercelCredential(); as cred) {
-          <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove</app-ui-button>
-        }
+          @if (vercelCredential(); as cred) {
+            <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove connection</app-ui-button>
+          }
+        </div>
       </div>
 
       @if (showAdvanced()) {
@@ -96,11 +102,14 @@
       }
     </article>
 
-    <article class="provider-card u-card provider-card--railway">
+    <article class="provider-card u-glass-panel provider-card--railway">
       <header class="provider-card__header">
-        <div>
-          <h2>Railway</h2>
-          <p class="provider-card__desc">Databases and backend services</p>
+        <div class="provider-card__brand">
+          <div class="provider-card__icon provider-card__icon--railway" aria-hidden="true">⬢</div>
+          <div>
+            <h2>Railway</h2>
+            <p class="provider-card__desc">Databases and backend services</p>
+          </div>
         </div>
         @if (statusFor(railwayCredential()); as badge) {
           <app-status-badge [status]="badge.status" [labelOverride]="badge.label" />
@@ -127,21 +136,24 @@
 
       <div class="provider-card__actions">
         <app-ui-button
-          [variant]="railwayConnected() || railwayCredential() ? 'secondary' : 'primary'"
+          class="provider-card__oauth"
+          variant="primary"
           [icon]="oauthIcon(!!railwayCredential(), railwayConnected())"
           [disabled]="connectingRailwayOAuth()"
           [loading]="connectingRailwayOAuth()"
           (click)="connectWithRailway()">
-          {{ oauthLabel(!!railwayCredential(), railwayConnected()) }}
+          {{ oauthLabel(!!railwayCredential(), railwayConnected()) }} with OAuth
         </app-ui-button>
 
-        <app-ui-button variant="quiet" (click)="toggleToken('railway')">
-          {{ tokenToggleLabel(!!railwayCredential(), showAdvancedRailway()) }}
-        </app-ui-button>
+        <div class="provider-card__links">
+          <app-ui-button variant="quiet" (click)="toggleToken('railway')">
+            {{ tokenToggleLabel(!!railwayCredential(), showAdvancedRailway()) }}
+          </app-ui-button>
 
-        @if (railwayCredential(); as cred) {
-          <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove</app-ui-button>
-        }
+          @if (railwayCredential(); as cred) {
+            <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove connection</app-ui-button>
+          }
+        </div>
       </div>
 
       @if (showAdvancedRailway()) {

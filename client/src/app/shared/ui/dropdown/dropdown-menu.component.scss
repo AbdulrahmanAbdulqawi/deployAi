@@ -53,6 +53,18 @@
   box-shadow: var(--shadow-overlay);
   display: grid;
   gap: var(--space-1);
+
+  &--closed {
+    display: none;
+  }
+
+  &--portaled {
+    position: fixed;
+    top: 0;
+    right: auto;
+    display: grid;
+    z-index: 500;
+  }
 }
 
 .dropdown__item {

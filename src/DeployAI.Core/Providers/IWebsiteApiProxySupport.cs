@@ -16,4 +16,20 @@ public interface IWebsiteApiProxySupport
         string providerProjectId,
         string? deploymentUrl,
         CancellationToken cancellationToken);
+
+    Task AssignProductionDomainsToDeploymentAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        string deploymentId,
+        CancellationToken cancellationToken);
+
+    Task<string?> GetLatestProductionDeploymentIdAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<string>> ListProductionWebsiteOriginsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken);
 }

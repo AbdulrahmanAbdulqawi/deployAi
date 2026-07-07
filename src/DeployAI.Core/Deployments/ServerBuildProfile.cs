@@ -16,5 +16,7 @@ public sealed record ServerBuildProfile(
 
     string? DockerfilePath = null,
 
-    string? ServiceDirectory = null);
+    string? ServiceDirectory = null,
+
+    bool DockerUsesRepositoryRoot = false);
 

@@ -1,11 +1,11 @@
 import { Component } from '@angular/core';
 import { AuthService } from '../../core/services/auth.service';
-import { ButtonComponent } from '../../shared/ui/button/button.component';
+import { IconComponent } from '../../shared/ui/icon/icon.component';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [ButtonComponent],
+  imports: [IconComponent],
   templateUrl: './login.component.html',
   styleUrl: './login.component.scss'
 })

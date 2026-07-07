@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DeployAI - Add App</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#131b2e",
+                        "on-secondary-container": "#00424e",
+                        "on-primary-container": "#0d0096",
+                        "on-error": "#690005",
+                        "tertiary-fixed": "#e9ddff",
+                        "primary-container": "#8083ff",
+                        "on-secondary-fixed-variant": "#004e5c",
+                        "on-primary": "#1000a9",
+                        "surface-container-highest": "#2d3449",
+                        "surface": "#0b1326",
+                        "on-tertiary": "#3c0091",
+                        "outline": "#908fa0",
+                        "secondary-fixed-dim": "#4cd7f6",
+                        "surface-tint": "#c0c1ff",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-high": "#222a3d",
+                        "on-tertiary-fixed-variant": "#5516be",
+                        "inverse-surface": "#dae2fd",
+                        "error": "#ffb4ab",
+                        "on-tertiary-container": "#340080",
+                        "on-background": "#dae2fd",
+                        "secondary-fixed": "#acedff",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "on-secondary": "#003640",
+                        "surface-bright": "#31394d",
+                        "inverse-on-surface": "#283044",
+                        "secondary": "#4cd7f6",
+                        "outline-variant": "#464554",
+                        "surface-container": "#171f33",
+                        "on-surface-variant": "#c7c4d7",
+                        "error-container": "#93000a",
+                        "inverse-primary": "#494bd6",
+                        "surface-variant": "#2d3449",
+                        "on-secondary-fixed": "#001f26",
+                        "tertiary-fixed-dim": "#d0bcff",
+                        "primary-fixed": "#e1e0ff",
+                        "background": "#0b1326",
+                        "secondary-container": "#03b5d3",
+                        "on-primary-fixed": "#07006c",
+                        "surface-dim": "#0b1326",
+                        "tertiary": "#d0bcff",
+                        "tertiary-container": "#a078ff",
+                        "on-tertiary-fixed": "#23005c",
+                        "surface-container-lowest": "#060e20",
+                        "primary": "#c0c1ff",
+                        "on-surface": "#dae2fd",
+                        "primary-fixed-dim": "#c0c1ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "32px",
+                        "container-max": "1440px",
+                        "margin-mobile": "16px",
+                        "stack-lg": "24px",
+                        "gutter": "24px",
+                        "stack-xs": "4px",
+                        "stack-sm": "8px",
+                        "unit": "4px",
+                        "stack-md": "16px"
+                    },
+                    "fontFamily": {
+                        "code-md": ["JetBrains Mono"],
+                        "label-caps": ["Inter"],
+                        "body-md": ["Inter"],
+                        "code-sm": ["JetBrains Mono"],
+                        "title-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "display-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "code-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "code-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "title-lg": ["20px", { "lineHeight": "28px", "fontWeight": "500" }],
+                        "headline-sm": ["24px", { "lineHeight": "32px", "fontWeight": "500" }],
+                        "headline-md": ["30px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "display-lg": ["48px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0b1326;
+            background-image: radial-gradient(circle at 50% -20%, rgba(192, 193, 255, 0.15), transparent 60%);
+            color: #dae2fd;
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md min-h-screen flex flex-col relative overflow-x-hidden">
+<!-- TopNavBar -->
+<header class="bg-surface/40 dark:bg-surface/40 backdrop-blur-md text-primary font-body-md text-body-md docked full-width top-0 border-b border-white/10 flat no shadows cursor-pointer active:scale-95 fixed top-0 left-0 w-full z-50 flex justify-between items-center px-margin-desktop h-16">
+<div class="flex items-center gap-4">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">DeployAI</span>
+<nav class="hidden md:flex gap-6 ml-8">
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Apps</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors" href="#">Settings</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">dark_mode</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">Sign out</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow pt-[80px] pb-margin-desktop px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto w-full flex justify-center items-start">
+<div class="w-full max-w-[800px] mt-12 flex flex-col gap-stack-lg">
+<!-- Stepper -->
+<div class="w-full flex items-center justify-between mb-8 relative">
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-full h-[2px] bg-white/10 -z-10"></div>
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-[50%] h-[2px] bg-primary -z-10 transition-all duration-500"></div>
+<!-- Step 1 -->
+<div class="flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-label-caps text-label-caps">
+<span class="material-symbols-outlined" style="font-size: 16px;">check</span>
+</div>
+<span class="font-label-caps text-label-caps text-primary">Repository</span>
+</div>
+<!-- Step 2 -->
+<div class="flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-label-caps text-label-caps">
+<span class="material-symbols-outlined" style="font-size: 16px;">check</span>
+</div>
+<span class="font-label-caps text-label-caps text-primary">Branch</span>
+</div>
+<!-- Step 3 (Active) -->
+<div class="flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-container border-2 border-primary flex items-center justify-center text-primary font-label-caps text-label-caps shadow-[0_0_12px_rgba(192,193,255,0.4)]">
+                        3
+                    </div>
+<span class="font-label-caps text-label-caps text-on-surface">What to deploy</span>
+</div>
+<!-- Step 4 -->
+<div class="flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-container border-2 border-white/10 flex items-center justify-center text-on-surface-variant font-label-caps text-label-caps">
+                        4
+                    </div>
+<span class="font-label-caps text-label-caps text-on-surface-variant">Hosting</span>
+</div>
+<!-- Step 5 -->
+<div class="flex flex-col items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-container border-2 border-white/10 flex items-center justify-center text-on-surface-variant font-label-caps text-label-caps">
+                        5
+                    </div>
+<span class="font-label-caps text-label-caps text-on-surface-variant">Review</span>
+</div>
+</div>
+<div class="flex flex-col gap-2 mb-4">
+<h1 class="font-headline-md text-headline-md text-on-surface">Deployment Plan</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">We've analyzed your repository and prepared a recommended configuration.</p>
+</div>
+<!-- AI Deployment Plan Card -->
+<div class="bg-surface/40 backdrop-blur-[16px] border border-white/10 rounded-xl p-6 relative overflow-hidden flex flex-col gap-stack-lg">
+<div class="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+<span class="material-symbols-outlined" style="font-size: 120px;">memory</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30">
+<span class="material-symbols-outlined text-primary">auto_awesome</span>
+</div>
+<div>
+<h2 class="font-title-lg text-title-lg text-on-surface">AI Recommended Setup</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Based on source code analysis</p>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Framework -->
+<div class="bg-surface-container/50 border border-white/5 rounded-lg p-4 flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Detected Framework</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-secondary">code_blocks</span>
+<span class="font-body-md text-body-md text-on-surface">Next.js (React)</span>
+</div>
+</div>
+<!-- Environment -->
+<div class="bg-surface-container/50 border border-white/5 rounded-lg p-4 flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">Runtime Environment</span>
+<div class="flex items-center gap-2 mt-1">
+<span class="material-symbols-outlined text-tertiary">terminal</span>
+<span class="font-body-md text-body-md text-on-surface">Node.js 20.x</span>
+</div>
+</div>
+</div>
+<!-- Config Details -->
+<div class="bg-black/50 border border-white/10 rounded-lg p-4 font-code-sm text-code-sm text-on-surface-variant flex flex-col gap-3">
+<div class="flex justify-between items-center border-b border-white/10 pb-2">
+<span class="text-primary font-label-caps text-label-caps">Build Configuration</span>
+<button class="text-primary hover:text-primary-fixed transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined" style="font-size: 16px;">edit</span>
+                            Edit
+                        </button>
+</div>
+<div class="grid grid-cols-[120px_1fr] gap-2 items-baseline">
+<span class="text-outline">Build Command:</span>
+<span class="text-secondary-fixed-dim">npm run build</span>
+<span class="text-outline">Start Command:</span>
+<span class="text-secondary-fixed-dim">npm start</span>
+<span class="text-outline">Output Dir:</span>
+<span class="text-secondary-fixed-dim">.next</span>
+<span class="text-outline">Install Cmd:</span>
+<span class="text-secondary-fixed-dim">npm install</span>
+</div>
+</div>
+</div>
+<!-- Actions -->
+<div class="flex flex-col sm:flex-row items-center gap-4 mt-4 pt-6 border-t border-white/10 justify-end">
+<button class="w-full sm:w-auto px-6 py-3 rounded-lg border border-white/10 bg-transparent text-on-surface font-body-md text-body-md hover:bg-white/5 transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">tune</span>
+                    Manual override
+                </button>
+<button class="w-full sm:w-auto px-6 py-3 rounded-lg bg-gradient-to-r from-primary-container to-secondary-container text-on-primary-container font-body-md text-body-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 font-semibold shadow-[0_0_16px_rgba(128,131,255,0.3)]">
+                    Yes, deploy it
+                    <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</div>
+</div>
+</main>
+</body></html>

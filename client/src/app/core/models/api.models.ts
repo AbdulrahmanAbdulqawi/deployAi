@@ -125,11 +125,40 @@ export interface ProjectSummary {
     id: string;
     status: string;
     completedAt?: string;
+    canRequestClaudeFix?: boolean;
+    fixTargetId?: string;
   };
 }
 
 export interface ProjectDetail extends Omit<ProjectSummary, 'latestDeployment' | 'targets'> {
   targets: ProjectTarget[];
+  environmentSync?: EnvironmentSyncState | null;
+}
+
+export interface EnvironmentSyncState {
+  lastSyncedAt: string;
+  source: string;
+  success: boolean;
+  driftDetected: boolean;
+  resolvedWebsiteUrl?: string;
+  resolvedApiUrl?: string;
+  verificationMessages: string[];
+  driftDetails: string[];
+}
+
+export interface EnvironmentSyncResult {
+  success: boolean;
+  skipped: boolean;
+  skipReason?: string | null;
+  driftDetected: boolean;
+  resolvedWebsiteUrl?: string | null;
+  resolvedApiUrl?: string | null;
+  railwayKeysApplied: string[];
+  vercelKeysApplied: string[];
+  verificationMessages: string[];
+  driftDetails: string[];
+  source: string;
+  completedAt: string;
 }
 
 export interface ProjectServiceView {
@@ -191,6 +220,8 @@ export interface DataServiceInfo {
 export interface DeploymentSummary {
   id: string;
   branch: string;
+  gitCommitSha?: string;
+  gitCommitMessage?: string;
   status: string;
   durationSeconds?: number;
   startedAt?: string;
@@ -202,10 +233,28 @@ export interface DeploymentSummary {
   }[];
 }
 
+export interface DeploymentFailureAnalysis {
+  category: 'code_build' | 'infrastructure' | 'unknown';
+  summary: string;
+  errorExcerpt?: string;
+  referencedFiles: string[];
+  errorCount?: number;
+  canRequestClaudeFix: boolean;
+}
+
+export interface DeploymentFixResult {
+  branchName: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string;
+  committedFiles: string[];
+}
+
 export interface DeploymentDetail {
   id: string;
   projectId: string;
   branch: string;
+  gitCommitSha?: string;
+  gitCommitMessage?: string;
   status: string;
   startedAt?: string;
   completedAt?: string;
@@ -217,6 +266,7 @@ export interface DeploymentDetail {
     deployUrl?: string;
     startedAt?: string;
     completedAt?: string;
+    failureAnalysis?: DeploymentFailureAnalysis | null;
   }[];
 }
 
@@ -231,4 +281,43 @@ export interface TriggerDeploymentResponse {
   deploymentId: string;
   status: string;
   targets: { providerName: string; status: string }[];
+}
+
+export interface MissingDeploymentFile {
+  path: string;
+  reason: string;
+  severity: 'blocking' | 'recommended' | 'warning';
+}
+
+export interface DeploymentReadinessResult {
+  isReady: boolean;
+  commitSha?: string;
+  usesSplitOrigin: boolean;
+  missingFiles: MissingDeploymentFile[];
+  warnings: string[];
+}
+
+export interface DeploymentSetupResult {
+  branchName: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string;
+  committedFiles: string[];
+}
+
+export type DeploymentFixStreamEvent =
+  | { type: 'log'; message: string }
+  | ({ type: 'complete' } & DeploymentFixResult)
+  | { type: 'error'; code: string; message: string };
+
+export type DeploymentSetupStreamEvent =
+  | { type: 'log'; message: string }
+  | ({ type: 'complete' } & DeploymentSetupResult)
+  | { type: 'error'; code: string; message: string };
+
+export interface DeploymentSetupMergeResult {
+  merged: boolean;
+  envSync: 'completed' | 'pending' | 'skipped';
+  envSyncReason?: string | null;
+  railwayKeysApplied: string[];
+  vercelKeysApplied: string[];
 }

@@ -7,13 +7,14 @@ import { parseTargetConfig, providerLabel } from '../core/utils/target-config';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
+import { IconComponent } from '../shared/ui/icon/icon.component';
 
 type TargetConfig = ReturnType<typeof parseTargetConfig> & ProjectTarget;
 
 @Component({
   selector: 'app-project-edit',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent, ConfirmDialogComponent, ButtonComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, ConfirmDialogComponent, ButtonComponent, IconComponent],
   templateUrl: './project-edit.component.html',
   styleUrl: './project-edit.component.scss'
 })
@@ -89,6 +90,39 @@ export class ProjectEditComponent implements OnInit {
     if (target.role === 'website') return 'Website folder';
     if (target.role === 'server') return 'Server folder';
     return 'Folder';
+  }
+
+  targetSectionTitle(target: TargetConfig): string {
+    if (target.providerName === 'vercel') return 'Website';
+    if (target.providerName === 'railway') return 'API';
+    return this.targetLabel(target);
+  }
+
+  targetSectionSubtitle(target: TargetConfig): string {
+    if (target.providerName === 'vercel') return 'Vercel Deployment';
+    if (target.providerName === 'railway') return 'Railway Infrastructure';
+    return providerLabel(target.providerName);
+  }
+
+  hasTargetPath(target: TargetConfig): boolean {
+    return !!(target.serviceDirectory ?? target.rootDirectory);
+  }
+
+  buildSummaryRows(): {
+    component: string;
+    framework?: string;
+    buildCommand?: string;
+    startCommand?: string;
+  }[] {
+    return this.editableTargets()
+      .filter(target => target.providerName === 'vercel' || target.providerName === 'railway')
+      .map(target => ({
+        component: this.targetSectionTitle(target),
+        framework: target.framework,
+        buildCommand: target.buildCommand,
+        startCommand: target.startCommand
+      }))
+      .filter(row => row.framework || row.buildCommand || row.startCommand);
   }
 
   providerLabel = providerLabel;

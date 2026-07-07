@@ -1,5 +1,6 @@
 <div class="dropdown" [class.dropdown--open]="open()">
   <button
+    #trigger
     type="button"
     class="dropdown__trigger"
     [class.dropdown__trigger--quiet]="triggerVariant === 'quiet'"
@@ -10,40 +11,44 @@
     <app-ui-icon name="more" size="sm" />
   </button>
 
-  @if (open()) {
-    <div class="dropdown__menu" role="menu" (click)="$event.stopPropagation()">
-      @for (item of items; track item.id) {
-        @if (item.href) {
-          <a
-            class="dropdown__item"
-            [class.dropdown__item--destructive]="item.destructive"
-            role="menuitem"
-            [href]="item.href"
-            target="_blank"
-            rel="noopener noreferrer"
-            (click)="close()">
-            @if (item.icon) {
-              <app-ui-icon [name]="item.icon" size="sm" />
-            }
-            {{ item.label }}
-          </a>
-        } @else {
-          <button
-            type="button"
-            class="dropdown__item"
-            [class.dropdown__item--destructive]="item.destructive"
-            role="menuitem"
-            [disabled]="item.disabled || item.loading"
-            (click)="onSelect(item)">
-            @if (item.loading) {
-              <app-ui-icon name="loader" size="sm" />
-            } @else if (item.icon) {
-              <app-ui-icon [name]="item.icon" size="sm" />
-            }
-            {{ item.label }}
-          </button>
-        }
+  <div
+    #menuPanel
+    class="dropdown__menu"
+    [class.dropdown__menu--closed]="!open()"
+    role="menu"
+    [attr.aria-hidden]="!open()"
+    (click)="$event.stopPropagation()">
+    @for (item of items; track item.id) {
+      @if (item.href) {
+        <a
+          class="dropdown__item"
+          [class.dropdown__item--destructive]="item.destructive"
+          role="menuitem"
+          [href]="item.href"
+          target="_blank"
+          rel="noopener noreferrer"
+          (click)="close()">
+          @if (item.icon) {
+            <app-ui-icon [name]="item.icon" size="sm" />
+          }
+          {{ item.label }}
+        </a>
+      } @else {
+        <button
+          type="button"
+          class="dropdown__item"
+          [class.dropdown__item--destructive]="item.destructive"
+          role="menuitem"
+          [disabled]="item.disabled || item.loading"
+          (click)="onSelect(item)">
+          @if (item.loading) {
+            <app-ui-icon name="loader" size="sm" />
+          } @else if (item.icon) {
+            <app-ui-icon [name]="item.icon" size="sm" />
+          }
+          {{ item.label }}
+        </button>
       }
-    </div>
-  }
+    }
+  </div>
 </div>

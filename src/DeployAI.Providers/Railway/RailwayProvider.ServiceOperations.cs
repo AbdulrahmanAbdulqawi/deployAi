@@ -39,7 +39,10 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
             }
 
             var status = RailwayGraphQlMapping.MapServiceDeploymentStatus(deployment.Status);
-            var url = deployment.Url;
+            var serviceDomains = node.Domains?.ServiceDomains?
+                .Select(domain => new ServiceDomainSnapshot(domain.Domain, domain.SyncStatus))
+                .ToArray() ?? [];
+            var url = ResolvePublicServiceUrl(deployment.Url, serviceDomains);
             DateTimeOffset? lastDeployedAt = deployment.CreatedAt;
 
             return new ProviderServiceStatus(status, url, lastDeployedAt);
@@ -54,7 +57,7 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
         CancellationToken cancellationToken)
     {
         var (serviceId, environmentId) = RailwayApiSupport.ParseProviderProjectId(providerProjectId);
-        return RedeployServiceInstanceAsync(credentials, serviceId, environmentId, cancellationToken);
+        return RedeployServiceInstanceAsync(credentials, serviceId, environmentId, ensurePublicDomain: true, cancellationToken);
     }
 
     public async Task DeleteServiceAsync(

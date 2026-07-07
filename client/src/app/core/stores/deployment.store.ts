@@ -89,6 +89,32 @@ export class DeploymentStore {
         if (projectId) {
           this.projectsStore.updateProjectDeployment(projectId, deploymentId, finalStatus);
         }
+        this.api.getDeployment(deploymentId).subscribe({
+          next: (deployment) => this.deployment.set(deployment)
+        });
+      },
+      onFailureAnalysisReady: (id, targetId, providerName, analysis) => {
+        if (id !== deploymentId) return;
+        this.deployment.update(current => {
+          if (!current) return current;
+          return {
+            ...current,
+            targets: current.targets.map(target =>
+              target.id === targetId
+                ? {
+                    ...target,
+                    failureAnalysis: {
+                      category: analysis.category as 'code_build' | 'infrastructure' | 'unknown',
+                      summary: analysis.summary,
+                      errorExcerpt: analysis.errorExcerpt,
+                      referencedFiles: analysis.referencedFiles,
+                      canRequestClaudeFix: analysis.canRequestClaudeFix
+                    }
+                  }
+                : target
+            )
+          };
+        });
       }
     });
 

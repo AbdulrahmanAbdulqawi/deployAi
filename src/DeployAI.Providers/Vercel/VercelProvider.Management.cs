@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
@@ -82,7 +83,8 @@ public sealed partial class VercelProvider
         using var request = CreateRequest(HttpMethod.Get, $"v10/projects/{providerProjectId}/env", credentials.Token);
         var response = await _httpClient.SendAsync(request, cancellationToken);
         await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
-        var envs = await response.Content.ReadFromJsonAsync<List<VercelEnvVar>>(cancellationToken) ?? [];
+        var listResponse = await response.Content.ReadFromJsonAsync<VercelEnvListResponse>(cancellationToken);
+        var envs = listResponse?.Envs ?? [];
 
         return envs.Select(e => new ProviderEnvVar(
             e.Id ?? string.Empty,
@@ -114,8 +116,18 @@ public sealed partial class VercelProvider
         httpRequest.Content = JsonContent.Create(body);
         var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
-        var created = await response.Content.ReadFromJsonAsync<List<VercelEnvVar>>(cancellationToken);
-        var env = created?.FirstOrDefault()
+        var upsertResponse = await response.Content.ReadFromJsonAsync<VercelEnvUpsertResponse>(cancellationToken)
+            ?? throw new InvalidOperationException("Vercel returned an empty env var response.");
+
+        if (upsertResponse.Failed is { Count: > 0 } failed)
+        {
+            var firstError = failed[0].Error;
+            throw new DeployAIException(
+                "vercel_env_upsert_failed",
+                firstError?.Message ?? "Vercel could not update the environment variable.");
+        }
+
+        var env = upsertResponse.Created?.FirstOrDefault()
             ?? throw new InvalidOperationException("Vercel returned an empty env var response.");
 
         return new ProviderEnvVar(
@@ -150,7 +162,8 @@ public sealed partial class VercelProvider
 
     private static bool ShouldHideValue(string? type) =>
         string.Equals(type, "secret", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(type, "sensitive", StringComparison.OrdinalIgnoreCase);
+        string.Equals(type, "sensitive", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "encrypted", StringComparison.OrdinalIgnoreCase);
 
     private sealed class VercelProjectDetail
     {
@@ -159,6 +172,36 @@ public sealed partial class VercelProvider
 
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+    }
+
+    private sealed class VercelEnvListResponse
+    {
+        [JsonPropertyName("envs")]
+        public List<VercelEnvVar>? Envs { get; set; }
+    }
+
+    private sealed class VercelEnvUpsertResponse
+    {
+        [JsonPropertyName("created")]
+        public List<VercelEnvVar>? Created { get; set; }
+
+        [JsonPropertyName("failed")]
+        public List<VercelEnvUpsertFailure>? Failed { get; set; }
+    }
+
+    private sealed class VercelEnvUpsertFailure
+    {
+        [JsonPropertyName("error")]
+        public VercelEnvUpsertError? Error { get; set; }
+    }
+
+    private sealed class VercelEnvUpsertError
+    {
+        [JsonPropertyName("code")]
+        public string? Code { get; set; }
+
+        [JsonPropertyName("message")]
+        public string? Message { get; set; }
     }
 
     private sealed class VercelEnvVar

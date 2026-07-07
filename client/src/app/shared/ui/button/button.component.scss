@@ -9,7 +9,7 @@
   gap: var(--space-2);
   min-height: var(--control-height);
   padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   font-size: var(--font-size-base);
   font-weight: 500;
@@ -42,11 +42,16 @@
     background: var(--btn-primary-gradient);
     color: var(--btn-primary-text);
     border-color: transparent;
-    box-shadow: var(--glow-accent);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 4px 12px rgba(128, 131, 255, 0.2);
 
     &:hover:not(:disabled) {
       background: var(--btn-primary-hover-gradient);
-      box-shadow: 0 10px 24px color-mix(in srgb, var(--brand-blue) 35%, transparent);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.3),
+        0 6px 16px rgba(128, 131, 255, 0.3);
+      transform: translateY(-1px);
     }
   }
 
@@ -54,6 +59,12 @@
     background: var(--btn-secondary-bg);
     color: var(--btn-secondary-text);
     border-color: var(--btn-secondary-border);
+    font-size: var(--font-size-code-sm);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    min-height: 2rem;
+    padding: var(--space-1) var(--space-3);
 
     app-ui-icon {
       color: var(--btn-secondary-icon);

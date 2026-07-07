@@ -39,6 +39,20 @@ public sealed class ExceptionHandlingMiddleware
             context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
             await WriteErrorAsync(context, "provider_not_found", ex.Message);
         }
+        catch (OperationCanceledException)
+        {
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            _logger.LogWarning("Request canceled while processing {Method} {Path}", context.Request.Method, context.Request.Path);
+            context.Response.StatusCode = (int)HttpStatusCode.RequestTimeout;
+            await WriteErrorAsync(
+                context,
+                "claude_request_timeout",
+                "The request was canceled or timed out. Try again — large repositories can take several minutes.");
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unhandled exception");

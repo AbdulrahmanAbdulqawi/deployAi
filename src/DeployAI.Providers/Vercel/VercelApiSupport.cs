@@ -162,14 +162,50 @@ public static partial class VercelApiSupport
 
     public static string? ExtractPrimaryProductionAlias(IReadOnlyList<string>? aliases, string? projectName)
     {
-        if (aliases is not null)
+        if (aliases is not null && aliases.Count > 0)
         {
+            string? suffixedProduction = null;
+            string? bareProduction = null;
+            string? fallbackAlias = null;
+
             foreach (var alias in aliases)
             {
-                if (!string.IsNullOrWhiteSpace(alias))
+                if (string.IsNullOrWhiteSpace(alias) || IsPreviewAlias(alias))
                 {
-                    return alias;
+                    continue;
                 }
+
+                fallbackAlias ??= alias;
+                var host = NormalizeAliasHost(alias);
+
+                if (!string.IsNullOrWhiteSpace(projectName) &&
+                    host.StartsWith($"{projectName}-", StringComparison.OrdinalIgnoreCase) &&
+                    host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
+                {
+                    suffixedProduction ??= alias;
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(projectName) &&
+                    host.Equals($"{projectName}.vercel.app", StringComparison.OrdinalIgnoreCase))
+                {
+                    bareProduction ??= alias;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(suffixedProduction))
+            {
+                return suffixedProduction;
+            }
+
+            if (!string.IsNullOrWhiteSpace(bareProduction))
+            {
+                return bareProduction;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackAlias))
+            {
+                return fallbackAlias;
             }
         }
 
@@ -180,6 +216,35 @@ public static partial class VercelApiSupport
 
         return null;
     }
+
+    internal static bool IsPreviewAlias(string alias)
+    {
+        var host = NormalizeAliasHost(alias);
+
+        if (host.Contains("-git-", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (host.EndsWith("-projects.vercel.app", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var subdomain = host[..^".vercel.app".Length];
+        return subdomain.Count(c => c == '-') >= 3;
+    }
+
+    private static string NormalizeAliasHost(string alias) =>
+        alias
+            .Replace("https://", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("http://", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .TrimEnd('/');
 
     public static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

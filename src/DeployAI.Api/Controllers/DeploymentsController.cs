@@ -3,9 +3,11 @@ using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 
 namespace DeployAI.Api.Controllers;
 
@@ -17,15 +19,18 @@ public sealed class DeploymentsController : ControllerBase
     private readonly DeployAIDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly IDeploymentOrchestrator _orchestrator;
+    private readonly IDeploymentFixService _fixService;
 
     public DeploymentsController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
-        IDeploymentOrchestrator orchestrator)
+        IDeploymentOrchestrator orchestrator,
+        IDeploymentFixService fixService)
     {
         _db = db;
         _currentUser = currentUser;
         _orchestrator = orchestrator;
+        _fixService = fixService;
     }
 
     [HttpPost("projects/{projectId:guid}/deployments")]
@@ -40,6 +45,31 @@ public sealed class DeploymentsController : ControllerBase
 
         var branch = string.IsNullOrWhiteSpace(request.Branch) ? project.DefaultBranch : request.Branch;
         var result = await _orchestrator.TriggerAsync(projectId, userId, branch, cancellationToken);
+
+        return Accepted(new
+        {
+            deploymentId = result.DeploymentId,
+            status = result.Status,
+            targets = result.Targets.Select(t => new { providerName = t.ProviderName, status = t.Status })
+        });
+    }
+
+    [HttpPost("projects/{projectId:guid}/deployments/targets/{deployTargetId:guid}")]
+    public async Task<IActionResult> TriggerTarget(
+        Guid projectId,
+        Guid deployTargetId,
+        [FromBody] TriggerDeploymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound(new { error = new { code = "not_found", message = "We couldn't find that app." } });
+        }
+
+        var branch = string.IsNullOrWhiteSpace(request.Branch) ? project.DefaultBranch : request.Branch;
+        var result = await _orchestrator.TriggerTargetAsync(projectId, userId, deployTargetId, branch, cancellationToken);
 
         return Accepted(new
         {
@@ -130,6 +160,71 @@ public sealed class DeploymentsController : ControllerBase
         return Ok(new { logs });
     }
 
+    [HttpPost("deployments/{id:guid}/targets/{targetId:guid}/fix")]
+    [RequestTimeout("claude-agent")]
+    public async Task GenerateFix(
+        Guid id,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache";
+
+        async Task ReportActivity(string message)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await WriteStreamEventAsync(new { type = "log", message }, cancellationToken);
+        }
+
+        try
+        {
+            var result = await _fixService.GenerateFixPullRequestAsync(
+                userId,
+                id,
+                targetId,
+                ReportActivity,
+                cancellationToken);
+
+            await WriteStreamEventAsync(
+                new
+                {
+                    type = "complete",
+                    branchName = result.BranchName,
+                    pullRequestNumber = result.PullRequestNumber,
+                    pullRequestUrl = result.PullRequestUrl,
+                    committedFiles = result.CommittedFiles
+                },
+                cancellationToken);
+        }
+        catch (DeployAIException ex)
+        {
+            await WriteStreamEventAsync(new { type = "error", code = ex.ErrorCode, message = ex.Message }, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            await WriteStreamEventAsync(
+                new
+                {
+                    type = "error",
+                    code = "claude_request_timeout",
+                    message = "The request was canceled or timed out. Try again — large repositories can take several minutes."
+                },
+                CancellationToken.None);
+        }
+    }
+
+    private async Task WriteStreamEventAsync(object payload, CancellationToken cancellationToken)
+    {
+        var line = JsonSerializer.Serialize(payload) + "\n";
+        await Response.WriteAsync(line, cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
+
     [HttpPost("deployments/{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken cancellationToken)
     {
@@ -165,6 +260,8 @@ public sealed class DeploymentsController : ControllerBase
         {
             id = deployment.Id,
             branch = deployment.Branch,
+            gitCommitSha = deployment.GitCommitSha,
+            gitCommitMessage = deployment.GitCommitMessage,
             status = deployment.Status,
             durationSeconds = duration,
             startedAt = deployment.StartedAt,
@@ -185,18 +282,40 @@ public sealed class DeploymentsController : ControllerBase
             id = deployment.Id,
             projectId = deployment.ProjectId,
             branch = deployment.Branch,
+            gitCommitSha = deployment.GitCommitSha,
+            gitCommitMessage = deployment.GitCommitMessage,
             status = deployment.Status,
             startedAt = deployment.StartedAt,
             completedAt = deployment.CompletedAt,
-            targets = deployment.Targets.Select(t => new
+            targets = deployment.Targets.Select(t =>
             {
-                id = t.Id,
-                deployTargetId = t.DeployTargetId,
-                providerName = t.ProviderName,
-                status = t.Status,
-                deployUrl = t.DeployUrl,
-                startedAt = t.StartedAt,
-                completedAt = t.CompletedAt
+                var analysis = DeploymentFailureAnalysisJson.Parse(t.FailureAnalysisJson);
+                return new
+                {
+                    id = t.Id,
+                    deployTargetId = t.DeployTargetId,
+                    providerName = t.ProviderName,
+                    status = t.Status,
+                    deployUrl = t.DeployUrl,
+                    startedAt = t.StartedAt,
+                    completedAt = t.CompletedAt,
+                    failureAnalysis = analysis is null
+                        ? null
+                        : new
+                        {
+                            category = analysis.Category switch
+                            {
+                                DeploymentFailureCategory.CodeBuild => "code_build",
+                                DeploymentFailureCategory.Infrastructure => "infrastructure",
+                                _ => "unknown"
+                            },
+                            summary = analysis.Summary,
+                            errorExcerpt = analysis.ErrorExcerpt,
+                            referencedFiles = analysis.ReferencedFiles,
+                            errorCount = analysis.ErrorCount,
+                            canRequestClaudeFix = analysis.CanRequestClaudeFix
+                        }
+                };
             })
         };
     }

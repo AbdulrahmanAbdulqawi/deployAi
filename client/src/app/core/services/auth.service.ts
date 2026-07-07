@@ -1,14 +1,18 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { tap } from 'rxjs';
+import { finalize, Observable, shareReplay, tap } from 'rxjs';
 import { SessionStore } from '../stores/session.store';
 
 const ACCESS_TOKEN_KEY = 'deployai_access_token';
 const REFRESH_TOKEN_KEY = 'deployai_refresh_token';
 
+type RefreshResponse = { accessToken: string; refreshToken: string; expiresIn: number };
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
+  private refreshRequest$: Observable<RefreshResponse> | null = null;
+
   constructor(
     private readonly http: HttpClient,
     private readonly router: Router,
@@ -44,16 +48,24 @@ export class AuthService {
       throw new Error('No refresh token');
     }
 
-    return this.http.post<{ accessToken: string; refreshToken: string; expiresIn: number }>(
-      '/api/auth/refresh',
-      { refreshToken }
-    ).pipe(
-      tap((response) => {
-        localStorage.setItem(ACCESS_TOKEN_KEY, response.accessToken);
-        localStorage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
-        this.session.setAuthenticated(true);
-      })
-    );
+    if (!this.refreshRequest$) {
+      this.refreshRequest$ = this.http.post<RefreshResponse>(
+        '/api/auth/refresh',
+        { refreshToken }
+      ).pipe(
+        tap((response) => {
+          localStorage.setItem(ACCESS_TOKEN_KEY, response.accessToken);
+          localStorage.setItem(REFRESH_TOKEN_KEY, response.refreshToken);
+          this.session.setAuthenticated(true);
+        }),
+        shareReplay(1),
+        finalize(() => {
+          this.refreshRequest$ = null;
+        })
+      );
+    }
+
+    return this.refreshRequest$;
   }
 
   logout(): void {

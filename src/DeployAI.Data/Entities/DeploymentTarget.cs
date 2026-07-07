@@ -11,6 +11,7 @@ public class DeploymentTarget
     public string? DeployUrl { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
+    public string? FailureAnalysisJson { get; set; }
 
     public Deployment Deployment { get; set; } = null!;
     public DeployTarget DeployTarget { get; set; } = null!;

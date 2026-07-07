@@ -106,9 +106,19 @@ public sealed partial class RailwayProvider
             string.Equals(
                 normalizedDockerfilePath,
                 $"{normalizedServiceDirectory}/Dockerfile",
-                StringComparison.OrdinalIgnoreCase))
+                StringComparison.OrdinalIgnoreCase) &&
+            environment.TryGetValue("dockerUsesRepositoryRoot", out var usesRepositoryRoot) &&
+            string.Equals(usesRepositoryRoot, "false", StringComparison.OrdinalIgnoreCase))
         {
             return (normalizedServiceDirectory, "Dockerfile");
+        }
+
+        if (environment.TryGetValue("dockerUsesRepositoryRoot", out var repositoryRootFlag) &&
+            string.Equals(repositoryRootFlag, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return (
+                ".",
+                string.IsNullOrWhiteSpace(normalizedDockerfilePath) ? null : normalizedDockerfilePath);
         }
 
         return (

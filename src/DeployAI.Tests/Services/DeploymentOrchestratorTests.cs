@@ -1,7 +1,9 @@
 using DeployAI.Api.Services;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Security;
 using DeployAI.Data;
 using DeployAI.Data.Entities;
+using DeployAI.Infrastructure.GitHub;
 using Hangfire;
 using Hangfire.Common;
 using Hangfire.States;
@@ -12,6 +14,27 @@ namespace DeployAI.Tests.Services;
 
 public class DeploymentOrchestratorTests
 {
+    private static DeploymentOrchestrator CreateOrchestrator(
+        DeployAIDbContext db,
+        IBackgroundJobClient backgroundJobs,
+        DeploymentReadinessResult? readiness = null)
+    {
+        var readinessService = new Mock<IDeploymentReadinessService>();
+        readinessService
+            .Setup(service => service.ScanProjectAsync(It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readiness ?? new DeploymentReadinessResult(true, "abc123", false, [], []));
+
+        var gitHubService = new Mock<IGitHubService>();
+        var encryption = new Mock<IEncryptionService>();
+        encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("token");
+
+        return new DeploymentOrchestrator(
+            db,
+            backgroundJobs,
+            readinessService.Object,
+            gitHubService.Object,
+            encryption.Object);
+    }
     [Fact]
     public async Task TriggerAsync_CreatesDeploymentAndEnqueuesJobs()
     {
@@ -73,7 +96,7 @@ public class DeploymentOrchestratorTests
             .Setup(x => x.Create(It.IsAny<Job>(), It.IsAny<IState>()))
             .Returns("job-id");
 
-        IDeploymentOrchestrator orchestrator = new DeploymentOrchestrator(db, backgroundJobs.Object);
+        IDeploymentOrchestrator orchestrator = CreateOrchestrator(db, backgroundJobs.Object);
         var result = await orchestrator.TriggerAsync(projectId, userId, "main", CancellationToken.None);
 
         Assert.Equal(DeploymentStatuses.Pending, result.Status);
@@ -168,7 +191,7 @@ public class DeploymentOrchestratorTests
             .Setup(x => x.Create(It.IsAny<Job>(), It.IsAny<IState>()))
             .Returns("job-id");
 
-        IDeploymentOrchestrator orchestrator = new DeploymentOrchestrator(db, backgroundJobs.Object);
+        IDeploymentOrchestrator orchestrator = CreateOrchestrator(db, backgroundJobs.Object);
         var result = await orchestrator.TriggerAsync(projectId, userId, "main", CancellationToken.None);
 
         Assert.Equal(2, result.Targets.Count);
@@ -254,7 +277,7 @@ public class DeploymentOrchestratorTests
             .Setup(x => x.Create(It.IsAny<Job>(), It.IsAny<IState>()))
             .Returns("job-id");
 
-        IDeploymentOrchestrator orchestrator = new DeploymentOrchestrator(db, backgroundJobs.Object);
+        IDeploymentOrchestrator orchestrator = CreateOrchestrator(db, backgroundJobs.Object);
         var result = await orchestrator.TriggerAsync(projectId, userId, "main", CancellationToken.None);
 
         Assert.Single(result.Targets);
@@ -322,5 +345,81 @@ public class DeploymentOrchestratorTests
 
         Assert.Equal(railwayDeploymentTargetId, ordered[0]);
         Assert.Equal(vercelDeploymentTargetId, ordered[1]);
+    }
+
+    [Fact]
+    public async Task TriggerTargetAsync_CreatesSingleTargetDeployment()
+    {
+        var options = new DbContextOptionsBuilder<DeployAIDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        await using var db = new DeployAIDbContext(options);
+        var userId = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var vercelTargetId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = credentialId,
+            UserId = userId,
+            ProviderName = "vercel",
+            Label = "Default",
+            TokenEncrypted = [1, 2, 3],
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Demo",
+            GitHubRepoFullName = "tester/demo",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = vercelTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "vercel",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "demo",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+
+        await db.SaveChangesAsync();
+
+        var backgroundJobs = new Mock<IBackgroundJobClient>();
+        backgroundJobs
+            .Setup(x => x.Create(It.IsAny<Job>(), It.IsAny<IState>()))
+            .Returns("job-id");
+
+        IDeploymentOrchestrator orchestrator = CreateOrchestrator(db, backgroundJobs.Object);
+        var result = await orchestrator.TriggerTargetAsync(projectId, userId, vercelTargetId, "main", CancellationToken.None);
+
+        Assert.Equal(DeploymentStatuses.Pending, result.Status);
+        Assert.Single(result.Targets);
+        Assert.Equal("vercel", result.Targets[0].ProviderName);
+        backgroundJobs.Verify(x => x.Create(It.IsAny<Job>(), It.IsAny<IState>()), Times.Once);
+
+        var saved = await db.Deployments.Include(d => d.Targets).SingleAsync();
+        Assert.Single(saved.Targets);
+        Assert.Equal(vercelTargetId, saved.Targets.Single().DeployTargetId);
     }
 }
