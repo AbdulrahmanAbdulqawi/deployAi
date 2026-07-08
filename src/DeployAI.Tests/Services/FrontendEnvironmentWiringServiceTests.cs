@@ -62,11 +62,6 @@ public class FrontendEnvironmentWiringServiceTests
             "prj_web",
             It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "NG_APP_API_URL" && r.Value == "https://api.example.com"),
             It.IsAny<CancellationToken>()), Times.Once);
-        vercelManagement.Verify(m => m.UpsertEnvVarAsync(
-            It.IsAny<ProviderCredentials>(),
-            "prj_web",
-            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "IDAARA_API_URL" && r.Value == "https://api.example.com"),
-            It.IsAny<CancellationToken>()), Times.Once);
         proxy.Verify(p => p.EnsureApiProxyRoutesAsync(
             It.IsAny<ProviderCredentials>(),
             It.IsAny<string>(),

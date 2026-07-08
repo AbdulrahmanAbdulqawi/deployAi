@@ -19,9 +19,11 @@ public class CrossProviderUrlWiringTests
     public void ResolveApiEnvKeys_IncludesAngularSplitOriginKeys()
     {
         var keys = CrossProviderUrlWiring.ResolveApiEnvKeys("angular");
-        Assert.Contains("IDAARA_API_URL", keys);
+        Assert.Contains("DEPLOYAI_API_URL", keys);
+        Assert.Contains("API_BASE_URL", keys);
         Assert.Contains("NG_APP_API_URL", keys);
         Assert.Contains("API_URL", keys);
+        Assert.DoesNotContain("IDAARA_API_URL", keys);
     }
 
     [Fact]
@@ -29,6 +31,20 @@ public class CrossProviderUrlWiringTests
     {
         Assert.True(CrossProviderUrlWiring.ShouldUseSplitOrigin("angular", "docker"));
         Assert.False(CrossProviderUrlWiring.ShouldUseSplitOrigin("vite", "docker"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("blazor")]
+    [InlineData("remix")]
+    public void ShouldUseSplitOrigin_ReturnsFalse_ForUnrecognizedFrontendWithDockerBackend(string? websiteFramework)
+    {
+        // An unrecognized frontend framework falls through UsesRelativeApiPaths' default
+        // (true), and "docker" is a generic Railway backend framework that isn't necessarily
+        // .NET. Without an explicit Angular signal, this combination must not be classified
+        // as the Angular+.NET split-origin scenario — doing so would trigger irrelevant
+        // Angular/.NET Blocking readiness findings for an unrelated stack.
+        Assert.False(CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteFramework, "docker"));
     }
 
     [Fact]

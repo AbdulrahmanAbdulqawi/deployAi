@@ -88,6 +88,7 @@ public sealed class DeploymentFileScaffolder
         var serverRoot = variables.ServerRoot;
         var outputDirectory = variables.OutputDirectory;
         var projectName = variables.ProjectName;
+        var serverNamespace = variables.ServerNamespace;
 
         if (resolvedTemplate?.Kind == DeploymentTemplateKind.FullFile &&
             !string.IsNullOrWhiteSpace(resolvedTemplate.RenderedContent) &&
@@ -123,7 +124,7 @@ public sealed class DeploymentFileScaffolder
 
         if (normalizedPath.EndsWith("AuthController.cs", StringComparison.OrdinalIgnoreCase))
         {
-            return PatchOrGenerateAuthController(existingContent);
+            return PatchOrGenerateAuthController(existingContent, serverNamespace);
         }
 
         if (normalizedPath.Equals($"{clientPrefix}src/app/core/services/auth.service.ts", StringComparison.OrdinalIgnoreCase))
@@ -216,7 +217,7 @@ public sealed class DeploymentFileScaffolder
             """;
     }
 
-    private static string? PatchOrGenerateAuthController(string? existing)
+    private static string? PatchOrGenerateAuthController(string? existing, string serverNamespace)
     {
         if (!string.IsNullOrWhiteSpace(existing))
         {
@@ -225,13 +226,13 @@ public sealed class DeploymentFileScaffolder
                 return existing;
             }
 
-            return null;
+            return PatchCookieOptionsForCrossOrigin(existing);
         }
 
-        return """
+        return $$"""
             using Microsoft.AspNetCore.Mvc;
 
-            namespace DeployAI.Generated;
+            namespace {{serverNamespace}};
 
             [ApiController]
             [Route("api/v1/auth")]
@@ -243,6 +244,103 @@ public sealed class DeploymentFileScaffolder
             """;
     }
 
+    /// <summary>
+    /// Injects `SameSite = SameSiteMode.None, Secure = true,` into any existing
+    /// `new CookieOptions { ... }` initializer that doesn't already set SameSite, so
+    /// refresh/login cookies survive cross-origin split-origin requests. Falls back to a
+    /// TODO marker (rather than silently claiming the gap is resolved) if no CookieOptions
+    /// initializer is found to patch deterministically.
+    /// </summary>
+    private static string PatchCookieOptionsForCrossOrigin(string existing)
+    {
+        var sb = new System.Text.StringBuilder();
+        var pos = 0;
+        var patchedAny = false;
+        while (true)
+        {
+            var start = existing.IndexOf("new CookieOptions", pos, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                sb.Append(existing, pos, existing.Length - pos);
+                break;
+            }
+
+            var braceOpen = existing.IndexOf('{', start);
+            if (braceOpen < 0)
+            {
+                sb.Append(existing, pos, existing.Length - pos);
+                break;
+            }
+
+            var braceClose = FindMatchingBraceForward(existing, braceOpen);
+            if (braceClose < 0)
+            {
+                sb.Append(existing, pos, braceOpen + 1 - pos);
+                pos = braceOpen + 1;
+                continue;
+            }
+
+            sb.Append(existing, pos, braceOpen + 1 - pos);
+            var body = existing[(braceOpen + 1)..braceClose];
+            if (!body.Contains("SameSite", StringComparison.Ordinal))
+            {
+                sb.Append(" SameSite = SameSiteMode.None, Secure = true,");
+                patchedAny = true;
+            }
+
+            sb.Append(body);
+            sb.Append('}');
+            pos = braceClose + 1;
+        }
+
+        var patched = sb.ToString();
+        return patchedAny
+            ? patched
+            : existing + "\n// TODO: set SameSite=None; Secure=true (Production only) on refresh/login cookie options.\n";
+    }
+
+    private static int FindMatchingBraceForward(string content, int openIndex)
+    {
+        var depth = 0;
+        var inString = '\0';
+        for (var i = openIndex; i < content.Length; i++)
+        {
+            var c = content[i];
+            if (inString != '\0')
+            {
+                if (c == '\\')
+                {
+                    i++;
+                }
+                else if (c == inString)
+                {
+                    inString = '\0';
+                }
+
+                continue;
+            }
+
+            if (c is '\'' or '"')
+            {
+                inString = c;
+            }
+            else if (c == '{')
+            {
+                depth++;
+            }
+            else if (c == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
     private static string? PatchAuthService(string? existing)
     {
         if (string.IsNullOrWhiteSpace(existing))
@@ -250,13 +348,154 @@ public sealed class DeploymentFileScaffolder
             return null;
         }
 
-        var patched = existing
-            .Replace("\"/api/Auth\"", "\"/api/v1/auth\"", StringComparison.OrdinalIgnoreCase)
-            .Replace("'/api/Auth'", "'/api/v1/auth'", StringComparison.OrdinalIgnoreCase)
-            .Replace("\"/api/auth\"", "\"/api/v1/auth\"", StringComparison.OrdinalIgnoreCase)
-            .Replace("'/api/auth'", "'/api/v1/auth'", StringComparison.OrdinalIgnoreCase);
+        // Match `/api/Auth` (or `/api/auth`) as a whole path segment, with an optional
+        // sub-path (e.g. `/api/Auth/login`). An exact-string Replace would miss the
+        // sub-path case shown in the patch instructions' own example
+        // (`this.http.post('/api/Auth/login', body)`), silently leaving it unfixed.
+        var patched = System.Text.RegularExpressions.Regex.Replace(
+            existing,
+            "(['\"])/api/[Aa]uth(/[^'\"]*)?\\1",
+            match => $"{match.Groups[1].Value}/api/v1/auth{match.Groups[2].Value}{match.Groups[1].Value}");
+
+        patched = InsertWithCredentials(patched);
 
         return patched;
+    }
+
+    /// <summary>
+    /// Inserts <c>withCredentials: true</c> into every <c>this.http.*(...)</c> call so
+    /// auth cookies are sent cross-origin. Uses balanced paren/brace scanning (not a
+    /// simple regex) so it handles generics (`this.http.post&lt;T&gt;(...)`), multi-line
+    /// calls, and an existing trailing options object literal without corrupting syntax.
+    /// </summary>
+    private static string InsertWithCredentials(string content)
+    {
+        var sb = new System.Text.StringBuilder();
+        var pos = 0;
+        while (true)
+        {
+            var callStart = content.IndexOf("this.http.", pos, StringComparison.Ordinal);
+            if (callStart < 0)
+            {
+                sb.Append(content, pos, content.Length - pos);
+                break;
+            }
+
+            var parenOpen = content.IndexOf('(', callStart);
+            if (parenOpen < 0)
+            {
+                sb.Append(content, pos, content.Length - pos);
+                break;
+            }
+
+            var parenClose = FindMatchingParen(content, parenOpen);
+            if (parenClose < 0)
+            {
+                sb.Append(content, pos, parenOpen + 1 - pos);
+                pos = parenOpen + 1;
+                continue;
+            }
+
+            sb.Append(content, pos, parenOpen + 1 - pos);
+            var args = content[(parenOpen + 1)..parenClose];
+            sb.Append(InjectWithCredentialsIntoArgs(args));
+            sb.Append(')');
+            pos = parenClose + 1;
+        }
+
+        return sb.ToString();
+    }
+
+    private static int FindMatchingParen(string content, int openIndex)
+    {
+        var depth = 0;
+        var inString = '\0';
+        for (var i = openIndex; i < content.Length; i++)
+        {
+            var c = content[i];
+            if (inString != '\0')
+            {
+                if (c == '\\')
+                {
+                    i++;
+                }
+                else if (c == inString)
+                {
+                    inString = '\0';
+                }
+
+                continue;
+            }
+
+            if (c is '\'' or '"' or '`')
+            {
+                inString = c;
+            }
+            else if (c == '(')
+            {
+                depth++;
+            }
+            else if (c == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
+    private static string InjectWithCredentialsIntoArgs(string args)
+    {
+        if (args.Contains("withCredentials", StringComparison.Ordinal))
+        {
+            return args;
+        }
+
+        var trimmed = args.TrimEnd();
+        var trailingWhitespace = args[trimmed.Length..];
+
+        if (trimmed.EndsWith('}'))
+        {
+            var openBrace = FindMatchingBraceBackward(trimmed, trimmed.Length - 1);
+            if (openBrace >= 0)
+            {
+                return trimmed[..(openBrace + 1)] + " withCredentials: true, " + trimmed[(openBrace + 1)..] + trailingWhitespace;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return "{ withCredentials: true }";
+        }
+
+        return trimmed + ", { withCredentials: true }" + trailingWhitespace;
+    }
+
+    private static int FindMatchingBraceBackward(string content, int closeIndex)
+    {
+        var depth = 0;
+        for (var i = closeIndex; i >= 0; i--)
+        {
+            var c = content[i];
+            if (c == '}')
+            {
+                depth++;
+            }
+            else if (c == '{')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
     }
 
     internal static string? PatchAppConfig(string? existing)
@@ -347,6 +586,12 @@ public sealed class DeploymentFileScaffolder
         return existing;
     }
 
+    /// <summary>
+    /// Rewrites the first relative `/hubs/...` string literal into a conditional expression
+    /// that builds an absolute URL from `environment.apiBaseUrl` in production. Falls back to
+    /// a TODO marker (not a silent no-op) when no such literal can be located deterministically,
+    /// so hybrid mode's AI fallback still has an accurate signal that the gap wasn't resolved.
+    /// </summary>
     private static string? PatchSignalRService(string? existing)
     {
         if (string.IsNullOrWhiteSpace(existing))
@@ -359,7 +604,25 @@ public sealed class DeploymentFileScaffolder
             return existing;
         }
 
-        return existing + "\n// TODO: use `${environment.apiBaseUrl}/hubs/...` for production SignalR connections.\n";
+        var hubUrlPattern = new System.Text.RegularExpressions.Regex(@"(['""`])(/hubs/[A-Za-z0-9_\-/]*)\1");
+        var match = hubUrlPattern.Match(existing);
+        if (!match.Success)
+        {
+            return existing + "\n// TODO: use `${environment.apiBaseUrl}/hubs/...` for production SignalR connections.\n";
+        }
+
+        var hubPath = match.Groups[2].Value;
+        var replacement = $$"""(environment.production && environment.apiBaseUrl ? `${environment.apiBaseUrl.replace(/\/$/, '')}{{hubPath}}` : '{{hubPath}}')""";
+
+        var patched = existing[..match.Index] + replacement + existing[(match.Index + match.Length)..];
+
+        if (!patched.Contains("environments/environment'", StringComparison.Ordinal) &&
+            !patched.Contains("environments/environment\"", StringComparison.Ordinal))
+        {
+            patched = "import { environment } from '../../../environments/environment';\n" + patched;
+        }
+
+        return patched;
     }
 
     private static string GenerateSpaOnlyVercelJson(DeploymentPlanPart website, string outputDirectory)

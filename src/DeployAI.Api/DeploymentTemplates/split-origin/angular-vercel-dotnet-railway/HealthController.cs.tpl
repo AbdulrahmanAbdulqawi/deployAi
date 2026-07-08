@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-namespace DeployAI.Generated;
+namespace {{serverNamespace}};
 
 [ApiController]
 [Route("api/v1/health")]

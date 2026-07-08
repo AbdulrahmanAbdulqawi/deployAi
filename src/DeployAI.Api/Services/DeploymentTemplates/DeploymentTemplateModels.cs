@@ -36,7 +36,8 @@ internal sealed record DeploymentTemplateVariables(
     string ProjectName,
     string BuildCommand,
     string ApiEnvKeysList,
-    string ApiEnvKeysExpression);
+    string ApiEnvKeysExpression,
+    string ServerNamespace);
 
 internal sealed record ResolvedDeploymentTemplate(
     string TemplateId,

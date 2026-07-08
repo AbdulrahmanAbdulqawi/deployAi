@@ -14,6 +14,7 @@ internal static class DeploymentTemplateRenderer
         rendered = rendered.Replace("{{buildCommand}}", variables.BuildCommand, StringComparison.Ordinal);
         rendered = rendered.Replace("{{apiEnvKeysList}}", variables.ApiEnvKeysList, StringComparison.Ordinal);
         rendered = rendered.Replace("{{apiEnvKeysExpression}}", variables.ApiEnvKeysExpression, StringComparison.Ordinal);
+        rendered = rendered.Replace("{{serverNamespace}}", variables.ServerNamespace, StringComparison.Ordinal);
         return rendered;
     }
 
@@ -32,6 +33,7 @@ internal static class DeploymentTemplateRenderer
         var apiEnvKeys = CrossProviderUrlWiring.ResolveApiEnvKeys(website.Framework);
         var apiEnvKeysList = string.Join(" / ", apiEnvKeys);
         var apiEnvKeysExpression = string.Join(" ?? ", apiEnvKeys.Select(key => $"process.env.{key}"));
+        var serverNamespace = GuessServerNamespace(serverRoot);
 
         return new DeploymentTemplateVariables(
             clientRoot,
@@ -42,7 +44,31 @@ internal static class DeploymentTemplateRenderer
             projectName,
             buildCommand,
             apiEnvKeysList,
-            apiEnvKeysExpression);
+            apiEnvKeysExpression,
+            serverNamespace);
+    }
+
+    /// <summary>
+    /// Best-effort default namespace for generated controllers, derived from the server's
+    /// root directory name rather than hardcoding the tool's own name (avoids colliding
+    /// with or looking out of place among the target repo's real namespace conventions).
+    /// </summary>
+    internal static string GuessServerNamespace(string serverRoot)
+    {
+        var segment = serverRoot
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault(s => !s.Equals("src", StringComparison.OrdinalIgnoreCase));
+
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return "Api.Controllers";
+        }
+
+        var pascal = string.Concat(
+            segment.Split(new[] { '-', '_', '.' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
+
+        return string.IsNullOrWhiteSpace(pascal) ? "Api.Controllers" : $"{pascal}.Controllers";
     }
 
     private static string ResolveBuildCommand(DeployAI.Core.Deployments.DeploymentPlanPart website)

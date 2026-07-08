@@ -15,10 +15,14 @@
 
 ## Greenfield stub (only if AuthController.cs does not exist)
 
+Use the same namespace as the repo's other controllers (e.g. match `Program.cs` or a
+sibling `Controllers/*.cs` file). Do not hardcode a namespace that belongs to this
+tool — it will not match the target repository's conventions.
+
 ```csharp
 using Microsoft.AspNetCore.Mvc;
 
-namespace DeployAI.Generated;
+namespace <MatchExistingControllerNamespace>;
 
 [ApiController]
 [Route("api/v1/auth")]

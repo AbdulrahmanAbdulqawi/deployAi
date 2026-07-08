@@ -26,7 +26,7 @@ flowchart LR
 ## Environment variables
 
 ### Vercel
-- `IDAARA_API_URL` or `NG_APP_API_URL` → Railway API URL (no trailing slash)
+- `DEPLOYAI_API_URL`, `API_BASE_URL`, `NG_APP_API_URL`, or `API_URL` → Railway API URL (no trailing slash). See `CrossProviderUrlWiring.ResolveApiEnvKeys` for the canonical list.
 
 ### Railway
 - `AllowedOrigins__0`, `AllowedOrigins__1`, … → Vercel production and preview origins
@@ -58,5 +58,7 @@ See [deploy-failure-fix.md](./deploy-failure-fix.md) for the Claude-assisted bui
 
 ## Reference
 
-- iDaara working commits: `674ec2e`, `1f1e84e`
-- Legacy same-origin proxy mode remains for non-Angular stacks only
+- Legacy same-origin proxy mode is used whenever the wiring mode isn't split-origin — i.e.
+  any frontend/backend combination other than an explicitly Angular frontend paired with a
+  .NET backend (see `CrossProviderUrlWiring.ResolveWiringMode`). This includes non-Angular
+  frontends, and Angular frontends paired with a non-.NET backend.

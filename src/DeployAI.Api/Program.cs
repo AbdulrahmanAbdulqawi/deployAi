@@ -52,7 +52,6 @@ builder.Services.AddScoped<DeploymentFileScaffolder>();
 builder.Services.AddScoped<DeploymentSetupFileFetcher>();
 builder.Services.AddScoped<TemplateDeploymentFileGenerator>();
 builder.Services.AddScoped<HybridDeploymentFileGenerator>();
-builder.Services.AddScoped<ClaudeDeploymentFileGenerator>();
 builder.Services.AddScoped<IDeploymentFileGeneratorSelector, DeploymentFileGeneratorSelector>();
 builder.Services.Configure<DeployAI.Infrastructure.Options.AnthropicOptions>(
     builder.Configuration.GetSection(DeployAI.Infrastructure.Options.AnthropicOptions.SectionName));

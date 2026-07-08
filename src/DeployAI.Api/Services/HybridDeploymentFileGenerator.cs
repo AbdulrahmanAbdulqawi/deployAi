@@ -60,8 +60,17 @@ public sealed class HybridDeploymentFileGenerator : IDeploymentFileGenerator
             .Select(file => file.Path)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+        // A deterministic patch that couldn't be applied for real leaves a "// TODO:" marker
+        // instead of returning null (see DeploymentFileScaffolder.PatchSignalRService /
+        // PatchCookieOptionsForCrossOrigin). Those paths still count as "not actually solved",
+        // so forward them to Claude too instead of letting the TODO stub ship as-is.
+        var unresolvedDeterministicPaths = deterministicFiles
+            .Where(file => file.Content.Contains("// TODO:", StringComparison.Ordinal))
+            .Select(file => file.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         var patchGaps = missingFiles
-            .Where(missing => !deterministicPaths.Contains(missing.Path))
+            .Where(missing => !deterministicPaths.Contains(missing.Path) || unresolvedDeterministicPaths.Contains(missing.Path))
             .ToArray();
 
         if (patchGaps.Length == 0)
@@ -112,7 +121,11 @@ public sealed class HybridDeploymentFileGenerator : IDeploymentFileGenerator
             .Select(file => new GeneratedDeploymentFile(file.Path, file.Content))
             .ToArray();
 
-        var merged = MergeFiles(deterministicFiles, aiFiles);
+        var forwardedPaths = patchGaps
+            .Select(gap => gap.Path)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var merged = MergeFiles(deterministicFiles, aiFiles, forwardedPaths);
         if (merged.Count == 0)
         {
             throw new DeployAIException("setup_generation_failed", "Claude returned an empty or invalid deployment setup.");
@@ -123,19 +136,37 @@ public sealed class HybridDeploymentFileGenerator : IDeploymentFileGenerator
         return merged;
     }
 
+    /// <summary>
+    /// Merges deterministic (pre-rendered) and AI-submitted files. When
+    /// <paramref name="allowedAiOverwritePaths"/> is provided, AI output can only overwrite a
+    /// deterministic file if its path was actually forwarded to Claude as a gap to solve —
+    /// this stops an unconstrained tool-using agent from silently clobbering an
+    /// already-correct deterministic file it wasn't asked to touch. Pass null to allow AI to
+    /// win on any path (used by tests exercising raw merge semantics).
+    /// </summary>
     internal static IReadOnlyList<GeneratedDeploymentFile> MergeFiles(
         IReadOnlyList<GeneratedDeploymentFile> deterministicFiles,
-        IReadOnlyList<GeneratedDeploymentFile> aiFiles)
+        IReadOnlyList<GeneratedDeploymentFile> aiFiles,
+        IReadOnlySet<string>? allowedAiOverwritePaths = null)
     {
         var merged = new Dictionary<string, GeneratedDeploymentFile>(StringComparer.OrdinalIgnoreCase);
+        var deterministicPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var file in deterministicFiles)
         {
             merged[file.Path] = file;
+            deterministicPaths.Add(file.Path);
         }
 
         foreach (var file in aiFiles)
         {
+            if (allowedAiOverwritePaths is not null &&
+                deterministicPaths.Contains(file.Path) &&
+                !allowedAiOverwritePaths.Contains(file.Path))
+            {
+                continue;
+            }
+
             merged[file.Path] = file;
         }
 

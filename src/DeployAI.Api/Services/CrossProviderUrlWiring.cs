@@ -60,13 +60,22 @@ internal static class CrossProviderUrlWiring
             return CrossProviderWiringMode.DirectClientApi;
         }
 
-        if (IsDotnetServerFramework(serverFramework))
+        // SplitOrigin (Angular + .NET split-origin templates/readiness checks) requires an
+        // explicit Angular signal on the frontend, not just "unrecognized framework" falling
+        // through UsesRelativeApiPaths' default. Without this, an unknown frontend framework
+        // paired with a generically-"docker" Railway backend (which may not be .NET at all)
+        // gets misclassified as split-origin and produces irrelevant Angular/.NET Blocking
+        // readiness findings for an unrelated stack.
+        if (IsRecognizedSplitOriginFrontend(websiteFramework) && IsDotnetServerFramework(serverFramework))
         {
             return CrossProviderWiringMode.SplitOrigin;
         }
 
         return CrossProviderWiringMode.SameOriginProxy;
     }
+
+    private static bool IsRecognizedSplitOriginFrontend(string? framework) =>
+        framework?.ToLowerInvariant() is "angular";
 
     internal static bool ShouldUseSplitOrigin(string? websiteFramework, string? serverFramework) =>
         ResolveWiringMode(websiteFramework, serverFramework) == CrossProviderWiringMode.SplitOrigin;
@@ -78,7 +87,7 @@ internal static class CrossProviderUrlWiring
             "next" or "nextjs" or "next.js" => ["NEXT_PUBLIC_API_URL", "API_URL"],
             "nuxt" => ["NUXT_PUBLIC_API_URL", "API_URL"],
             "vite" or "react" => ["VITE_API_URL", "API_URL"],
-            "angular" => ["DEPLOYAI_API_URL", "API_BASE_URL", "NG_APP_API_URL", "API_URL", "IDAARA_API_URL"],
+            "angular" => ["DEPLOYAI_API_URL", "API_BASE_URL", "NG_APP_API_URL", "API_URL"],
             "sveltekit" or "astro" => ["PUBLIC_API_URL", "API_URL"],
             _ => ["API_URL"]
         };

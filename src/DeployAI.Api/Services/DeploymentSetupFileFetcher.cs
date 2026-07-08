@@ -37,15 +37,34 @@ public sealed class DeploymentSetupFileFetcher
         var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
         {
-            fileContents[path] = await _gitHubService.GetFileContentAsync(
-                accessToken,
-                owner,
-                repo,
-                path,
-                gitRef,
-                cancellationToken);
+            fileContents[path] = await TryGetFileContentAsync(accessToken, owner, repo, path, gitRef, cancellationToken);
         }
 
         return fileContents;
+    }
+
+    // A transient/permission error on one scan path (often unrelated to the actual gaps
+    // being generated) must not abort the entire setup flow — mirrors
+    // ClaudeDeploymentFixGenerator.TryReadFileAsync's per-file isolation.
+    private async Task<string?> TryGetFileContentAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string path,
+        string gitRef,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _gitHubService.GetFileContentAsync(accessToken, owner, repo, path, gitRef, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

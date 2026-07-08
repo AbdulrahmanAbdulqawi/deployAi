@@ -167,7 +167,7 @@ internal static class ClaudeDeploymentPrompts
         - Services may keep relative API roots such as `/api/v1/auth`; the interceptor prefixes them with `environment.apiBaseUrl`.
         - Never hardcode `/api/Auth` when the server route is `api/v1/auth`.
         - `angular.json` production config must use fileReplacements swapping in `environment.production.ts`.
-        - `scripts/write-api-env.mjs` must fail the build when `DEPLOYAI_API_URL` / `API_BASE_URL` / `NG_APP_API_URL` is missing on Vercel/CI.
+        - `scripts/write-api-env.mjs` must fail the build when {{apiEnvKeys}} is missing on Vercel/CI.
         - `vercel.json` must be SPA-only (no `/api` or `/hubs` proxy rewrites).
         - POST to `*.vercel.app/api/*` returns 405 by design; the fix is interceptor wiring, not Vercel rewrites.
 
@@ -333,7 +333,11 @@ internal static class ClaudeDeploymentPrompts
         builder.AppendLine();
         builder.Append(FixInstructions);
 
-        return builder.ToString();
+        // FixInstructions is a compile-time const, so the API env key list it references is
+        // filled in here from the single source of truth (CrossProviderUrlWiring) instead of
+        // being duplicated/hardcoded — avoids the two lists silently drifting apart.
+        var apiEnvKeys = string.Join(" / ", CrossProviderUrlWiring.ResolveApiEnvKeys(framework).Select(key => $"`{key}`"));
+        return builder.ToString().Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal);
     }
 
     internal static string BuildMissingFilesPrompt(
