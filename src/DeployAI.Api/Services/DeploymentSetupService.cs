@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Security;
@@ -14,7 +15,7 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
     private readonly DeployAIDbContext _db;
     private readonly IGitHubService _gitHubService;
     private readonly IDeploymentReadinessService _readinessService;
-    private readonly IDeploymentFileGenerator _fileGenerator;
+    private readonly IDeploymentFileGeneratorSelector _generatorSelector;
     private readonly IFrontendEnvironmentWiringService _environmentWiring;
     private readonly IEncryptionService _encryption;
 
@@ -22,14 +23,14 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         DeployAIDbContext db,
         IGitHubService gitHubService,
         IDeploymentReadinessService readinessService,
-        IDeploymentFileGenerator fileGenerator,
+        IDeploymentFileGeneratorSelector generatorSelector,
         IFrontendEnvironmentWiringService environmentWiring,
         IEncryptionService encryption)
     {
         _db = db;
         _gitHubService = gitHubService;
         _readinessService = readinessService;
-        _fileGenerator = fileGenerator;
+        _generatorSelector = generatorSelector;
         _environmentWiring = environmentWiring;
         _encryption = encryption;
     }
@@ -66,11 +67,16 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             throw new DeployAIException("setup_not_needed", "Repository already has required split-origin deployment files.");
         }
 
+        var selection = await _generatorSelector.SelectAsync(request.UseAi, reportActivity);
+        await PersistAiPreferenceAsync(userId, request, selection.Mode, cancellationToken);
+
         await ReportActivityAsync(
             reportActivity,
-            $"Found {missing.Length} deployment target(s) for Claude to generate or fix.");
+            selection.Mode == DeploymentFileGeneratorSelector.AiMode
+                ? $"Found {missing.Length} deployment target(s) for Claude to generate or fix."
+                : $"Found {missing.Length} deployment target(s) to generate from built-in templates.");
 
-        var generated = await _fileGenerator.GenerateMissingFilesAsync(
+        var generated = await selection.Generator.GenerateMissingFilesAsync(
             owner,
             repo,
             request.GitRef,
@@ -241,12 +247,82 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
 
         project.DefaultBranch = branch;
         project.UpdatedAt = DateTimeOffset.UtcNow;
-        project.DeploymentSetupJson = JsonSerializer.Serialize(new
-        {
-            setupBranch = branch,
-            setupCompletedAt = DateTimeOffset.UtcNow
-        });
+        var state = ParseSetupState(project.DeploymentSetupJson);
+        state["setupBranch"] = branch;
+        state["setupCompletedAt"] = DateTimeOffset.UtcNow.ToString("O");
+        project.DeploymentSetupJson = state.ToJsonString();
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<bool?> GetAiSetupPreferenceAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await _db.Projects.FirstOrDefaultAsync(
+            p => p.Id == projectId && p.UserId == userId,
+            cancellationToken);
+        if (project is null)
+        {
+            throw new DeployAIException("project_not_found", "We couldn't find that app.");
+        }
+
+        var state = ParseSetupState(project.DeploymentSetupJson);
+        return state["aiSetupEnabled"]?.GetValue<bool>();
+    }
+
+    public async Task SetAiSetupPreferenceAsync(
+        Guid userId,
+        Guid projectId,
+        bool enabled,
+        CancellationToken cancellationToken)
+    {
+        var project = await _db.Projects.FirstOrDefaultAsync(
+            p => p.Id == projectId && p.UserId == userId,
+            cancellationToken);
+        if (project is null)
+        {
+            throw new DeployAIException("project_not_found", "We couldn't find that app.");
+        }
+
+        var state = ParseSetupState(project.DeploymentSetupJson);
+        state["aiSetupEnabled"] = enabled;
+        project.DeploymentSetupJson = state.ToJsonString();
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task PersistAiPreferenceAsync(
+        Guid userId,
+        DeploymentSetupRequest request,
+        string mode,
+        CancellationToken cancellationToken)
+    {
+        // Only remember an explicit user choice, not a fallback outcome.
+        if (request.ProjectId is not { } projectId || request.UseAi is not { } useAi)
+        {
+            return;
+        }
+
+        _ = mode;
+        await SetAiSetupPreferenceAsync(userId, projectId, useAi, cancellationToken);
+    }
+
+    private static JsonObject ParseSetupState(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new JsonObject();
+        }
+
+        try
+        {
+            return JsonNode.Parse(json)?.AsObject() ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            return new JsonObject();
+        }
     }
 
     private async Task<string> GetGitHubTokenAsync(Guid userId, CancellationToken cancellationToken)

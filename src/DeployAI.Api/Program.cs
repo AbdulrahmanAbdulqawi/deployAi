@@ -46,7 +46,8 @@ builder.Services.AddScoped<IDeploymentFailureAnalyzer, DeploymentFailureAnalyzer
 builder.Services.AddScoped<IDeploymentFixService, DeploymentFixService>();
 builder.Services.AddScoped<IDeploymentFixGenerator, ClaudeDeploymentFixGenerator>();
 builder.Services.AddScoped<TemplateDeploymentFileGenerator>();
-builder.Services.AddScoped<IDeploymentFileGenerator, ClaudeDeploymentFileGenerator>();
+builder.Services.AddScoped<ClaudeDeploymentFileGenerator>();
+builder.Services.AddScoped<IDeploymentFileGeneratorSelector, DeploymentFileGeneratorSelector>();
 builder.Services.Configure<DeployAI.Infrastructure.Options.AnthropicOptions>(
     builder.Configuration.GetSection(DeployAI.Infrastructure.Options.AnthropicOptions.SectionName));
 builder.Services.AddHttpClient<AnthropicMessageClient>((sp, client) =>

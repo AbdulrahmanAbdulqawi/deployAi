@@ -32,7 +32,8 @@ public sealed record DeploymentSetupRequest(
     IReadOnlyList<DeploymentPlanPart> Parts,
     Guid? ProjectId = null,
     bool Regenerate = true,
-    bool ForceRegenerate = false);
+    bool ForceRegenerate = false,
+    bool? UseAi = null);
 
 public sealed record DeploymentSetupMergeResult(
     bool Merged,

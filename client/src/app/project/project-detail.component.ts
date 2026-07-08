@@ -96,6 +96,9 @@ export class ProjectDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.projectId = this.route.snapshot.paramMap.get('id') ?? '';
+    if (this.projectId) {
+      this.aiSetup.hydrateForProject(this.projectId);
+    }
     this.loadProject();
   }
 
@@ -206,6 +209,14 @@ export class ProjectDetailComponent implements OnInit {
 
   showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
     return this.aiSetup.enabled() && readiness.usesSplitOrigin;
+  }
+
+  setAiSetupEnabled(enabled: boolean): void {
+    if (this.projectId) {
+      this.aiSetup.setEnabledForProject(this.projectId, enabled);
+    } else {
+      this.aiSetup.setEnabled(enabled);
+    }
   }
 
   showSetupBanner(readiness: DeploymentReadinessResult): boolean {

@@ -178,6 +178,27 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(new { merged = true });
     }
 
+    [HttpGet("~/api/projects/{projectId:guid}/settings/ai-setup")]
+    public async Task<IActionResult> GetAiSetupPreference(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var enabled = await _setupService.GetAiSetupPreferenceAsync(userId, projectId, cancellationToken);
+        return Ok(new { enabled });
+    }
+
+    [HttpPut("~/api/projects/{projectId:guid}/settings/ai-setup")]
+    public async Task<IActionResult> SetAiSetupPreference(
+        Guid projectId,
+        [FromBody] AiSetupPreferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        await _setupService.SetAiSetupPreferenceAsync(userId, projectId, request.Enabled, cancellationToken);
+        return Ok(new { enabled = request.Enabled });
+    }
+
     [HttpPost("~/api/projects/{projectId:guid}/deployment-setup/use-branch")]
     public async Task<IActionResult> UseSetupBranch(
         Guid projectId,
@@ -215,5 +236,6 @@ public sealed class DeploymentSetupController : ControllerBase
 
     public sealed record MergeSetupRequest(int PullRequestNumber, Guid? ProjectId = null);
     public sealed record UseSetupBranchRequest(string Branch);
+    public sealed record AiSetupPreferenceRequest(bool Enabled);
     public sealed record ScanReadinessRequest(string Ref, IReadOnlyList<DeploymentPlanPart> Parts);
 }

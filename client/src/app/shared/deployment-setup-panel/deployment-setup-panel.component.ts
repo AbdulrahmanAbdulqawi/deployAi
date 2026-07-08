@@ -1,5 +1,6 @@
 import { Component, computed, DestroyRef, inject, input, output, signal } from '@angular/core';
 import { ApiService } from '../../core/services/api.service';
+import { AiSetupPreferenceService } from '../../core/services/ai-setup-preference.service';
 import {
   DeploymentPlanPart,
   DeploymentReadinessResult,
@@ -42,6 +43,7 @@ export class DeploymentSetupPanelComponent {
 
   private readonly destroyRef = inject(DestroyRef);
   private readonly api = inject(ApiService);
+  private readonly aiSetup = inject(AiSetupPreferenceService);
   private setupSubscription?: { unsubscribe: () => void };
 
   constructor() {
@@ -97,7 +99,8 @@ export class DeploymentSetupPanelComponent {
         this.gitRef(),
         this.parts(),
         this.projectId() ?? undefined,
-        forceRegenerate
+        forceRegenerate,
+        this.aiSetup.enabled()
       )
       .subscribe({
         next: (event) => {

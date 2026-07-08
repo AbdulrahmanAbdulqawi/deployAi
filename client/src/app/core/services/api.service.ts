@@ -138,7 +138,8 @@ export class ApiService {
     ref: string,
     parts: DeploymentPlanPart[],
     projectId?: string,
-    forceRegenerate = false
+    forceRegenerate = false,
+    useAi?: boolean
   ): Observable<DeploymentSetupStreamEvent> {
     return new Observable<DeploymentSetupStreamEvent>((subscriber) => {
       const abortController = new AbortController();
@@ -153,7 +154,13 @@ export class ApiService {
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
-            body: JSON.stringify({ gitRef: ref, parts, projectId: projectId ?? null, forceRegenerate }),
+            body: JSON.stringify({
+              gitRef: ref,
+              parts,
+              projectId: projectId ?? null,
+              forceRegenerate,
+              useAi: useAi ?? null
+            }),
             signal: abortController.signal
           });
 
@@ -243,6 +250,19 @@ export class ApiService {
     return this.http.post<{ branch: string }>(
       `/api/projects/${projectId}/deployment-setup/use-branch`,
       { branch }
+    );
+  }
+
+  getAiSetupPreference(projectId: string) {
+    return this.http.get<{ enabled: boolean | null }>(
+      `/api/projects/${projectId}/settings/ai-setup`
+    );
+  }
+
+  setAiSetupPreference(projectId: string, enabled: boolean) {
+    return this.http.put<{ enabled: boolean }>(
+      `/api/projects/${projectId}/settings/ai-setup`,
+      { enabled }
     );
   }
 

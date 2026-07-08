@@ -87,7 +87,7 @@ public class DeploymentSetupServiceTests
             db,
             gitHub.Object,
             readiness.Object,
-            generator.Object,
+            SelectorReturning(generator.Object),
             environmentWiring.Object,
             encryption.Object);
 
@@ -182,7 +182,7 @@ public class DeploymentSetupServiceTests
             db,
             gitHub.Object,
             readiness.Object,
-            generator.Object,
+            SelectorReturning(generator.Object),
             new Mock<IFrontendEnvironmentWiringService>().Object,
             encryption.Object);
 
@@ -256,7 +256,7 @@ public class DeploymentSetupServiceTests
             db,
             gitHub.Object,
             new Mock<IDeploymentReadinessService>().Object,
-            new Mock<IDeploymentFileGenerator>().Object,
+            SelectorReturning(new Mock<IDeploymentFileGenerator>().Object),
             environmentWiring.Object,
             encryption.Object);
 
@@ -340,7 +340,7 @@ public class DeploymentSetupServiceTests
             db,
             gitHub.Object,
             readiness.Object,
-            generator.Object,
+            SelectorReturning(generator.Object),
             new Mock<IFrontendEnvironmentWiringService>().Object,
             encryption.Object);
 
@@ -355,6 +355,17 @@ public class DeploymentSetupServiceTests
         Assert.NotNull(capturedMissing);
         Assert.Contains(capturedMissing!, file => file.Path.Contains("vercel.json", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(capturedMissing!, file => file.Path.Contains("Program.cs", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IDeploymentFileGeneratorSelector SelectorReturning(
+        IDeploymentFileGenerator generator,
+        string mode = DeploymentFileGeneratorSelector.AiMode)
+    {
+        var selector = new Mock<IDeploymentFileGeneratorSelector>();
+        selector
+            .Setup(s => s.SelectAsync(It.IsAny<bool?>(), It.IsAny<Func<string, Task>?>()))
+            .ReturnsAsync(new DeploymentFileGeneratorSelection(generator, mode));
+        return selector.Object;
     }
 
     private static DeployAIDbContext CreateDb()
