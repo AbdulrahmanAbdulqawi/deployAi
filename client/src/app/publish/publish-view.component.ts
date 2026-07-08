@@ -106,7 +106,7 @@ export class PublishViewComponent implements OnInit, OnDestroy {
   phaseHeading(): string {
     const deployment = this.store.deployment();
     if (!deployment) {
-      return 'Getting ready…';
+      return 'Preparing deployment…';
     }
 
     if (this.store.isComplete()) {
@@ -116,21 +116,21 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       if (deployment.status === 'partial') {
         return 'Partially deployed';
       }
-      return "Deployment didn't finish";
+      return 'Deployment incomplete';
     }
 
     const apiTarget = deployment.targets.find(t => t.providerName === 'railway');
     const siteTarget = deployment.targets.find(t => t.providerName === 'vercel');
 
     if (apiTarget && apiTarget.status !== 'success' && apiTarget.status !== 'failed') {
-      return 'Setting up your API…';
+      return 'Deploying your API…';
     }
 
     if (siteTarget && siteTarget.status !== 'success' && siteTarget.status !== 'failed') {
-      return 'Connecting your site…';
+      return 'Deploying your site…';
     }
 
-    return 'Getting ready…';
+    return 'Preparing deployment…';
   }
 
   elapsedLabel(): string {
@@ -309,7 +309,7 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       next: (result) => {
         this.syncingUrls.set(false);
         if (result.skipped) {
-          this.toast.show(result.skipReason ?? 'Reconnect was skipped.', 'info');
+          this.toast.show(result.skipReason ?? 'Reconnection was skipped.', 'info');
           return;
         }
 

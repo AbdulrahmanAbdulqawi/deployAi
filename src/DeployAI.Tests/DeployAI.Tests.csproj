@@ -25,6 +25,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\DeployAI.Api\DeploymentTemplates\**\*">
+      <Link>DeploymentTemplates\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\DeployAI.Core\DeployAI.Core.csproj" />
     <ProjectReference Include="..\DeployAI.Providers\DeployAI.Providers.csproj" />
     <ProjectReference Include="..\DeployAI.Api\DeployAI.Api.csproj" />

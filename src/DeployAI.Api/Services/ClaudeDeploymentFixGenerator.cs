@@ -1,4 +1,5 @@
 using System.Text;
+using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Infrastructure.GitHub;
@@ -13,15 +14,18 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
     private readonly AnthropicMessageClient _anthropic;
     private readonly IGitHubService _gitHubService;
     private readonly IFixBuildWorkspaceService _buildWorkspace;
+    private readonly DeploymentTemplateResolver _templateResolver;
 
     public ClaudeDeploymentFixGenerator(
         AnthropicMessageClient anthropic,
         IGitHubService gitHubService,
-        IFixBuildWorkspaceService buildWorkspace)
+        IFixBuildWorkspaceService buildWorkspace,
+        DeploymentTemplateResolver templateResolver)
     {
         _anthropic = anthropic;
         _gitHubService = gitHubService;
         _buildWorkspace = buildWorkspace;
+        _templateResolver = templateResolver;
     }
 
     public async Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateFixFilesAsync(
@@ -63,6 +67,7 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
             reportActivity);
 
         var repoContext = await BuildRepoContextAsync(repoRef, targetConfig, failureAnalysis, cancellationToken);
+        var referenceTemplates = ResolveFixReferenceTemplates(providerName, framework, targetConfig, failureAnalysis);
 
         var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
             owner,
@@ -71,7 +76,8 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
             providerName,
             framework,
             failureAnalysis,
-            repoContext);
+            repoContext,
+            referenceTemplates);
 
         await ReportAsync(reportActivity, "Starting Claude fix agent…");
 
@@ -135,6 +141,26 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         return AnthropicJsonFileParser.ParseFilesResponse(
             responseText,
             GeneratedDeploymentFilePathRules.IsAllowedPath);
+    }
+
+    private IReadOnlyList<ResolvedDeploymentTemplate> ResolveFixReferenceTemplates(
+        string providerName,
+        string? framework,
+        DeployTargetConfig targetConfig,
+        DeploymentFailureAnalysis failureAnalysis)
+    {
+        if (failureAnalysis.Category != DeploymentFailureCategory.CodeBuild)
+        {
+            return [];
+        }
+
+        var parts = DeploymentFixPlanBuilder.BuildSyntheticSplitOriginParts(providerName, framework, targetConfig);
+        if (parts.Count == 0)
+        {
+            return [];
+        }
+
+        return _templateResolver.ResolveForSplitOriginFix(parts, failureAnalysis.ReferencedFiles);
     }
 
     private static string NormalizePath(string path) =>

@@ -2,6 +2,7 @@ using System.Text;
 using DeployAI.Api.Hubs;
 using DeployAI.Api.Middleware;
 using DeployAI.Api.Services;
+using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 using DeployAI.Data;
 using DeployAI.Infrastructure;
@@ -45,7 +46,12 @@ builder.Services.AddScoped<IFixBuildWorkspaceService, FixBuildWorkspaceService>(
 builder.Services.AddScoped<IDeploymentFailureAnalyzer, DeploymentFailureAnalyzer>();
 builder.Services.AddScoped<IDeploymentFixService, DeploymentFixService>();
 builder.Services.AddScoped<IDeploymentFixGenerator, ClaudeDeploymentFixGenerator>();
+builder.Services.AddSingleton<DeploymentTemplateCatalog>();
+builder.Services.AddSingleton<DeploymentTemplateResolver>();
+builder.Services.AddScoped<DeploymentFileScaffolder>();
+builder.Services.AddScoped<DeploymentSetupFileFetcher>();
 builder.Services.AddScoped<TemplateDeploymentFileGenerator>();
+builder.Services.AddScoped<HybridDeploymentFileGenerator>();
 builder.Services.AddScoped<ClaudeDeploymentFileGenerator>();
 builder.Services.AddScoped<IDeploymentFileGeneratorSelector, DeploymentFileGeneratorSelector>();
 builder.Services.Configure<DeployAI.Infrastructure.Options.AnthropicOptions>(

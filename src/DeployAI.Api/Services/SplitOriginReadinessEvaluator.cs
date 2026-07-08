@@ -59,10 +59,14 @@ internal static class SplitOriginReadinessEvaluator
         var environmentProductionPath = $"{clientPrefix}src/environments/environment.production.ts";
         var writeApiEnvPath = $"{clientPrefix}scripts/write-api-env.mjs";
         var appConfigPath = $"{clientPrefix}src/app/app.config.ts";
+        var interceptorPath = $"{clientPrefix}src/app/core/interceptors/api-base.interceptor.ts";
         var programPath = $"{serverRoot}/Program.cs";
         var authControllerPath = $"{serverRoot}/Controllers/AuthController.cs";
         var authServicePath = $"{clientPrefix}src/app/core/services/auth.service.ts";
         var signalrServicePath = $"{clientPrefix}src/app/core/services/signalr.service.ts";
+        var serviceContents = SplitOriginClientWiringAnalyzer.SelectServiceFileContents(fileContentsByPath).ToArray();
+        var registersInterceptor = SplitOriginClientWiringAnalyzer.RegistersApiBaseInterceptor(
+            fileContentsByPath.GetValueOrDefault(appConfigPath));
 
         foreach (var path in SplitOriginDetection.BuildReadinessFilePaths(websitePart, serverPart))
         {
@@ -82,11 +86,11 @@ internal static class SplitOriginReadinessEvaluator
                 "angular.json is required for build configuration and environment file replacements.",
                 DeploymentFileSeverity.Blocking));
         }
-        else if (!HasAngularBuildHook(fileContentsByPath[angularPath], fileContentsByPath.GetValueOrDefault(vercelPath)))
+        else if (!SplitOriginClientWiringAnalyzer.HasAngularProductionFileReplacements(fileContentsByPath[angularPath]))
         {
             missing.Add(new MissingDeploymentFile(
                 angularPath,
-                "angular.json should use fileReplacements for environment.production.ts or invoke write-api-env.mjs in the build.",
+                "angular.json must use production fileReplacements for environment.production.ts so write-api-env output is bundled.",
                 DeploymentFileSeverity.Blocking));
         }
 
@@ -97,11 +101,20 @@ internal static class SplitOriginReadinessEvaluator
                 "app.config.ts must register apiBaseInterceptor before other HTTP interceptors.",
                 DeploymentFileSeverity.Blocking));
         }
-        else if (!RegistersApiBaseInterceptor(fileContentsByPath[appConfigPath]))
+        else if (!registersInterceptor)
         {
             missing.Add(new MissingDeploymentFile(
                 appConfigPath,
-                "app.config.ts does not register apiBaseInterceptor.",
+                "app.config.ts does not register apiBaseInterceptor. Relative /api requests will hit the Vercel SPA and return 405.",
+                DeploymentFileSeverity.Blocking));
+        }
+
+        if (!registersInterceptor &&
+            SplitOriginClientWiringAnalyzer.HasRelativeApiServicePaths(serviceContents))
+        {
+            missing.Add(new MissingDeploymentFile(
+                interceptorPath,
+                "Services use relative /api paths but apiBaseInterceptor is not registered in app.config.ts.",
                 DeploymentFileSeverity.Blocking));
         }
 
@@ -115,6 +128,17 @@ internal static class SplitOriginReadinessEvaluator
                 DeploymentFileSeverity.Blocking));
         }
 
+        if (!IsMissing(fileContentsByPath, authServicePath) &&
+            SplitOriginClientWiringAnalyzer.HasAuthRouteMismatch(
+                fileContentsByPath[authServicePath],
+                fileContentsByPath.GetValueOrDefault(authControllerPath)))
+        {
+            missing.Add(new MissingDeploymentFile(
+                authServicePath,
+                "Auth service uses /api/Auth but the server route is api/v1/auth. Update the client path to /api/v1/auth.",
+                DeploymentFileSeverity.Blocking));
+        }
+
         if (!IsMissing(fileContentsByPath, programPath) &&
             HasDevOnlyCorsPolicy(fileContentsByPath[programPath]))
         {
@@ -124,7 +148,7 @@ internal static class SplitOriginReadinessEvaluator
                 DeploymentFileSeverity.Recommended));
         }
         else if (!IsMissing(fileContentsByPath, programPath) &&
-            !HasSplitOriginCorsSetup(fileContentsByPath[programPath]))
+                 !HasSplitOriginCorsSetup(fileContentsByPath[programPath]))
         {
             missing.Add(new MissingDeploymentFile(
                 programPath,
@@ -148,6 +172,16 @@ internal static class SplitOriginReadinessEvaluator
             missing.Add(new MissingDeploymentFile(
                 missingEnvironmentPath,
                 "Environment files are required when write-api-env.mjs injects apiBaseUrl at build time.",
+                DeploymentFileSeverity.Recommended));
+        }
+
+        if (SplitOriginClientWiringAnalyzer.UsesLegacyApiUrlPropertyWithoutApiBaseUrl(
+                [fileContentsByPath.GetValueOrDefault(environmentPath), fileContentsByPath.GetValueOrDefault(environmentProductionPath)],
+                serviceContents))
+        {
+            missing.Add(new MissingDeploymentFile(
+                environmentPath,
+                "Services reference environment.apiUrl but environment files only define apiBaseUrl.",
                 DeploymentFileSeverity.Recommended));
         }
 
@@ -204,30 +238,6 @@ internal static class SplitOriginReadinessEvaluator
 
     private static bool IsMissing(IReadOnlyDictionary<string, string?> files, string path) =>
         !files.TryGetValue(path, out var content) || string.IsNullOrWhiteSpace(content);
-
-    private static bool HasAngularBuildHook(string? angularJson, string? vercelJson)
-    {
-        if (!string.IsNullOrWhiteSpace(angularJson) &&
-            angularJson.Contains("fileReplacements", StringComparison.OrdinalIgnoreCase) &&
-            angularJson.Contains("environment.production", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return !string.IsNullOrWhiteSpace(vercelJson) &&
-               vercelJson.Contains("write-api-env", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool RegistersApiBaseInterceptor(string? appConfig)
-    {
-        if (string.IsNullOrWhiteSpace(appConfig))
-        {
-            return false;
-        }
-
-        return appConfig.Contains("apiBaseInterceptor", StringComparison.OrdinalIgnoreCase) ||
-               appConfig.Contains("api-base.interceptor", StringComparison.OrdinalIgnoreCase);
-    }
 
     private static bool HasDevOnlyCorsPolicy(string? programCs)
     {

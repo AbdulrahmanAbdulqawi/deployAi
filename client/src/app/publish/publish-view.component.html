@@ -35,7 +35,7 @@
       <div class="restore-bar">
         <div class="restore-bar__copy">
           <app-ui-icon name="clock" size="sm" statusClass="accent" />
-          <p>You can go back to your last working version anytime.</p>
+          <p>You can restore your last working version at any time.</p>
         </div>
         <app-ui-button
           variant="secondary"
@@ -43,7 +43,7 @@
           [disabled]="store.restoring()"
           (click)="store.restore()"
         >
-          {{ store.restoring() ? 'Going back…' : 'Go back' }}
+          {{ store.restoring() ? 'Restoring…' : 'Restore version' }}
         </app-ui-button>
       </div>
     }
@@ -116,7 +116,7 @@
           </span>
           <div class="summary__copy">
             <h2 class="summary__title">{{ projectName() || 'Your app' }} is live</h2>
-            <p class="summary__subtitle">Your app is up and ready for people to use.</p>
+            <p class="summary__subtitle">Your app is deployed and ready for your users.</p>
             <div class="summary__stats">
               @if (durationLabel(); as duration) {
                 <span class="summary__stat">
@@ -197,27 +197,27 @@
           <details class="summary__explainer">
             <summary class="summary__explainer-toggle">
               <app-ui-icon name="info" size="sm" statusClass="muted" />
-              What are sync settings?
+              What are connection settings?
             </summary>
             <div class="summary__explainer-body">
               <p>
-                Your website and your API run on two different services. For them to work together,
-                each one needs to know the other's current web address:
+                Your website and your API run as two separate services. To work together, each one
+                needs to know the other's current address:
               </p>
               <ul>
-                <li>Your website needs the API's address so it can load and save data.</li>
-                <li>Your API needs to allow your website's address so requests aren't blocked.</li>
+                <li>Your website uses the API's address to load and save data.</li>
+                <li>Your API allows requests from your website's address so they aren't blocked.</li>
               </ul>
               <p>
-                Most of the time this is handled automatically. You may need to reconnect when:
+                This is usually handled automatically. You may need to reconnect when:
               </p>
               <ul>
-                <li>You just deployed and a service got a new address.</li>
+                <li>A service received a new address after a recent deployment.</li>
                 <li>You added or changed a custom domain.</li>
-                <li>Sign-in or data starts failing with connection or "blocked" errors.</li>
+                <li>Sign-in or data requests begin failing with connection or blocked-request errors.</li>
               </ul>
               <p class="summary__explainer-note">
-                Reconnecting re-checks both addresses and points them at each other again.
+                Reconnecting re-verifies both addresses and links them to each other again.
               </p>
             </div>
           </details>
@@ -226,7 +226,7 @@
     }
 
     @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {
-      <p class="notice notice--warning">Your site and app need reconnecting so they can talk to each other.</p>
+      <p class="notice notice--warning">Your site and app need to be reconnected so they can communicate.</p>
     }
 
     @if (store.overallStatus() !== 'success' && canSyncUrls()) {

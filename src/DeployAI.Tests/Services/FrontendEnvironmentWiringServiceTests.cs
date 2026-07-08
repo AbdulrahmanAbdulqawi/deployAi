@@ -50,6 +50,16 @@ public class FrontendEnvironmentWiringServiceTests
         vercelManagement.Verify(m => m.UpsertEnvVarAsync(
             It.IsAny<ProviderCredentials>(),
             "prj_web",
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "DEPLOYAI_API_URL" && r.Value == "https://api.example.com"),
+            It.IsAny<CancellationToken>()), Times.Once);
+        vercelManagement.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "prj_web",
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "API_BASE_URL" && r.Value == "https://api.example.com"),
+            It.IsAny<CancellationToken>()), Times.Once);
+        vercelManagement.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "prj_web",
             It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "NG_APP_API_URL" && r.Value == "https://api.example.com"),
             It.IsAny<CancellationToken>()), Times.Once);
         vercelManagement.Verify(m => m.UpsertEnvVarAsync(
@@ -405,6 +415,8 @@ public class FrontendEnvironmentWiringServiceTests
         Assert.False(result.Skipped);
         Assert.Equal("https://idaara-livid.vercel.app", result.ResolvedWebsiteUrl);
         Assert.Equal("https://api.example.com", result.ResolvedApiUrl);
+        Assert.Contains("DEPLOYAI_API_URL", result.VercelKeysApplied);
+        Assert.Contains("API_BASE_URL", result.VercelKeysApplied);
         Assert.Contains("NG_APP_API_URL", result.VercelKeysApplied);
         Assert.Contains("App__FrontendUrl", result.RailwayKeysApplied);
         vercelManagement.Verify(m => m.UpsertEnvVarAsync(
@@ -563,7 +575,7 @@ public class FrontendEnvironmentWiringServiceTests
             "text/html");
         mocks.Http.SetResponse(
             "https://idaara-livid.vercel.app/chunk-def456.js",
-            "const apiBaseUrl='https://api.example.com';",
+            "withInterceptors([apiBaseInterceptor]);apiBaseUrl:'https://api.example.com';",
             "application/javascript");
 
         var service = CreateSplitOriginService(db, mocks);
@@ -610,7 +622,7 @@ public class FrontendEnvironmentWiringServiceTests
 
         Assert.True(result.DriftDetected);
         Assert.Contains(result.DriftDetails, detail =>
-            detail.Contains("missing baked API URL", StringComparison.Ordinal));
+            detail.Contains("missing split-origin bundle wiring", StringComparison.OrdinalIgnoreCase));
     }
 
     private sealed record SplitOriginSyncMocks(
@@ -638,9 +650,11 @@ public class FrontendEnvironmentWiringServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(
             [
-                new ProviderEnvVar("env_1", "IDAARA_API_URL", string.Empty, "encrypted", [], true),
-                new ProviderEnvVar("env_2", "NG_APP_API_URL", string.Empty, "encrypted", [], true),
-                new ProviderEnvVar("env_3", "API_URL", string.Empty, "encrypted", [], true)
+                new ProviderEnvVar("env_0", "DEPLOYAI_API_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_1", "API_BASE_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_2", "IDAARA_API_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_3", "NG_APP_API_URL", string.Empty, "encrypted", [], true),
+                new ProviderEnvVar("env_4", "API_URL", string.Empty, "encrypted", [], true)
             ]);
         var proxySupport = vercelManagement.As<IWebsiteApiProxySupport>();
         proxySupport.Setup(p => p.ResolvePublicWebsiteUrlAsync(

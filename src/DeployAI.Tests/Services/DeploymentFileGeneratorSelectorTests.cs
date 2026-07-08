@@ -1,4 +1,5 @@
 using DeployAI.Api.Services;
+using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Infrastructure.GitHub;
 using DeployAI.Infrastructure.Options;
 using Microsoft.Extensions.Options;
@@ -9,13 +10,13 @@ namespace DeployAI.Tests.Services;
 public class DeploymentFileGeneratorSelectorTests
 {
     [Fact]
-    public async Task SelectAsync_ReturnsClaude_WhenAiRequestedAndConfigured()
+    public async Task SelectAsync_ReturnsHybrid_WhenAiRequestedAndConfigured()
     {
-        var (selector, claude, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+        var (selector, hybrid, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
 
         var selection = await selector.SelectAsync(useAi: true, reportActivity: null);
 
-        Assert.Same(claude, selection.Generator);
+        Assert.Same(hybrid, selection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.AiMode, selection.Mode);
     }
 
@@ -52,9 +53,9 @@ public class DeploymentFileGeneratorSelectorTests
     [Fact]
     public async Task SelectAsync_UsesServerDefault_WhenPreferenceUnset()
     {
-        var (aiSelector, claude, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+        var (aiSelector, hybrid, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
         var aiSelection = await aiSelector.SelectAsync(useAi: null, reportActivity: null);
-        Assert.Same(claude, aiSelection.Generator);
+        Assert.Same(hybrid, aiSelection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.AiMode, aiSelection.Mode);
 
         var (templateSelector, _, template, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: false);
@@ -65,7 +66,7 @@ public class DeploymentFileGeneratorSelectorTests
 
     private static (
         DeploymentFileGeneratorSelector Selector,
-        ClaudeDeploymentFileGenerator Claude,
+        HybridDeploymentFileGenerator Hybrid,
         TemplateDeploymentFileGenerator Template,
         AnthropicMessageClient Anthropic) CreateSelector(string apiKey, bool preferAiSetup)
     {
@@ -75,9 +76,19 @@ public class DeploymentFileGeneratorSelectorTests
             PreferAiSetup = preferAiSetup
         });
         var anthropic = new AnthropicMessageClient(new HttpClient(), options);
-        var claude = new ClaudeDeploymentFileGenerator(anthropic, new Mock<IGitHubService>().Object);
-        var template = new TemplateDeploymentFileGenerator();
-        var selector = new DeploymentFileGeneratorSelector(claude, template, anthropic, options);
-        return (selector, claude, template, anthropic);
+        var gitHub = new Mock<IGitHubService>().Object;
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var scaffolder = new DeploymentFileScaffolder(resolver);
+        var fileFetcher = new DeploymentSetupFileFetcher(gitHub);
+        var hybrid = new HybridDeploymentFileGenerator(
+            anthropic,
+            gitHub,
+            scaffolder,
+            fileFetcher,
+            resolver);
+        var template = new TemplateDeploymentFileGenerator(scaffolder, fileFetcher);
+        var selector = new DeploymentFileGeneratorSelector(hybrid, template, anthropic, options);
+        return (selector, hybrid, template, anthropic);
     }
 }

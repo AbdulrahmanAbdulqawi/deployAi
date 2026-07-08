@@ -89,6 +89,55 @@ public class SplitOriginReadinessEvaluatorTests
             issue.Severity == DeploymentFileSeverity.Recommended);
     }
 
+    [Fact]
+    public void Evaluate_ReelHubLikeRepo_FlagsMissingInterceptorAndAuthRouteMismatch()
+    {
+        var website = new DeploymentPlanPart("website", "vercel", "client", null, null, null, null, null, "angular", null, null);
+        var server = new DeploymentPlanPart("server", "railway", "src/api", "src/api", null, null, null, null, "dotnet", "src/api/Dockerfile", null);
+        var files = BuildCompleteFiles(website, server);
+        files["client/src/app/app.config.ts"] = "provideHttpClient(withInterceptors([authInterceptor]))";
+        files["client/src/app/core/services/auth.service.ts"] = """private readonly apiUrl = '/api/Auth';""";
+        files["src/api/Controllers/AuthController.cs"] = """[Route("api/v1/auth")] public class AuthController {}""";
+
+        var issues = SplitOriginReadinessEvaluator.Evaluate(website, server, files);
+
+        Assert.Contains(issues, issue =>
+            issue.Path.Contains("app.config.ts", StringComparison.OrdinalIgnoreCase) &&
+            issue.Severity == DeploymentFileSeverity.Blocking);
+        Assert.Contains(issues, issue =>
+            issue.Path.Contains("auth.service.ts", StringComparison.OrdinalIgnoreCase) &&
+            issue.Severity == DeploymentFileSeverity.Blocking &&
+            issue.Reason.Contains("/api/Auth", StringComparison.Ordinal));
+        Assert.False(SplitOriginReadinessEvaluator.IsReady(issues));
+    }
+
+    [Fact]
+    public void Evaluate_TicketHubLikeRepo_FlagsMissingInterceptorAndFileReplacements()
+    {
+        var website = new DeploymentPlanPart("website", "vercel", "client", null, null, null, null, null, "angular", null, null);
+        var server = new DeploymentPlanPart("server", "railway", "src/api", "src/api", null, null, null, null, "dotnet", "src/api/Dockerfile", null);
+        var files = BuildCompleteFiles(website, server);
+        files["client/src/app/app.config.ts"] = "provideHttpClient()";
+        files["client/angular.json"] = """{ "projects": { "app": { "architect": { "build": { "configurations": { "production": { "optimization": true } } } } } } }""";
+        files["client/vercel.json"] = """{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }""";
+        files["client/src/app/core/services/auth.service.ts"] = """private readonly apiUrl = '/api/v1/auth';""";
+        files["client/src/app/core/services/settings.service.ts"] = """private readonly apiUrl = '/api/Settings';""";
+
+        var issues = SplitOriginReadinessEvaluator.Evaluate(website, server, files);
+
+        Assert.Contains(issues, issue =>
+            issue.Path.Contains("app.config.ts", StringComparison.OrdinalIgnoreCase) &&
+            issue.Severity == DeploymentFileSeverity.Blocking);
+        Assert.Contains(issues, issue =>
+            issue.Path.Contains("angular.json", StringComparison.OrdinalIgnoreCase) &&
+            issue.Severity == DeploymentFileSeverity.Blocking &&
+            issue.Reason.Contains("fileReplacements", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(issues, issue =>
+            issue.Path.Contains("api-base.interceptor.ts", StringComparison.OrdinalIgnoreCase) &&
+            issue.Severity == DeploymentFileSeverity.Blocking);
+        Assert.False(SplitOriginReadinessEvaluator.IsReady(issues));
+    }
+
     private static Dictionary<string, string?> BuildCompleteFiles(DeploymentPlanPart website, DeploymentPlanPart server)
     {
         var clientPrefix = $"{website.RootDirectory}/";

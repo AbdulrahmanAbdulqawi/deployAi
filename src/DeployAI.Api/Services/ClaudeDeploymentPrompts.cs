@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
+using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
@@ -158,6 +159,18 @@ internal static class ClaudeDeploymentPrompts
         - For JSON: use the indentation and quote style from the existing file.
         - For package.json/requirements.txt/go.mod: resolve dependency version conflicts, do not remove entries.
 
+        ### Split-Origin Angular (Vercel + Railway) — 405 prevention
+
+        When the deployment plan uses split-origin (Angular on Vercel, API on Railway):
+
+        - Register `apiBaseInterceptor` in `app.config.ts` via `provideHttpClient(withInterceptors([apiBaseInterceptor, ...]))`.
+        - Services may keep relative API roots such as `/api/v1/auth`; the interceptor prefixes them with `environment.apiBaseUrl`.
+        - Never hardcode `/api/Auth` when the server route is `api/v1/auth`.
+        - `angular.json` production config must use fileReplacements swapping in `environment.production.ts`.
+        - `scripts/write-api-env.mjs` must fail the build when `DEPLOYAI_API_URL` / `API_BASE_URL` / `NG_APP_API_URL` is missing on Vercel/CI.
+        - `vercel.json` must be SPA-only (no `/api` or `/hubs` proxy rewrites).
+        - POST to `*.vercel.app/api/*` returns 405 by design; the fix is interceptor wiring, not Vercel rewrites.
+
         ### Verification
 
         - After writing fixes with write_file, run the build with run_command.
@@ -257,7 +270,8 @@ internal static class ClaudeDeploymentPrompts
         string providerName,
         string? framework,
         DeploymentFailureAnalysis failureAnalysis,
-        string? repoContext = null)
+        string? repoContext = null,
+        IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates = null)
     {
         var builder = new StringBuilder();
         builder.AppendLine("You are a developer fixing failed builds and resolving build errors in source code and configuration.");
@@ -314,6 +328,8 @@ internal static class ClaudeDeploymentPrompts
             builder.AppendLine(repoContext);
         }
 
+        AppendReferenceTemplates(builder, referenceTemplates);
+
         builder.AppendLine();
         builder.Append(FixInstructions);
 
@@ -325,7 +341,17 @@ internal static class ClaudeDeploymentPrompts
         string repo,
         string gitRef,
         IReadOnlyList<DeploymentPlanPart> parts,
-        IReadOnlyList<MissingDeploymentFile> missingFiles)
+        IReadOnlyList<MissingDeploymentFile> missingFiles) =>
+        BuildMissingFilesPrompt(owner, repo, gitRef, parts, missingFiles, [], []);
+
+    internal static string BuildMissingFilesPrompt(
+        string owner,
+        string repo,
+        string gitRef,
+        IReadOnlyList<DeploymentPlanPart> parts,
+        IReadOnlyList<MissingDeploymentFile> missingFiles,
+        IReadOnlyList<ResolvedDeploymentTemplate> referenceTemplates,
+        IReadOnlyList<GeneratedDeploymentFile> preGeneratedFiles)
     {
         var builder = new StringBuilder();
         builder.AppendLine("You are a deployment engineer completing deployment setup for a repository.");
@@ -364,6 +390,9 @@ internal static class ClaudeDeploymentPrompts
             builder.AppendLine($"- [{missing.Severity}] {missing.Path}: {missing.Reason}");
         }
         builder.AppendLine();
+
+        AppendPreGeneratedFiles(builder, preGeneratedFiles);
+        AppendReferenceTemplates(builder, referenceTemplates);
 
         builder.AppendLine("## Task");
         builder.AppendLine("1. Read only what you need: Use GitHub tools to inspect key files mentioned in the plan and scan gaps (~10–15 calls max).");
@@ -419,6 +448,17 @@ internal static class ClaudeDeploymentPrompts
         builder.AppendLine("- If a backend calls another service, use environment variables for service discovery.");
         builder.AppendLine("- Document required firewall rules, network policies, or CORS settings.");
         builder.AppendLine();
+
+        if (!SplitOriginDetection.PlanUsesSplitOrigin(parts) || referenceTemplates.Count == 0)
+        {
+            builder.AppendLine("### Split-Origin Angular (Vercel + Railway)");
+            builder.AppendLine("- Register apiBaseInterceptor in app.config.ts; services use relative /api/* paths.");
+            builder.AppendLine("- angular.json production fileReplacements must swap environment.production.ts.");
+            builder.AppendLine("- write-api-env.mjs must fail the build when API URL env vars are missing.");
+            builder.AppendLine("- vercel.json must not proxy /api; the interceptor sends requests to Railway.");
+            builder.AppendLine("- Auth client path must be /api/v1/auth (not /api/Auth).");
+            builder.AppendLine();
+        }
 
         builder.AppendLine("### Health Checks & Diagnostics");
         builder.AppendLine("- Expose a health check endpoint (if the role is a service).");
@@ -512,6 +552,56 @@ internal static class ClaudeDeploymentPrompts
         WriteIndented = true
     };
 
+    private static void AppendReferenceTemplates(
+        StringBuilder builder,
+        IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates)
+    {
+        if (referenceTemplates is null || referenceTemplates.Count == 0)
+        {
+            return;
+        }
+
+        var section = DeploymentTemplateCatalog.BuildAiReferenceSection(referenceTemplates);
+        if (string.IsNullOrWhiteSpace(section))
+        {
+            return;
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(section);
+        builder.AppendLine();
+    }
+
+    private static void AppendPreGeneratedFiles(
+        StringBuilder builder,
+        IReadOnlyList<GeneratedDeploymentFile> preGeneratedFiles)
+    {
+        if (preGeneratedFiles.Count == 0)
+        {
+            return;
+        }
+
+        var resolved = preGeneratedFiles
+            .Select(file => new ResolvedDeploymentTemplate(
+                "pre-generated",
+                file.Path,
+                DeploymentTemplateKind.FullFile,
+                file.Content,
+                null,
+                [],
+                0))
+            .ToArray();
+
+        var section = DeploymentTemplateCatalog.BuildPreGeneratedSection(resolved);
+        if (string.IsNullOrWhiteSpace(section))
+        {
+            return;
+        }
+
+        builder.AppendLine(section);
+        builder.AppendLine();
+    }
+
     private static void AppendArchitectureDescription(StringBuilder builder, IReadOnlyList<DeploymentPlanPart> parts)
     {
         var website = SplitOriginDetection.FindWebsitePart(parts);
@@ -526,6 +616,8 @@ internal static class ClaudeDeploymentPrompts
         if (SplitOriginDetection.PlanUsesSplitOrigin(parts))
         {
             builder.AppendLine("- Architecture: split-origin (browser talks to API host directly, not through the frontend host)");
+            builder.AppendLine("- Angular apps must register apiBaseInterceptor and bake apiBaseUrl via write-api-env + fileReplacements");
+            builder.AppendLine("- Relative /api/* service paths are OK when the interceptor is registered");
         }
         else if (parts.Count > 1)
         {

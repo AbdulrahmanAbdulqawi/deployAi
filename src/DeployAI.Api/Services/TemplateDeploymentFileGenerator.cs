@@ -1,10 +1,22 @@
 using DeployAI.Core.Deployments;
+using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
 public sealed class TemplateDeploymentFileGenerator : IDeploymentFileGenerator
 {
-    public Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateMissingFilesAsync(
+    private readonly DeploymentFileScaffolder _scaffolder;
+    private readonly DeploymentSetupFileFetcher _fileFetcher;
+
+    public TemplateDeploymentFileGenerator(
+        DeploymentFileScaffolder scaffolder,
+        DeploymentSetupFileFetcher fileFetcher)
+    {
+        _scaffolder = scaffolder;
+        _fileFetcher = fileFetcher;
+    }
+
+    public async Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateMissingFilesAsync(
         string owner,
         string repo,
         string gitRef,
@@ -14,12 +26,19 @@ public sealed class TemplateDeploymentFileGenerator : IDeploymentFileGenerator
         Func<string, Task>? reportActivity,
         CancellationToken cancellationToken)
     {
-        _ = owner;
-        _ = repo;
-        _ = gitRef;
-        _ = githubAccessToken;
-        _ = reportActivity;
-        _ = cancellationToken;
-        return Task.FromResult(DeploymentFileScaffolder.ScaffoldMissingFiles(parts, missingFiles, existingFilesByPath: null));
+        await ReportActivityAsync(reportActivity, "Loading repository files for template patches…");
+        var existingFiles = await _fileFetcher.FetchGapFilesAsync(
+            githubAccessToken,
+            owner,
+            repo,
+            gitRef,
+            parts,
+            missingFiles,
+            cancellationToken);
+
+        return _scaffolder.ScaffoldMissingFiles(parts, missingFiles, existingFiles);
     }
+
+    private static Task ReportActivityAsync(Func<string, Task>? reportActivity, string message) =>
+        reportActivity is null ? Task.CompletedTask : reportActivity(message);
 }

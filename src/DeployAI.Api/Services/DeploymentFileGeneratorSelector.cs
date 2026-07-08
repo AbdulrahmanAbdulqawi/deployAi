@@ -27,18 +27,18 @@ public sealed class DeploymentFileGeneratorSelector : IDeploymentFileGeneratorSe
     public const string TemplateMode = "template";
     public const string TemplateFallbackMode = "template-fallback";
 
-    private readonly ClaudeDeploymentFileGenerator _claudeGenerator;
+    private readonly HybridDeploymentFileGenerator _hybridGenerator;
     private readonly TemplateDeploymentFileGenerator _templateGenerator;
     private readonly AnthropicMessageClient _anthropic;
     private readonly AnthropicOptions _options;
 
     public DeploymentFileGeneratorSelector(
-        ClaudeDeploymentFileGenerator claudeGenerator,
+        HybridDeploymentFileGenerator hybridGenerator,
         TemplateDeploymentFileGenerator templateGenerator,
         AnthropicMessageClient anthropic,
         IOptions<AnthropicOptions> options)
     {
-        _claudeGenerator = claudeGenerator;
+        _hybridGenerator = hybridGenerator;
         _templateGenerator = templateGenerator;
         _anthropic = anthropic;
         _options = options.Value;
@@ -58,7 +58,7 @@ public sealed class DeploymentFileGeneratorSelector : IDeploymentFileGeneratorSe
 
         if (_anthropic.IsConfigured)
         {
-            return new DeploymentFileGeneratorSelection(_claudeGenerator, AiMode);
+            return new DeploymentFileGeneratorSelection(_hybridGenerator, AiMode);
         }
 
         await ReportAsync(

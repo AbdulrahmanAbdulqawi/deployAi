@@ -1,23 +1,37 @@
+using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
-internal static class DeploymentFileScaffolder
+public sealed class DeploymentFileScaffolder
 {
+    private readonly DeploymentTemplateResolver _templateResolver;
+
+    public DeploymentFileScaffolder(DeploymentTemplateResolver templateResolver)
+    {
+        _templateResolver = templateResolver;
+    }
+
     internal static IReadOnlyList<string> PatchablePaths { get; } =
     [
         "Program.cs",
-        "Controllers/AuthController.cs"
+        "Controllers/AuthController.cs",
+        "app.config.ts",
+        "auth.service.ts",
+        "angular.json"
     ];
 
     internal static bool RequiresExistingContent(string path)
     {
         var fileName = path.Replace('\\', '/').TrimStart('/').Split('/').LastOrDefault() ?? path;
         return fileName.Equals("Program.cs", StringComparison.OrdinalIgnoreCase) ||
-               fileName.Equals("AuthController.cs", StringComparison.OrdinalIgnoreCase);
+               fileName.Equals("AuthController.cs", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("app.config.ts", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("auth.service.ts", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("angular.json", StringComparison.OrdinalIgnoreCase);
     }
 
-    internal static IReadOnlyList<GeneratedDeploymentFile> ScaffoldMissingFiles(
+    internal IReadOnlyList<GeneratedDeploymentFile> ScaffoldMissingFiles(
         IReadOnlyList<DeploymentPlanPart> parts,
         IReadOnlyList<MissingDeploymentFile> missingFiles,
         IReadOnlyDictionary<string, string?>? existingFilesByPath = null)
@@ -29,6 +43,10 @@ internal static class DeploymentFileScaffolder
             return [];
         }
 
+        var resolvedTemplates = _templateResolver
+            .ResolveForGaps(parts, missingFiles, existingFilesByPath)
+            .ToDictionary(template => template.TargetPath, StringComparer.OrdinalIgnoreCase);
+
         var generated = new List<GeneratedDeploymentFile>();
         foreach (var missing in missingFiles)
         {
@@ -39,7 +57,15 @@ internal static class DeploymentFileScaffolder
 
             string? existing = null;
             existingFilesByPath?.TryGetValue(missing.Path, out existing);
-            var content = TryGenerateFileContent(missing.Path, website, server, existing);
+            resolvedTemplates.TryGetValue(missing.Path, out var resolvedTemplate);
+
+            var content = TryGenerateFileContent(
+                missing.Path,
+                website,
+                server,
+                existing,
+                resolvedTemplate);
+
             if (!string.IsNullOrWhiteSpace(content))
             {
                 generated.Add(new GeneratedDeploymentFile(missing.Path, content));
@@ -53,154 +79,41 @@ internal static class DeploymentFileScaffolder
         string path,
         DeploymentPlanPart website,
         DeploymentPlanPart server,
-        string? existingContent)
+        string? existingContent,
+        ResolvedDeploymentTemplate? resolvedTemplate)
     {
         var normalizedPath = path.Replace('\\', '/').TrimStart('/');
-        var clientRoot = NormalizeRoot(website.RootDirectory);
-        var clientPrefix = string.IsNullOrEmpty(clientRoot) ? string.Empty : $"{clientRoot}/";
-        var serverRoot = NormalizeRoot(server.ServiceDirectory ?? server.RootDirectory);
-        var dockerfilePath = server.DockerfilePath?.Replace('\\', '/').TrimStart('/') ??
-                             $"{serverRoot}/Dockerfile";
-        var outputDirectory = website.OutputDirectory?.Trim().Trim('/') ?? "dist/app/browser";
-        var projectName = GuessProjectName(clientRoot);
+        var variables = DeploymentTemplateRenderer.BuildVariables(website, server);
+        var clientPrefix = variables.ClientPrefix;
+        var serverRoot = variables.ServerRoot;
+        var outputDirectory = variables.OutputDirectory;
+        var projectName = variables.ProjectName;
 
-        if (normalizedPath.Equals("railway.toml", StringComparison.OrdinalIgnoreCase))
+        if (resolvedTemplate?.Kind == DeploymentTemplateKind.FullFile &&
+            !string.IsNullOrWhiteSpace(resolvedTemplate.RenderedContent) &&
+            !RequiresPatchOnly(normalizedPath, existingContent))
         {
-            return $"""
-                [build]
-                builder = "DOCKERFILE"
-                dockerfilePath = "{dockerfilePath}"
-
-                [deploy]
-                restartPolicyType = "ON_FAILURE"
-                """;
-        }
-
-        if (normalizedPath.Equals($"{clientPrefix}vercel.json", StringComparison.OrdinalIgnoreCase))
-        {
-            var buildCommand = string.IsNullOrWhiteSpace(website.BuildCommand)
-                ? "npm ci && node scripts/write-api-env.mjs && npm run build"
-                : website.BuildCommand.Contains("write-api-env", StringComparison.OrdinalIgnoreCase)
-                    ? website.BuildCommand
-                    : $"npm ci && node scripts/write-api-env.mjs && {website.BuildCommand}";
-
-            return $$"""
-                {
-                  "version": 2,
-                  "buildCommand": "{{buildCommand}}",
-                  "outputDirectory": "{{outputDirectory}}",
-                  "framework": null,
-                  "rewrites": [
-                    { "source": "/(.*)", "destination": "/index.html" }
-                  ]
-                }
-                """;
-        }
-
-        if (normalizedPath.Equals($"{clientPrefix}scripts/write-api-env.mjs", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                import { writeFileSync } from 'node:fs';
-                import { dirname, join } from 'node:path';
-                import { fileURLToPath } from 'node:url';
-
-                const apiUrl = (process.env.IDAARA_API_URL ?? process.env.NG_APP_API_URL ?? process.env.API_URL ?? '')
-                  .trim()
-                  .replace(/\/$/, '');
-
-                if (!apiUrl && (process.env.VERCEL === '1' || process.env.CI === 'true')) {
-                  console.error('Missing IDAARA_API_URL / NG_APP_API_URL for production build. API requests will hit the Vercel SPA and fail with 405.');
-                  process.exit(1);
-                }
-
-                const __dirname = dirname(fileURLToPath(import.meta.url));
-                const target = join(__dirname, '..', 'src', 'environments', 'environment.production.ts');
-                const content = `export const environment = {\n  production: true,\n  apiBaseUrl: '${apiUrl}'\n};\n`;
-                writeFileSync(target, content, 'utf8');
-                console.log('Wrote production environment with apiBaseUrl:', apiUrl || '(empty)');
-                """;
-        }
-
-        if (normalizedPath.EndsWith("api-base.interceptor.ts", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                import { HttpInterceptorFn } from '@angular/common/http';
-                import { environment } from '../../../environments/environment';
-
-                export const apiBaseInterceptor: HttpInterceptorFn = (req, next) => {
-                  const base = environment.apiBaseUrl?.replace(/\/$/, '') ?? '';
-                  if (!base) {
-                    return next(req);
-                  }
-
-                  const path = req.url.split('?')[0];
-                  if (/^\/api\//i.test(path) || /^\/hubs\//i.test(path)) {
-                    return next(req.clone({ url: `${base}${req.url}` }));
-                  }
-
-                  return next(req);
-                };
-                """;
-        }
-
-        if (normalizedPath.EndsWith("HealthController.cs", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                using Microsoft.AspNetCore.Mvc;
-
-                namespace DeployAI.Generated;
-
-                [ApiController]
-                [Route("api/v1/health")]
-                public sealed class HealthController : ControllerBase
-                {
-                    [HttpGet]
-                    public IActionResult Get() => Ok(new { status = "healthy" });
-                }
-                """;
+            return resolvedTemplate.RenderedContent;
         }
 
         if (normalizedPath.Equals($"{clientPrefix}angular.json", StringComparison.OrdinalIgnoreCase))
         {
-            return $$"""
-                {
-                  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
-                  "version": 1,
-                  "projects": {
-                    "{{projectName}}": {
-                      "architect": {
-                        "build": {
-                          "configurations": {
-                            "production": {
-                              "fileReplacements": [
-                                {
-                                  "replace": "src/environments/environment.ts",
-                                  "with": "src/environments/environment.production.ts"
-                                }
-                              ]
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                """;
+            if (!string.IsNullOrWhiteSpace(existingContent))
+            {
+                return PatchAngularJson(existingContent);
+            }
+
+            return RenderGreenfieldAngularJson(projectName);
         }
 
         if (normalizedPath.Equals($"{clientPrefix}src/app/app.config.ts", StringComparison.OrdinalIgnoreCase))
         {
-            return """
-                import { ApplicationConfig } from '@angular/core';
-                import { provideHttpClient, withInterceptors } from '@angular/common/http';
-                import { apiBaseInterceptor } from './core/interceptors/api-base.interceptor';
+            if (!string.IsNullOrWhiteSpace(existingContent))
+            {
+                return PatchAppConfig(existingContent);
+            }
 
-                export const appConfig: ApplicationConfig = {
-                  providers: [
-                    provideHttpClient(withInterceptors([apiBaseInterceptor]))
-                  ]
-                };
-                """;
+            return RenderGreenfieldAppConfig();
         }
 
         if (normalizedPath.EndsWith("Program.cs", StringComparison.OrdinalIgnoreCase))
@@ -223,50 +136,25 @@ internal static class DeploymentFileScaffolder
             return PatchSignalRService(existingContent);
         }
 
-        if (normalizedPath.Equals("docs/DEPLOYMENT.md", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                # Split-origin deployment (Vercel + Railway)
-
-                ## Vercel (frontend)
-                - `IDAARA_API_URL` or `NG_APP_API_URL` → Railway API URL (no trailing slash)
-                - `vercel.json` is SPA-only (no `/api` proxy rewrites)
-                - Build runs `scripts/write-api-env.mjs` before `ng build`
-
-                ## Railway (API)
-                - `AllowedOrigins__0` → production Vercel URL
-                - `AllowedOrigins__1` → additional preview origins as needed
-                - CORS must allow `*.vercel.app` preview deployments
-
-                ## Auth
-                - Refresh cookies: `SameSite=None; Secure` in Production
-                - Angular auth requests: `withCredentials: true`
-                """;
-        }
-
-        if (normalizedPath.Equals($"{clientPrefix}src/environments/environment.ts", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                export const environment = {
-                  production: false,
-                  apiBaseUrl: ''
-                };
-                """;
-        }
-
-        if (normalizedPath.Equals($"{clientPrefix}src/environments/environment.production.ts", StringComparison.OrdinalIgnoreCase))
-        {
-            return """
-                export const environment = {
-                  production: true,
-                  apiBaseUrl: ''
-                };
-                """;
-        }
-
         return normalizedPath.Contains("vercel.json", StringComparison.OrdinalIgnoreCase)
             ? GenerateSpaOnlyVercelJson(website, outputDirectory)
-            : null;
+            : resolvedTemplate?.RenderedContent;
+    }
+
+    private static bool RequiresPatchOnly(string normalizedPath, string? existingContent)
+    {
+        if (string.IsNullOrWhiteSpace(existingContent))
+        {
+            return false;
+        }
+
+        var fileName = Path.GetFileName(normalizedPath);
+        return fileName.Equals("angular.json", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("app.config.ts", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("Program.cs", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("AuthController.cs", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("auth.service.ts", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("signalr.service.ts", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? PatchOrGenerateProgramCs(string? existing, string serverRoot)
@@ -362,15 +250,101 @@ internal static class DeploymentFileScaffolder
             return null;
         }
 
-        if (existing.Contains("withCredentials", StringComparison.OrdinalIgnoreCase))
+        var patched = existing
+            .Replace("\"/api/Auth\"", "\"/api/v1/auth\"", StringComparison.OrdinalIgnoreCase)
+            .Replace("'/api/Auth'", "'/api/v1/auth'", StringComparison.OrdinalIgnoreCase)
+            .Replace("\"/api/auth\"", "\"/api/v1/auth\"", StringComparison.OrdinalIgnoreCase)
+            .Replace("'/api/auth'", "'/api/v1/auth'", StringComparison.OrdinalIgnoreCase);
+
+        return patched;
+    }
+
+    internal static string? PatchAppConfig(string? existing)
+    {
+        if (string.IsNullOrWhiteSpace(existing))
+        {
+            return null;
+        }
+
+        if (SplitOriginClientWiringAnalyzer.RegistersApiBaseInterceptor(existing))
         {
             return existing;
         }
 
-        return existing.Replace(
-            "this.http.post",
-            "this.http.post",
-            StringComparison.Ordinal) + "\n// TODO: add withCredentials: true to login, refresh, and logout requests.\n";
+        var patched = existing;
+        if (!patched.Contains("apiBaseInterceptor", StringComparison.Ordinal))
+        {
+            if (!patched.Contains("@angular/common/http", StringComparison.Ordinal))
+            {
+                patched = "import { provideHttpClient, withInterceptors } from '@angular/common/http';\n" + patched;
+            }
+
+            if (!patched.Contains("api-base.interceptor", StringComparison.Ordinal))
+            {
+                patched = "import { apiBaseInterceptor } from './core/interceptors/api-base.interceptor';\n" + patched;
+            }
+        }
+
+        const string withInterceptorsToken = "withInterceptors([";
+        var insertAt = patched.IndexOf(withInterceptorsToken, StringComparison.Ordinal);
+        if (insertAt >= 0)
+        {
+            var injectionPoint = insertAt + withInterceptorsToken.Length;
+            if (!patched.AsSpan(insertAt, Math.Min(patched.Length - insertAt, 80))
+                    .ToString()
+                    .Contains("apiBaseInterceptor", StringComparison.Ordinal))
+            {
+                patched = patched.Insert(injectionPoint, "apiBaseInterceptor, ");
+            }
+        }
+        else if (patched.Contains("provideHttpClient(", StringComparison.Ordinal))
+        {
+            patched = patched.Replace(
+                "provideHttpClient(",
+                "provideHttpClient(withInterceptors([apiBaseInterceptor]), ",
+                StringComparison.Ordinal);
+        }
+        else if (patched.Contains("providers:", StringComparison.Ordinal))
+        {
+            patched = patched.Replace(
+                "providers:",
+                "providers: [provideHttpClient(withInterceptors([apiBaseInterceptor])), ",
+                StringComparison.Ordinal);
+        }
+
+        return patched;
+    }
+
+    internal static string? PatchAngularJson(string? existing)
+    {
+        if (string.IsNullOrWhiteSpace(existing))
+        {
+            return null;
+        }
+
+        if (SplitOriginClientWiringAnalyzer.HasAngularProductionFileReplacements(existing))
+        {
+            return existing;
+        }
+
+        const string replacementBlock = """
+            "fileReplacements": [
+              {
+                "replace": "src/environments/environment.ts",
+                "with": "src/environments/environment.production.ts"
+              }
+            ]
+            """;
+
+        if (existing.Contains("\"production\"", StringComparison.Ordinal))
+        {
+            return existing.Replace(
+                "\"production\": {",
+                "\"production\": {\n                              " + replacementBlock.Trim().Replace("\n", "\n                              ") + ",",
+                StringComparison.Ordinal);
+        }
+
+        return existing;
     }
 
     private static string? PatchSignalRService(string? existing)
@@ -404,17 +378,42 @@ internal static class DeploymentFileScaffolder
             """;
     }
 
-    private static string GuessProjectName(string clientRoot)
-    {
-        if (string.IsNullOrWhiteSpace(clientRoot))
-        {
-            return "app";
-        }
+    private static string RenderGreenfieldAngularJson(string projectName) =>
+        $$"""
+            {
+              "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+              "version": 1,
+              "projects": {
+                "{{projectName}}": {
+                  "architect": {
+                    "build": {
+                      "configurations": {
+                        "production": {
+                          "fileReplacements": [
+                            {
+                              "replace": "src/environments/environment.ts",
+                              "with": "src/environments/environment.production.ts"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            """;
 
-        var segment = clientRoot.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "app";
-        return segment.Replace(".client", string.Empty, StringComparison.OrdinalIgnoreCase);
-    }
+    private static string RenderGreenfieldAppConfig() =>
+        """
+            import { ApplicationConfig } from '@angular/core';
+            import { provideHttpClient, withInterceptors } from '@angular/common/http';
+            import { apiBaseInterceptor } from './core/interceptors/api-base.interceptor';
 
-    private static string NormalizeRoot(string? root) =>
-        root?.Trim().Trim('/') ?? string.Empty;
+            export const appConfig: ApplicationConfig = {
+              providers: [
+                provideHttpClient(withInterceptors([apiBaseInterceptor]))
+              ]
+            };
+            """;
 }

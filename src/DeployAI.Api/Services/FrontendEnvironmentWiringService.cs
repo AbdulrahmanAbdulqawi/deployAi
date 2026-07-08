@@ -236,7 +236,10 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             }
             else if (spaWired == true)
             {
-                deployedSpaWiringMessage = $"Deployed SPA wiring check passed: site calls {apiUrl} directly.";
+                var railwayAuth = await ProbeRailwayAuthEndpointAsync(apiUrl, cancellationToken);
+                deployedSpaWiringMessage = railwayAuth == false
+                    ? $"Deployed SPA bundle wiring passed, but Railway POST /api/v1/auth/login returned 405 at {apiUrl}."
+                    : $"Deployed SPA wiring check passed: interceptor and apiBaseUrl are baked into the production bundle.";
             }
         }
 
@@ -1276,10 +1279,10 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     }
 
     /// <summary>
-    /// Checks whether the deployed SPA build actually has the Railway API origin baked in.
-    /// In split-origin mode the website origin never serves /api, so the only reliable
-    /// signal is the API URL appearing in the served index.html or its script bundles.
-    /// Returns true when wired, false when the deployed build lacks the API URL,
+    /// Checks whether the deployed SPA build has split-origin wiring baked in:
+    /// apiBaseInterceptor registered (withInterceptors), non-empty apiBaseUrl, and no
+    /// relative /api paths without an interceptor.
+    /// Returns true when wired, false when the bundle will 405 on API calls,
     /// null when the site could not be inspected.
     /// </summary>
     private async Task<bool?> ProbeDeployedSpaWiredToApiAsync(
@@ -1287,53 +1290,81 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         string apiUrl,
         CancellationToken cancellationToken)
     {
+        _ = apiUrl;
         try
         {
             var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
             client.Timeout = TimeSpan.FromSeconds(20);
             var baseUrl = websiteUrl.TrimEnd('/');
-            var apiOrigin = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
 
             var html = await client.GetStringAsync($"{baseUrl}/", cancellationToken);
-            if (html.Contains(apiOrigin, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-
-            var scriptSources = ExtractScriptSources(html);
-            if (scriptSources.Count == 0)
-            {
-                return null;
-            }
-
-            foreach (var source in scriptSources)
+            var scriptBodies = new List<string> { html };
+            foreach (var source in ExtractScriptSources(html))
             {
                 var scriptUrl = source.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                     ? source
                     : $"{baseUrl}/{source.TrimStart('/')}";
 
-                string body;
                 try
                 {
-                    body = await client.GetStringAsync(scriptUrl, cancellationToken);
+                    scriptBodies.Add(await client.GetStringAsync(scriptUrl, cancellationToken));
                 }
                 catch
                 {
-                    continue;
-                }
-
-                if (body.Contains(apiOrigin, StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
+                    // Best-effort: continue with other bundles.
                 }
             }
 
-            return false;
+            if (scriptBodies.Count == 1)
+            {
+                return null;
+            }
+
+            var analysis = SplitOriginClientWiringAnalyzer.AnalyzeBundleScripts(scriptBodies);
+            return analysis.IsWired;
         }
         catch
         {
             return null;
         }
+    }
+
+    private async Task<bool?> ProbeRailwayAuthEndpointAsync(
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
+            client.Timeout = TimeSpan.FromSeconds(20);
+            return await EvaluateRailwayAuthPostResponseAsync(
+                client,
+                CrossProviderUrlWiring.NormalizeOrigin(apiUrl),
+                cancellationToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<bool?> EvaluateRailwayAuthPostResponseAsync(
+        HttpClient client,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{apiUrl.TrimEnd('/')}/api/v1/auth/login");
+        request.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        using var response = await client.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     // Angular's build references the entry bundles with <script src> and the statically
@@ -1418,7 +1449,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return null;
         }
 
-        return $"Vercel deployment missing baked API URL {apiUrl} (stale build; production redeploy required).";
+        return $"Vercel deployment missing split-origin bundle wiring (apiBaseInterceptor and apiBaseUrl required; production redeploy required).";
     }
 
     private static async Task<bool?> EvaluateProxiedApiPostResponseAsync(

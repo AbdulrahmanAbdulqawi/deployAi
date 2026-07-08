@@ -78,7 +78,7 @@ internal static class CrossProviderUrlWiring
             "next" or "nextjs" or "next.js" => ["NEXT_PUBLIC_API_URL", "API_URL"],
             "nuxt" => ["NUXT_PUBLIC_API_URL", "API_URL"],
             "vite" or "react" => ["VITE_API_URL", "API_URL"],
-            "angular" => ["IDAARA_API_URL", "NG_APP_API_URL", "API_URL"],
+            "angular" => ["DEPLOYAI_API_URL", "API_BASE_URL", "NG_APP_API_URL", "API_URL", "IDAARA_API_URL"],
             "sveltekit" or "astro" => ["PUBLIC_API_URL", "API_URL"],
             _ => ["API_URL"]
         };

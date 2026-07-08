@@ -1,0 +1,177 @@
+{
+  "scenarios": [
+    {
+      "id": "split-origin.angular.vercel.dotnet.railway",
+      "websiteProvider": "vercel",
+      "backendProvider": "railway",
+      "websiteFramework": "angular",
+      "backendFramework": "dotnet",
+      "wiringMode": "split-origin"
+    }
+  ],
+  "templates": [
+    {
+      "id": "split-origin.angular.vercel.railway.railway-toml",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "railway.toml",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/railway.toml.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Use dockerfilePath from the deployment plan server part.",
+        "Do not add custom build commands unless the plan specifies them."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.vercel-json",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "vercel.json",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/vercel.json.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "SPA-only rewrites to /index.html — never add /api or /hubs proxy rewrites on split-origin.",
+        "buildCommand must run write-api-env.mjs before ng build when not already present."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.write-api-env",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "write-api-env.mjs",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/write-api-env.mjs.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Fail the build when API URL env vars are missing in CI/Vercel.",
+        "Write apiBaseUrl into environment.production.ts at build time."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.api-base-interceptor",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "api-base.interceptor.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/api-base.interceptor.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Rewrite relative /api/* and /hubs/* requests to environment.apiBaseUrl.",
+        "Adjust import path to match the repo's environments folder layout."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.environment-ts",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "environment.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/environment.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Use apiBaseUrl (not apiUrl alone) for split-origin wiring."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.environment-production-ts",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "environment.production.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/environment.production.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Production apiBaseUrl is injected by write-api-env.mjs at build time."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.health-controller",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "HealthController.cs",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/HealthController.cs.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Route must be api/v1/health for Railway health probes.",
+        "Match existing controller namespace conventions."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.deployment-md",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "DEPLOYMENT.md",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/DEPLOYMENT.md.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 3 },
+      "constraints": [
+        "Document Vercel and Railway env vars using names from CrossProviderUrlWiring."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.angular-json",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "angular.json",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/angular.json.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Production configuration must include fileReplacements for environment.production.ts.",
+        "Read existing angular.json before editing; preserve unrelated keys."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.app-config",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "app.config.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/app.config.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Register apiBaseInterceptor via provideHttpClient(withInterceptors([...])).",
+        "Read existing app.config.ts before editing."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.program-cs",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "Program.cs",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/Program.cs.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Add CORS allowing *.vercel.app and AllowedOrigins configuration section.",
+        "Insert CORS before var app = builder.Build(); preserve existing middleware order."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.auth-controller",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "AuthController.cs",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/AuthController.cs.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Refresh cookies must use SameSite=None; Secure in Production.",
+        "Route must be api/v1/auth (not api/Auth)."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.auth-service",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "auth.service.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/auth.service.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Auth client path must be /api/v1/auth with withCredentials: true on login/refresh/logout."
+      ]
+    },
+    {
+      "id": "split-origin.angular.vercel.railway.signalr-service",
+      "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "signalr.service.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/signalr.service.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 3 },
+      "constraints": [
+        "Production SignalR hub URL must use absolute ${environment.apiBaseUrl}/hubs/..."
+      ]
+    }
+  ]
+}
