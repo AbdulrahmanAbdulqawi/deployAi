@@ -24,9 +24,9 @@ internal static class ClaudeDeploymentPrompts
         5. Fix code errors exhaustively: use write_file to update source code, imports, and logic to resolve ALL reported failures.
         6. Fix config errors exhaustively: use write_file to update build configs to fix ALL configuration mismatches.
         7. Document infrastructure errors: if the error is network/provider related, document the fix and provide a workaround.
-        8. Verify ALL fixes: run the project's build with run_command (for example 'npm install' then 'npm run build', or 'dotnet build').
+        8. Verify ALL fixes: run the verification build command from **Verification Commands** (or `npm install` then `npm run build` for Node frontends).
         9. Loop until zero errors: if a command fails, read the output, fix the files with write_file, and run the build again.
-        10. Stop only when the build reports success (exit code 0): submit only after the build passes with zero remaining errors.
+        10. Stop when the verification build succeeds (exit code 0): submit immediately — do not run extra publish/release steps.
 
         ## Workspace Tools
 
@@ -173,10 +173,22 @@ internal static class ClaudeDeploymentPrompts
 
         ### Verification
 
-        - After writing fixes with write_file, run the build with run_command.
+        - After writing fixes with write_file, run the **Verification Commands** build command with run_command.
         - If a command fails, read the output, fix remaining errors with write_file, and run it again.
-        - Do not submit unless the build reports success (exit code 0).
-        - Confirm the build output directory contains expected artifacts (if applicable).
+        - Do not submit unless the verification build reports success (exit code 0).
+        - **Build success is sufficient** — once the verification build passes, call submit_deployment_files; do not run `dotnet publish`, `-c Release`, or packaging steps afterward.
+
+        ### .NET verification (AspNetCore / dotnet)
+
+        - Use **dotnet build** only for verification — never `dotnet publish`, `-c Release`, or `-o out` during fix verification.
+        - Run `dotnet restore` first when dependencies may be stale, then the exact build command from **Verification Commands**.
+        - A successful `dotnet build` (exit code 0) means the fix is complete; submit immediately.
+        - Ignore publish-only packaging differences — DeployAI treats compile/build success as fixed.
+
+        ### Workspace shell (Windows)
+
+        - Commands run in Windows cmd.exe. Do not use Unix-only tools (`tail`, `head`, `find /`, `grep`).
+        - Read build errors directly from run_command output; use `dir` instead of `ls` when listing folders.
 
         ### Infrastructure Issues
 
@@ -248,7 +260,8 @@ internal static class ClaudeDeploymentPrompts
         - Do NOT stop fixing after the first error — you MUST fix ALL errors.
         - Do NOT submit incomplete fixes — the build must pass with zero remaining errors.
         - Do NOT run the build once and assume success without checking the exit code and output.
-        - Do NOT call submit_deployment_files until the build explicitly reports success.
+        - Do NOT call submit_deployment_files until the verification build explicitly reports success.
+        - Do NOT run `dotnet publish`, `-c Release`, or `-o out` during fix verification — `dotnet build` success is enough.
         - Do NOT call submit_deployment_files multiple times.
         - Do NOT return JSON in markdown fences.
         - Do NOT ignore cascading errors — if the first fix causes a new error, fix that too.
@@ -263,6 +276,42 @@ internal static class ClaudeDeploymentPrompts
         Do NOT return JSON as plain text or markdown fences.
         """;
 
+    private const string FixInstructionsNoLocalBuild =
+        """
+        ## Task
+
+        1. Extract every distinct error from the build log.
+        2. Read ALL affected files with read_file.
+        3. Fix code and config errors with write_file (complete file contents, not diffs).
+        4. Submit with submit_deployment_files once all fixes are written.
+
+        **Local build verification is disabled.** Do NOT use run_command. Do not run dotnet build, npm run build, or any shell commands.
+        DeployAI will validate fixes when the project is redeployed.
+
+        ## Workspace Tools
+
+        - read_file: read a file in the workspace
+        - list_directory: list files and folders
+        - write_file: create or replace a file (only written files are committed)
+        - submit_deployment_files: submit all changed files (call once after fixes are written)
+
+        ## Rules
+
+        - Fix ALL errors listed — do not stop after the first fix.
+        - Read every file mentioned in the build error log before changing it.
+        - Do not refactor unrelated code.
+        - Preserve existing code style and formatting.
+        - Use environment variables for config, not hardcoded secrets.
+
+        ## Output Format
+
+        When all fixes are written, call submit_deployment_files exactly once:
+
+        { "files": [{ "path": "relative/path/from/repo/root", "content": "full file contents" }] }
+
+        Do NOT return JSON as plain text or markdown fences.
+        """;
+
     internal static string BuildFixPrompt(
         string owner,
         string repo,
@@ -271,7 +320,9 @@ internal static class ClaudeDeploymentPrompts
         string? framework,
         DeploymentFailureAnalysis failureAnalysis,
         string? repoContext = null,
-        IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates = null)
+        IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates = null,
+        FixBuildPlan? verificationPlan = null,
+        bool allowAgentBuildCommands = true)
     {
         var builder = new StringBuilder();
         builder.AppendLine("You are a developer fixing failed builds and resolving build errors in source code and configuration.");
@@ -330,8 +381,30 @@ internal static class ClaudeDeploymentPrompts
 
         AppendReferenceTemplates(builder, referenceTemplates);
 
+        if (allowAgentBuildCommands && verificationPlan is not null)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Verification Commands");
+            builder.AppendLine();
+            builder.AppendLine(
+                "Use these exact commands to verify your fixes. **When the build command exits 0, the fix is complete — submit immediately.**");
+            builder.AppendLine();
+            if (!string.Equals(verificationPlan.WorkingDirectory, ".", StringComparison.Ordinal))
+            {
+                builder.AppendLine($"- Working directory (relative to repo root): `{verificationPlan.WorkingDirectory}`");
+            }
+
+            if (!string.IsNullOrWhiteSpace(verificationPlan.InstallCommand))
+            {
+                builder.AppendLine($"- Install (run first when needed): `{verificationPlan.InstallCommand}`");
+            }
+
+            builder.AppendLine($"- **Required build command**: `{verificationPlan.BuildCommand}`");
+            builder.AppendLine("- Do not run publish, Release, or extra packaging commands after a successful build.");
+        }
+
         builder.AppendLine();
-        builder.Append(FixInstructions);
+        builder.Append(allowAgentBuildCommands ? FixInstructions : FixInstructionsNoLocalBuild);
 
         // FixInstructions is a compile-time const, so the API env key list it references is
         // filled in here from the single source of truth (CrossProviderUrlWiring) instead of

@@ -7,6 +7,7 @@ internal sealed class ClaudeFixToolExecutor
 {
     private readonly IFixBuildSession _buildSession;
     private readonly int _maxCommands;
+    private readonly bool _allowAgentBuilds;
     private readonly Func<string, Task>? _reportActivity;
 
     private readonly Dictionary<string, (string Path, string Content)> _changedFiles =
@@ -18,15 +19,17 @@ internal sealed class ClaudeFixToolExecutor
     public ClaudeFixToolExecutor(
         IFixBuildSession buildSession,
         int maxCommands,
+        bool allowAgentBuilds,
         Func<string, Task>? reportActivity)
     {
         _buildSession = buildSession;
         _maxCommands = Math.Max(1, maxCommands);
+        _allowAgentBuilds = allowAgentBuilds;
         _reportActivity = reportActivity;
     }
 
-    /// <summary>True once a command has succeeded after the most recent file edit.</summary>
-    public bool CanProactiveSubmit => _verifiedSinceLastEdit;
+    /// <summary>True once verification requirements are met for proactive submit.</summary>
+    public bool CanProactiveSubmit => _allowAgentBuilds ? _verifiedSinceLastEdit : _changedFiles.Count > 0;
 
     /// <summary>The files Claude created or replaced with write_file, i.e. what should be committed.</summary>
     public IReadOnlyList<(string Path, string Content)> ChangedFiles =>
@@ -62,6 +65,11 @@ internal sealed class ClaudeFixToolExecutor
 
     private async Task<string> RunCommandAsync(JsonElement input, CancellationToken cancellationToken)
     {
+        if (!_allowAgentBuilds)
+        {
+            return "Error: run_command is disabled. Apply fixes with write_file and call submit_deployment_files.";
+        }
+
         if (!TryGetString(input, "command", out var command))
         {
             return "Error: 'command' is required.";
@@ -116,7 +124,7 @@ internal sealed class ClaudeFixToolExecutor
 
         var normalized = NormalizePath(path);
         _changedFiles[normalized] = (path, content);
-        _verifiedSinceLastEdit = false;
+        _verifiedSinceLastEdit = !_allowAgentBuilds;
 
         return $"Wrote {content.Length} characters to {normalized}.";
     }

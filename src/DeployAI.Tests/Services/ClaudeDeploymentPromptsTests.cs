@@ -44,6 +44,64 @@ public class ClaudeDeploymentPromptsTests
     }
 
     [Fact]
+    public void BuildFixPrompt_OmitsAgentBuildCommands_WhenDisabled()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Build failed",
+            "error CS0246: type not found",
+            ["Program.cs"],
+            true,
+            1);
+
+        var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
+            "owner",
+            "repo",
+            "abc123",
+            "railway",
+            "AspNetCore",
+            analysis,
+            allowAgentBuildCommands: false);
+
+        Assert.Contains("Local build verification is disabled", prompt);
+        Assert.Contains("Do NOT use run_command", prompt);
+        Assert.DoesNotContain("## Verification Commands", prompt);
+        Assert.DoesNotContain("- run_command:", prompt);
+    }
+
+    [Fact]
+    public void BuildFixPrompt_IncludesVerificationCommands_WhenPlanProvided()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Build failed",
+            "error CS0246: type not found",
+            ["ConvertControllerApisToPostman/Program.cs"],
+            true,
+            1);
+        var plan = new FixBuildPlan(
+            "ConvertControllerApisToPostman",
+            null,
+            "dotnet build \"ConvertControllerApisToPostman.csproj\"");
+
+        var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
+            "owner",
+            "repo",
+            "abc123",
+            "railway",
+            "AspNetCore",
+            analysis,
+            verificationPlan: plan,
+            allowAgentBuildCommands: true);
+
+        Assert.Contains("## Verification Commands", prompt);
+        Assert.Contains("dotnet build \"ConvertControllerApisToPostman.csproj\"", prompt);
+        Assert.Contains("Do not run publish, Release", prompt);
+        Assert.Contains("dotnet build** only", prompt);
+        Assert.DoesNotContain("dotnet publish", prompt.Split("## Verification Commands")[0]);
+    }
+
+    [Fact]
     public void BuildMissingFilesPrompt_IncludesContextPlanGapsAndTools()
     {
         var parts = new List<DeploymentPlanPart>

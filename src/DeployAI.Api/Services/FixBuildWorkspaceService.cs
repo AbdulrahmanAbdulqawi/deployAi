@@ -18,6 +18,9 @@ public interface IFixBuildSession : IAsyncDisposable
     /// <summary>True when a real workspace was provisioned (build verification enabled).</summary>
     bool IsEnabled { get; }
 
+    /// <summary>When false, run_command and post-submit build gates are skipped.</summary>
+    bool AllowsAgentBuildCommands { get; }
+
     Task<FixBuildResult> RunBuildAsync(
         IReadOnlyList<(string Path, string Content)> filePatches,
         CancellationToken cancellationToken);
@@ -36,6 +39,9 @@ public interface IFixBuildSession : IAsyncDisposable
 
     /// <summary>Lists the entries of a workspace directory as a human-readable listing.</summary>
     string ListDirectory(string path);
+
+    /// <summary>Build/install commands used for local verification after fixes are submitted.</summary>
+    FixBuildPlan? VerificationPlan { get; }
 }
 
 public interface IFixBuildWorkspaceService
@@ -91,11 +97,6 @@ public sealed class FixBuildWorkspaceService : IFixBuildWorkspaceService
         DeploymentFailureAnalysis failureAnalysis,
         CancellationToken cancellationToken)
     {
-        if (!_options.Enabled)
-        {
-            return DisabledFixBuildSession.Instance;
-        }
-
         var workspaceRoot = Path.Combine(Path.GetTempPath(), $"deployai-fix-{Guid.NewGuid():N}");
         try
         {
@@ -192,6 +193,8 @@ public sealed class FixBuildWorkspaceService : IFixBuildWorkspaceService
 
         public bool IsEnabled => false;
 
+        public bool AllowsAgentBuildCommands => false;
+
         public Task<FixBuildResult> RunBuildAsync(
             IReadOnlyList<(string Path, string Content)> filePatches,
             CancellationToken cancellationToken) =>
@@ -211,6 +214,8 @@ public sealed class FixBuildWorkspaceService : IFixBuildWorkspaceService
         public string? ReadFile(string path) => null;
 
         public string ListDirectory(string path) => "Local build verification is disabled.";
+
+        public FixBuildPlan? VerificationPlan => null;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
@@ -241,6 +246,7 @@ internal sealed class FixBuildSession : IFixBuildSession
 
     private bool _dependenciesInstalled;
     private string? _installedManifestHash;
+    private readonly FixBuildPlan _verificationPlan;
 
     public FixBuildSession(
         IProcessBuildRunner processBuildRunner,
@@ -260,15 +266,33 @@ internal sealed class FixBuildSession : IFixBuildSession
         _targetConfig = targetConfig;
         _framework = framework;
         _failureAnalysis = failureAnalysis;
+        _verificationPlan = FixBuildPlanResolver.Resolve(
+            repoRoot,
+            providerName,
+            targetConfig,
+            framework,
+            failureAnalysis);
     }
 
-    public bool IsEnabled => true;
+    public bool IsEnabled => AllowsAgentBuildCommands;
+
+    public bool AllowsAgentBuildCommands => _options.AllowAgentBuildCommands;
+
+    public FixBuildPlan? VerificationPlan => AllowsAgentBuildCommands ? _verificationPlan : null;
 
     public async Task<FixBuildResult> RunCommandAsync(
         string command,
         string? workingDirectory,
         CancellationToken cancellationToken)
     {
+        if (!AllowsAgentBuildCommands)
+        {
+            return new FixBuildResult(
+                false,
+                -1,
+                "Agent build commands are disabled. Apply fixes with write_file and submit without running builds.");
+        }
+
         var workDir = _repoRoot;
         if (!string.IsNullOrWhiteSpace(workingDirectory) &&
             TryResolveWorkspacePath(workingDirectory, out var resolved) &&
@@ -387,6 +411,11 @@ internal sealed class FixBuildSession : IFixBuildSession
     {
         ApplyFilePatches(_repoRoot, filePatches);
 
+        if (!_options.VerifyOnSubmitLocally)
+        {
+            return new FixBuildResult(true, 0, "Post-submit local build verification is disabled.");
+        }
+
         var plan = ResolvePlan();
         var workingDirectory = Path.Combine(_repoRoot, plan.WorkingDirectory.Replace('/', Path.DirectorySeparatorChar));
         if (!Directory.Exists(workingDirectory))
@@ -454,36 +483,13 @@ internal sealed class FixBuildSession : IFixBuildSession
         return ValueTask.CompletedTask;
     }
 
-    private FixBuildPlan ResolvePlan()
-    {
-        string? dockerfileContent = null;
-        var dockerfilePath = _targetConfig.DockerfilePath;
-        if (!string.IsNullOrWhiteSpace(dockerfilePath))
-        {
-            var fullDockerPath = Path.Combine(_repoRoot, dockerfilePath.Replace('/', Path.DirectorySeparatorChar));
-            if (File.Exists(fullDockerPath))
-            {
-                dockerfileContent = File.ReadAllText(fullDockerPath);
-            }
-        }
-        else
-        {
-            var defaultDocker = Path.Combine(_repoRoot, "Dockerfile");
-            if (File.Exists(defaultDocker))
-            {
-                dockerfileContent = File.ReadAllText(defaultDocker);
-            }
-        }
-
-        var plan = FixBuildCommandResolver.Resolve(
+    private FixBuildPlan ResolvePlan() =>
+        FixBuildPlanResolver.Resolve(
+            _repoRoot,
             _providerName,
             _targetConfig,
             _framework,
-            _failureAnalysis.ReferencedFiles,
-            dockerfileContent);
-
-        return FixBuildPlanRefiner.Refine(_repoRoot, plan);
-    }
+            _failureAnalysis);
 
     private static string ComputeManifestHash(string workingDirectory)
     {

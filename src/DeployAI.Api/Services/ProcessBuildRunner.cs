@@ -136,15 +136,30 @@ public sealed class ProcessBuildRunner : IProcessBuildRunner
         ApplyHardenedEnvironment(process.StartInfo);
 
         process.Start();
-        var readStdout = ReadStreamAsync(process.StandardOutput, commandOutput, maxOutputChars, cancellationToken);
-        var readStderr = ReadStreamAsync(process.StandardError, commandOutput, maxOutputChars, cancellationToken);
+
+        var stdoutBuffer = new StringBuilder();
+        var stderrBuffer = new StringBuilder();
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeout);
+
+        var readStdout = DrainStreamAsync(process.StandardOutput, stdoutBuffer, maxOutputChars, timeoutCts.Token);
+        var readStderr = DrainStreamAsync(process.StandardError, stderrBuffer, maxOutputChars, timeoutCts.Token);
+        var exitTask = process.WaitForExitAsync(timeoutCts.Token);
+
         try
         {
-            await Task.WhenAll(readStdout, readStderr);
-            await process.WaitForExitAsync(timeoutCts.Token);
+            await Task.WhenAll(readStdout, readStderr, exitTask);
+
+            if (stdoutBuffer.Length > 0)
+            {
+                commandOutput.Append(stdoutBuffer);
+            }
+
+            if (stderrBuffer.Length > 0)
+            {
+                commandOutput.Append(stderrBuffer);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -222,13 +237,17 @@ public sealed class ProcessBuildRunner : IProcessBuildRunner
         startInfo.Environment["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1";
     }
 
-    private static async Task ReadStreamAsync(
+    /// <summary>
+    /// Reads until the stream closes. Only the trailing <paramref name="maxOutputChars"/> are retained
+    /// so pipes keep draining and MSBuild errors near the end of verbose logs stay visible.
+    /// </summary>
+    private static async Task DrainStreamAsync(
         StreamReader reader,
         StringBuilder buffer,
         int maxOutputChars,
         CancellationToken cancellationToken)
     {
-        while (buffer.Length < maxOutputChars)
+        while (true)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
             if (line is null)
@@ -237,9 +256,41 @@ public sealed class ProcessBuildRunner : IProcessBuildRunner
             }
 
             buffer.AppendLine(line);
+            TrimBufferToTail(buffer, maxOutputChars);
         }
     }
 
-    private static string Truncate(string text, int maxChars) =>
-        text.Length <= maxChars ? text : text[..maxChars] + Environment.NewLine + "[... output truncated ...]";
+    private static void TrimBufferToTail(StringBuilder buffer, int maxOutputChars)
+    {
+        while (buffer.Length > maxOutputChars)
+        {
+            var firstNewline = buffer.ToString().IndexOf('\n');
+            if (firstNewline < 0)
+            {
+                buffer.Remove(0, buffer.Length - maxOutputChars);
+                return;
+            }
+
+            buffer.Remove(0, firstNewline + 1);
+        }
+    }
+
+    private static string Truncate(string text, int maxChars)
+    {
+        if (text.Length <= maxChars)
+        {
+            return text;
+        }
+
+        const string marker = "[... output truncated ...]";
+        var markerBlock = marker + Environment.NewLine;
+        var keep = maxChars - markerBlock.Length;
+        if (keep <= 0)
+        {
+            return text[^maxChars..];
+        }
+
+        // MSBuild/dotnet errors usually appear at the end of verbose logs.
+        return markerBlock + text[^keep..];
+    }
 }

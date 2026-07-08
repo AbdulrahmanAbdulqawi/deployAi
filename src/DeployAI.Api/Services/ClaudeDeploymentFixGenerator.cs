@@ -3,6 +3,8 @@ using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Infrastructure.GitHub;
+using DeployAI.Infrastructure.Options;
+using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
@@ -15,17 +17,20 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
     private readonly IGitHubService _gitHubService;
     private readonly IFixBuildWorkspaceService _buildWorkspace;
     private readonly DeploymentTemplateResolver _templateResolver;
+    private readonly FixBuildOptions _fixBuildOptions;
 
     public ClaudeDeploymentFixGenerator(
         AnthropicMessageClient anthropic,
         IGitHubService gitHubService,
         IFixBuildWorkspaceService buildWorkspace,
-        DeploymentTemplateResolver templateResolver)
+        DeploymentTemplateResolver templateResolver,
+        IOptions<FixBuildOptions> fixBuildOptions)
     {
         _anthropic = anthropic;
         _gitHubService = gitHubService;
         _buildWorkspace = buildWorkspace;
         _templateResolver = templateResolver;
+        _fixBuildOptions = fixBuildOptions.Value;
     }
 
     public async Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateFixFilesAsync(
@@ -48,8 +53,10 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         }
 
         var repoRef = new GitHubRepoRef(githubAccessToken, owner, repo, gitRef);
+        var allowAgentBuilds = _fixBuildOptions.AllowAgentBuildCommands;
+        var verifyOnSubmit = _fixBuildOptions.VerifyOnSubmitLocally;
 
-        await ReportAsync(reportActivity, "Preparing local build workspace…");
+        await ReportAsync(reportActivity, "Preparing fix workspace…");
         await using var buildSession = await _buildWorkspace.CreateSessionAsync(
             githubAccessToken,
             owner,
@@ -64,6 +71,7 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         var toolExecutor = new ClaudeFixToolExecutor(
             buildSession,
             _anthropic.FixMaxCommands,
+            allowAgentBuilds,
             reportActivity);
 
         var repoContext = await BuildRepoContextAsync(repoRef, targetConfig, failureAnalysis, cancellationToken);
@@ -77,13 +85,15 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
             framework,
             failureAnalysis,
             repoContext,
-            referenceTemplates);
+            referenceTemplates,
+            buildSession.VerificationPlan,
+            allowAgentBuilds);
 
         await ReportAsync(reportActivity, "Starting Claude fix agent…");
 
         var responseText = await _anthropic.RunAgentWithToolsAsync(
             prompt,
-            ClaudeDeploymentAgentTools.FixAgentTools,
+            ClaudeDeploymentAgentTools.FixAgentTools(allowAgentBuilds),
             (toolName, input, ct) => toolExecutor.ExecuteAsync(toolName, input, ct),
             _anthropic.FixAgentMaxTurns,
             cancellationToken,
@@ -102,7 +112,7 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
 
         GeneratedDeploymentFileValidator.ValidateOrThrow(changedFiles);
 
-        if (buildSession.IsEnabled)
+        if (verifyOnSubmit)
         {
             await ReportAsync(reportActivity, "Running final local build verification…");
             var gateResult = await buildSession.RunBuildAsync(changedFiles, cancellationToken);

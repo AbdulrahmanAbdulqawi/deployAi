@@ -16,7 +16,12 @@ internal static class ClaudeDeploymentAgentTools
         CreateSubmitFilesTool()
     ];
 
-    internal static IReadOnlyList<object> FixAgentTools { get; } =
+    internal static IReadOnlyList<object> FixAgentTools(bool allowAgentBuilds) =>
+        allowAgentBuilds
+            ? FixAgentToolsWithBuild
+            : FixAgentToolsWithoutBuild;
+
+    private static readonly IReadOnlyList<object> FixAgentToolsWithBuild =
     [
         CreateReadFileTool(),
         CreateListDirectoryTool(),
@@ -24,6 +29,30 @@ internal static class ClaudeDeploymentAgentTools
         CreateRunCommandTool(),
         CreateSubmitFilesTool()
     ];
+
+    private static readonly IReadOnlyList<object> FixAgentToolsWithoutBuild =
+    [
+        CreateReadFileTool(),
+        CreateListDirectoryTool(),
+        CreateWriteFileTool(),
+        CreateSubmitFilesTool(allowAgentBuilds: false)
+    ];
+
+    private static object CreateSubmitFilesTool(bool allowAgentBuilds = true) => new
+    {
+        name = SubmitFilesToolName,
+        description = allowAgentBuilds
+            ? "Submit the final list of repository files to create or update. " +
+              "Call this exactly once after the verification build succeeds. " +
+              "Include every file you changed via write_file, with full contents. " +
+              "Do not return file payloads as plain text or markdown."
+            : "Submit the final list of repository files to create or update. " +
+              "Call this exactly once after all fixes are written with write_file. " +
+              "Local build verification is disabled — do not attempt to run builds before submitting. " +
+              "Include every file you changed via write_file, with full contents. " +
+              "Do not return file payloads as plain text or markdown.",
+        input_schema = CreateFilesInputSchema()
+    };
 
     internal static string DescribeToolCall(string toolName, JsonElement input) =>
         toolName switch
@@ -41,23 +70,13 @@ internal static class ClaudeDeploymentAgentTools
             _ => ClaudeGitHubToolExecutor.DescribeToolCall(toolName, input)
         };
 
-    private static object CreateSubmitFilesTool() => new
-    {
-        name = SubmitFilesToolName,
-        description =
-            "Submit the final list of repository files to create or update. " +
-            "Call this exactly once after your build command succeeds. " +
-            "Include every file you changed via write_file, with full contents. " +
-            "Do not return file payloads as plain text or markdown.",
-        input_schema = CreateFilesInputSchema()
-    };
-
     private static object CreateRunCommandTool() => new
     {
         name = RunCommandToolName,
         description =
             "Run a single shell command in the workspace (for example: 'npm install', 'npm run build', " +
             "'dotnet build'). Returns the exit code and combined stdout/stderr. " +
+            "For .NET fixes, use dotnet build only — not dotnet publish or -c Release. " +
             "The workspace persists between commands, so installed dependencies are reused. " +
             "There is no network allow-list beyond package registries; do not attempt other network access.",
         input_schema = new
