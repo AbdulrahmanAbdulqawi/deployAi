@@ -120,6 +120,7 @@ public class DeploymentVerificationFixServiceTests
         var generator = new Mock<IDeploymentFixGenerator>();
         generator
             .Setup(g => g.GenerateFixFilesAsync(
+                It.IsAny<Guid>(),
                 "owner",
                 "repo",
                 It.IsAny<string>(),
@@ -183,6 +184,7 @@ public class DeploymentVerificationFixServiceTests
         var generator = new Mock<IDeploymentFixGenerator>();
         generator
             .Setup(g => g.GenerateFixFilesAsync(
+                It.IsAny<Guid>(),
                 "owner",
                 "repo",
                 It.IsAny<string>(),
