@@ -17,6 +17,7 @@ public class DeployAIDbContext : DbContext
     public DbSet<DeploymentTarget> DeploymentTargets => Set<DeploymentTarget>();
     public DbSet<DeploymentLog> DeploymentLogs => Set<DeploymentLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<AgentMemoryFile> AgentMemoryFiles => Set<AgentMemoryFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +84,14 @@ public class DeployAIDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.TokenHash);
             entity.HasOne(e => e.User).WithMany().HasForeignKey(e => e.UserId);
+        });
+
+        modelBuilder.Entity<AgentMemoryFile>(entity =>
+        {
+            entity.ToTable("agent_memory_files");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ProjectId, e.Path }).IsUnique();
+            entity.HasOne(e => e.Project).WithMany().HasForeignKey(e => e.ProjectId);
         });
     }
 }

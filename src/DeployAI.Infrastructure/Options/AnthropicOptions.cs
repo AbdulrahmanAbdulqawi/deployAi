@@ -16,4 +16,5 @@ public sealed class AnthropicOptions
     public int AgentRequestTimeoutMinutes { get; set; } = 45;
     public int MaxOutputTokens { get; set; } = 16384;
     public bool PreferAiSetup { get; set; } = true;
+    public bool MemoryEnabled { get; set; } = true;
 }

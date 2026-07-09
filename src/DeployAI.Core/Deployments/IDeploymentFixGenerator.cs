@@ -8,6 +8,8 @@ public interface IDeploymentFixGenerator
 
     Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateFixFilesAsync(
 
+        Guid projectId,
+
         string owner,
 
         string repo,

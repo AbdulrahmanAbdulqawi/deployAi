@@ -3,6 +3,7 @@ using System;
 using DeployAI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DeployAI.Data.Migrations
 {
     [DbContext(typeof(DeployAIDbContext))]
-    partial class DeployAIDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260709123759_AddAgentMemoryFiles")]
+    partial class AddAgentMemoryFiles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -222,9 +225,6 @@ namespace DeployAI.Data.Migrations
 
                     b.Property<string>("GitHubRepoFullName")
                         .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("LogoKey")
                         .HasColumnType("text");
 
                     b.Property<string>("Name")

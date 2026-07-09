@@ -210,6 +210,7 @@ public sealed class DeploymentFixService : IDeploymentFixService
         var targetConfig = DeployTargetConfig.Parse(target.DeployTarget.ConfigJson);
 
         var generated = await _fixGenerator.GenerateFixFilesAsync(
+            deployment.ProjectId,
             repoParts[0],
             repoParts[1],
             gitRef,

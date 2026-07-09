@@ -271,6 +271,7 @@ public sealed class DeploymentJobRunner
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
+    private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
 
     public DeploymentJobRunner(
         DeployAIDbContext db,
@@ -281,7 +282,8 @@ public sealed class DeploymentJobRunner
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IDeploymentFailureAnalyzer failureAnalyzer,
-        IHubContext<DeploymentHub> hub)
+        IHubContext<DeploymentHub> hub,
+        Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions)
     {
         _db = db;
         _providerFactory = providerFactory;
@@ -292,6 +294,7 @@ public sealed class DeploymentJobRunner
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
+        _anthropicOptions = anthropicOptions.Value;
     }
 
     public async Task RunAsync(Guid deploymentTargetId, CancellationToken cancellationToken)
@@ -587,6 +590,14 @@ public sealed class DeploymentJobRunner
                 WHERE "Id" = {failedTarget.Id}
                 """,
                 cancellationToken);
+
+            if (_anthropicOptions.MemoryEnabled)
+            {
+                var memory = new AgentMemoryToolHandler(_db, deployment.ProjectId);
+                await memory.AppendHistoryAsync(
+                    $"Failure: {failedTarget.ProviderName} — {analysis.Category} — {analysis.Summary}",
+                    cancellationToken);
+            }
 
             await _hub.Clients.Group(deploymentId.ToString())
                 .SendAsync(

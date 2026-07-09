@@ -2,6 +2,7 @@ using System.Text;
 using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
+using DeployAI.Data;
 using DeployAI.Infrastructure.GitHub;
 using DeployAI.Infrastructure.Options;
 using Microsoft.Extensions.Options;
@@ -18,22 +19,29 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
     private readonly IFixBuildWorkspaceService _buildWorkspace;
     private readonly DeploymentTemplateResolver _templateResolver;
     private readonly FixBuildOptions _fixBuildOptions;
+    private readonly DeployAIDbContext _db;
+    private readonly AnthropicOptions _options;
 
     public ClaudeDeploymentFixGenerator(
         AnthropicMessageClient anthropic,
         IGitHubService gitHubService,
         IFixBuildWorkspaceService buildWorkspace,
         DeploymentTemplateResolver templateResolver,
-        IOptions<FixBuildOptions> fixBuildOptions)
+        IOptions<FixBuildOptions> fixBuildOptions,
+        DeployAIDbContext db,
+        IOptions<AnthropicOptions> options)
     {
         _anthropic = anthropic;
         _gitHubService = gitHubService;
         _buildWorkspace = buildWorkspace;
         _templateResolver = templateResolver;
         _fixBuildOptions = fixBuildOptions.Value;
+        _db = db;
+        _options = options.Value;
     }
 
     public async Task<IReadOnlyList<GeneratedDeploymentFile>> GenerateFixFilesAsync(
+        Guid projectId,
         string owner,
         string repo,
         string gitRef,
@@ -69,11 +77,13 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
             failureAnalysis,
             cancellationToken);
 
+        var memory = _options.MemoryEnabled ? new AgentMemoryToolHandler(_db, projectId) : null;
         var toolExecutor = new ClaudeFixToolExecutor(
             buildSession,
             _anthropic.FixMaxCommands,
             allowAgentBuilds,
-            reportActivity);
+            reportActivity,
+            memory);
 
         var repoContext = await BuildRepoContextAsync(repoRef, targetConfig, failureAnalysis, cancellationToken);
         var referenceTemplates = ResolveFixReferenceTemplates(providerName, framework, targetConfig, failureAnalysis);
@@ -100,15 +110,18 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
                 repoContext,
                 referenceTemplates,
                 buildSession.VerificationPlan,
-                allowAgentBuilds);
+                allowAgentBuilds,
+                includeMemoryTool: memory is not null);
 
         await ReportAsync(reportActivity, verificationContext is not null
             ? "Starting Claude verification fix agent…"
             : "Starting Claude fix agent…");
 
+        var tools = ClaudeDeploymentAgentTools.FixAgentTools(allowAgentBuilds, includeMemory: memory is not null);
+
         var responseText = await _anthropic.RunAgentWithToolsAsync(
             prompt,
-            ClaudeDeploymentAgentTools.FixAgentTools(allowAgentBuilds),
+            tools,
             (toolName, input, ct) => toolExecutor.ExecuteAsync(toolName, input, ct),
             _anthropic.FixAgentMaxTurns,
             cancellationToken,
@@ -140,6 +153,14 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
             }
 
             await ReportAsync(reportActivity, $"Build verification passed ({changedFiles.Count} file(s)).");
+        }
+
+        if (memory is not null)
+        {
+            var fileList = string.Join(", ", changedFiles.Select(f => f.Path));
+            await memory.AppendHistoryAsync(
+                $"Fixed {failureAnalysis.Category} failure on {providerName} ({fileList}).",
+                cancellationToken);
         }
 
         return changedFiles

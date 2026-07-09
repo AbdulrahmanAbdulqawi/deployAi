@@ -9,6 +9,7 @@ internal sealed class ClaudeFixToolExecutor
     private readonly int _maxCommands;
     private readonly bool _allowAgentBuilds;
     private readonly Func<string, Task>? _reportActivity;
+    private readonly AgentMemoryToolHandler? _memory;
 
     private readonly Dictionary<string, (string Path, string Content)> _changedFiles =
         new(StringComparer.OrdinalIgnoreCase);
@@ -20,12 +21,14 @@ internal sealed class ClaudeFixToolExecutor
         IFixBuildSession buildSession,
         int maxCommands,
         bool allowAgentBuilds,
-        Func<string, Task>? reportActivity)
+        Func<string, Task>? reportActivity,
+        AgentMemoryToolHandler? memory = null)
     {
         _buildSession = buildSession;
         _maxCommands = Math.Max(1, maxCommands);
         _allowAgentBuilds = allowAgentBuilds;
         _reportActivity = reportActivity;
+        _memory = memory;
     }
 
     /// <summary>True once verification requirements are met for proactive submit.</summary>
@@ -58,6 +61,13 @@ internal sealed class ClaudeFixToolExecutor
         if (string.Equals(toolName, ClaudeDeploymentAgentTools.ListDirectoryToolName, StringComparison.Ordinal))
         {
             return ListDirectory(input);
+        }
+
+        if (string.Equals(toolName, ClaudeDeploymentAgentTools.MemoryToolName, StringComparison.Ordinal))
+        {
+            return _memory is null
+                ? "Error: memory is not available for this run."
+                : await _memory.ExecuteAsync(input, cancellationToken);
         }
 
         return $"Error: unknown tool '{toolName}'.";

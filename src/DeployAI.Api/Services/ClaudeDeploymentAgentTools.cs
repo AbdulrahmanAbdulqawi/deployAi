@@ -9,6 +9,7 @@ internal static class ClaudeDeploymentAgentTools
     internal const string WriteFileToolName = "write_file";
     internal const string ReadFileToolName = "read_file";
     internal const string ListDirectoryToolName = "list_directory";
+    internal const string MemoryToolName = "memory";
 
     internal static IReadOnlyList<object> GitHubWithSubmitFiles { get; } =
     [
@@ -16,27 +17,32 @@ internal static class ClaudeDeploymentAgentTools
         CreateSubmitFilesTool()
     ];
 
-    internal static IReadOnlyList<object> FixAgentTools(bool allowAgentBuilds) =>
-        allowAgentBuilds
-            ? FixAgentToolsWithBuild
-            : FixAgentToolsWithoutBuild;
+    internal static IReadOnlyList<object> FixAgentTools(bool allowAgentBuilds, bool includeMemory = true)
+    {
+        List<object> tools = allowAgentBuilds
+            ?
+            [
+                CreateReadFileTool(),
+                CreateListDirectoryTool(),
+                CreateWriteFileTool(),
+                CreateRunCommandTool(),
+                CreateSubmitFilesTool()
+            ]
+            :
+            [
+                CreateReadFileTool(),
+                CreateListDirectoryTool(),
+                CreateWriteFileTool(),
+                CreateSubmitFilesTool(allowAgentBuilds: false)
+            ];
 
-    private static readonly IReadOnlyList<object> FixAgentToolsWithBuild =
-    [
-        CreateReadFileTool(),
-        CreateListDirectoryTool(),
-        CreateWriteFileTool(),
-        CreateRunCommandTool(),
-        CreateSubmitFilesTool()
-    ];
+        if (includeMemory)
+        {
+            tools.Add(CreateMemoryTool());
+        }
 
-    private static readonly IReadOnlyList<object> FixAgentToolsWithoutBuild =
-    [
-        CreateReadFileTool(),
-        CreateListDirectoryTool(),
-        CreateWriteFileTool(),
-        CreateSubmitFilesTool(allowAgentBuilds: false)
-    ];
+        return tools;
+    }
 
     private static object CreateSubmitFilesTool(bool allowAgentBuilds = true) => new
     {
@@ -67,8 +73,18 @@ internal static class ClaudeDeploymentAgentTools
                 $"Reading file: {DescribeStringProperty(input, "path", "(path missing)")}",
             _ when string.Equals(toolName, ListDirectoryToolName, StringComparison.Ordinal) =>
                 $"Listing directory: {DescribeStringProperty(input, "path", "/")}",
+            _ when string.Equals(toolName, MemoryToolName, StringComparison.Ordinal) =>
+                $"Memory: {DescribeStringProperty(input, "command", "?")} {DescribeStringProperty(input, "path", string.Empty)}",
             _ => ClaudeGitHubToolExecutor.DescribeToolCall(toolName, input)
         };
+
+    // Anthropic-defined, schema-less tool — declare only type/name, no input_schema.
+    // See: https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool
+    private static object CreateMemoryTool() => new
+    {
+        type = "memory_20250818",
+        name = MemoryToolName
+    };
 
     private static object CreateRunCommandTool() => new
     {

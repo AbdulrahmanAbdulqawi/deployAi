@@ -35,6 +35,7 @@ internal static class ClaudeDeploymentPrompts
         - write_file: create or replace a file with full contents (only written files are committed)
         - run_command: run a shell command in the workspace (install deps, build, test); returns exit code + output
         - submit_deployment_files: submit all changed files (call once after the build succeeds, then stop)
+        {{memoryToolLine}}
 
         ## Error Classification Guide
 
@@ -322,7 +323,8 @@ internal static class ClaudeDeploymentPrompts
         string? repoContext = null,
         IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates = null,
         FixBuildPlan? verificationPlan = null,
-        bool allowAgentBuildCommands = true)
+        bool allowAgentBuildCommands = true,
+        bool includeMemoryTool = true)
     {
         var builder = new StringBuilder();
         builder.AppendLine("You are a developer fixing failed builds and resolving build errors in source code and configuration.");
@@ -410,7 +412,13 @@ internal static class ClaudeDeploymentPrompts
         // filled in here from the single source of truth (CrossProviderUrlWiring) instead of
         // being duplicated/hardcoded — avoids the two lists silently drifting apart.
         var apiEnvKeys = string.Join(" / ", CrossProviderUrlWiring.ResolveApiEnvKeys(framework).Select(key => $"`{key}`"));
-        return builder.ToString().Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal);
+        var memoryToolLine = includeMemoryTool
+            ? "- memory: persistent notes for this project across past runs — check it for prior failures/fixes on this repo before diagnosing from scratch, and write back what you learn"
+            : string.Empty;
+
+        return builder.ToString()
+            .Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal)
+            .Replace("{{memoryToolLine}}", memoryToolLine, StringComparison.Ordinal);
     }
 
     internal static string BuildVerificationFixPrompt(

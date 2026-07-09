@@ -88,6 +88,7 @@ public class DeploymentFixServiceTests
         var generator = new Mock<IDeploymentFixGenerator>();
         generator
             .Setup(g => g.GenerateFixFilesAsync(
+                It.IsAny<Guid>(),
                 "owner",
                 "repo",
                 "abc123",
