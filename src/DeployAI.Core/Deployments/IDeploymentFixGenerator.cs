@@ -26,7 +26,9 @@ public interface IDeploymentFixGenerator
 
         Func<string, Task>? reportActivity,
 
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+
+        DeploymentVerificationFixContext? verificationContext = null);
 
 }
 

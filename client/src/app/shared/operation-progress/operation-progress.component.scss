@@ -1,0 +1,14 @@
+@use '../../../styles/operation-progress';
+
+:host {
+  display: block;
+}
+
+.operation-progress--compact {
+  gap: var(--space-1);
+
+  .operation-progress__label,
+  .operation-progress__timing {
+    font-size: var(--font-size-xs);
+  }
+}

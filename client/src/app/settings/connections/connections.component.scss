@@ -13,8 +13,8 @@
   margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
-  background: rgba(252, 211, 77, 0.1);
-  border: 1px solid rgba(252, 211, 77, 0.2);
+  background: var(--status-warning-bg);
+  border: 1px solid var(--status-warning-border);
   color: var(--status-warning);
 }
 
@@ -42,13 +42,12 @@
   transition: border-color var(--motion-normal) var(--motion-ease);
 
   &:hover {
-    border-color: rgba(192, 193, 255, 0.3);
+    border-color: var(--border-accent);
   }
 }
 
 .provider-card--railway:hover {
-  border-color: rgba(208, 188, 255, 0.3);
-  box-shadow: 0 0 20px rgba(208, 188, 255, 0.1);
+  border-color: var(--border-accent);
 }
 
 .provider-card__header {
@@ -71,7 +70,7 @@
   width: 3rem;
   height: 3rem;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
@@ -106,8 +105,8 @@
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-4) 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
   background: transparent;
   border-radius: 0;
 }
@@ -140,8 +139,8 @@
   margin: 0;
   padding: var(--space-3);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(252, 211, 77, 0.2);
-  background: rgba(252, 211, 77, 0.1);
+  border: 1px solid var(--status-warning-border);
+  background: var(--status-warning-bg);
   color: var(--status-warning);
   font-size: 0.875rem;
 }
@@ -174,8 +173,8 @@
   gap: var(--space-4);
   padding: var(--space-4);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-faint);
 }
 
 .token-panel__help {

@@ -20,17 +20,20 @@ public sealed class DeploymentsController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly IDeploymentOrchestrator _orchestrator;
     private readonly IDeploymentFixService _fixService;
+    private readonly IDeploymentVerificationService _deploymentVerification;
 
     public DeploymentsController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IDeploymentOrchestrator orchestrator,
-        IDeploymentFixService fixService)
+        IDeploymentFixService fixService,
+        IDeploymentVerificationService deploymentVerification)
     {
         _db = db;
         _currentUser = currentUser;
         _orchestrator = orchestrator;
         _fixService = fixService;
+        _deploymentVerification = deploymentVerification;
     }
 
     [HttpPost("projects/{projectId:guid}/deployments")]
@@ -125,6 +128,48 @@ public sealed class DeploymentsController : ControllerBase
         return Ok(MapDeploymentDetail(deployment));
     }
 
+    [HttpPost("deployments/{id:guid}/verify")]
+    public async Task<IActionResult> Verify(
+        Guid id,
+        [FromQuery] string scope = "both",
+        CancellationToken cancellationToken = default)
+    {
+        var userId = RequireUserId();
+        var deployment = await _db.Deployments
+            .Include(d => d.Project)
+            .FirstOrDefaultAsync(d => d.Id == id && d.Project.UserId == userId, cancellationToken);
+
+        if (deployment is null)
+        {
+            return NotFound(new { error = new { code = "not_found", message = "We couldn't find that update." } });
+        }
+
+        if (!Enum.TryParse<DeploymentVerificationScope>(scope, ignoreCase: true, out var parsedScope))
+        {
+            return BadRequest(new { error = new { code = "invalid_scope", message = "Scope must be website, server, or both." } });
+        }
+
+        var result = await _deploymentVerification.VerifyAsync(id, parsedScope, cancellationToken);
+        return Ok(new
+        {
+            success = result.Success,
+            scope = result.Scope,
+            completedAt = result.CompletedAt,
+            checks = result.Checks.Select(check => new
+            {
+                id = check.Id,
+                target = check.Target,
+                label = check.Label,
+                status = check.Status,
+                message = check.Message,
+                url = check.Url,
+                suggestedAction = check.SuggestedAction,
+                canRequestClaudeFix = check.CanRequestClaudeFix,
+                referencedFiles = check.ReferencedFiles
+            })
+        });
+    }
+
     [HttpGet("deployments/{id:guid}/logs")]
     public async Task<IActionResult> GetLogs(Guid id, [FromQuery] Guid? target, CancellationToken cancellationToken)
     {
@@ -170,6 +215,8 @@ public sealed class DeploymentsController : ControllerBase
         var userId = RequireUserId();
         Response.ContentType = "application/x-ndjson; charset=utf-8";
         Response.Headers.CacheControl = "no-cache";
+        var startedAt = DateTimeOffset.UtcNow;
+        await WriteStreamEventAsync(new { type = "started", startedAt }, cancellationToken);
 
         async Task ReportActivity(string message)
         {
@@ -190,6 +237,7 @@ public sealed class DeploymentsController : ControllerBase
                 ReportActivity,
                 cancellationToken);
 
+            var durationSeconds = (int)Math.Max(0, (DateTimeOffset.UtcNow - startedAt).TotalSeconds);
             await WriteStreamEventAsync(
                 new
                 {
@@ -197,7 +245,71 @@ public sealed class DeploymentsController : ControllerBase
                     branchName = result.BranchName,
                     pullRequestNumber = result.PullRequestNumber,
                     pullRequestUrl = result.PullRequestUrl,
-                    committedFiles = result.CommittedFiles
+                    committedFiles = result.CommittedFiles,
+                    durationSeconds
+                },
+                cancellationToken);
+        }
+        catch (DeployAIException ex)
+        {
+            await WriteStreamEventAsync(new { type = "error", code = ex.ErrorCode, message = ex.Message }, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            await WriteStreamEventAsync(
+                new
+                {
+                    type = "error",
+                    code = "claude_request_timeout",
+                    message = "The request was canceled or timed out. Try again — large repositories can take several minutes."
+                },
+                CancellationToken.None);
+        }
+    }
+
+    [HttpPost("deployments/{id:guid}/verification-fix")]
+    [RequestTimeout("claude-agent")]
+    public async Task GenerateVerificationFix(
+        Guid id,
+        [FromBody] VerificationFixRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache";
+        var startedAt = DateTimeOffset.UtcNow;
+        await WriteStreamEventAsync(new { type = "started", startedAt }, cancellationToken);
+
+        async Task ReportActivity(string message)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await WriteStreamEventAsync(new { type = "log", message }, cancellationToken);
+        }
+
+        try
+        {
+            var result = await _fixService.GenerateVerificationFixPullRequestAsync(
+                userId,
+                id,
+                request.CheckId,
+                request.TargetId,
+                ReportActivity,
+                cancellationToken);
+
+            var durationSeconds = (int)Math.Max(0, (DateTimeOffset.UtcNow - startedAt).TotalSeconds);
+            await WriteStreamEventAsync(
+                new
+                {
+                    type = "complete",
+                    branchName = result.BranchName,
+                    pullRequestNumber = result.PullRequestNumber,
+                    pullRequestUrl = result.PullRequestUrl,
+                    committedFiles = result.CommittedFiles,
+                    durationSeconds
                 },
                 cancellationToken);
         }
@@ -277,6 +389,10 @@ public sealed class DeploymentsController : ControllerBase
 
     private static object MapDeploymentDetail(Data.Entities.Deployment deployment)
     {
+        var duration = deployment.CompletedAt.HasValue && deployment.StartedAt.HasValue
+            ? (int?)(deployment.CompletedAt.Value - deployment.StartedAt.Value).TotalSeconds
+            : null;
+
         return new
         {
             id = deployment.Id,
@@ -287,6 +403,7 @@ public sealed class DeploymentsController : ControllerBase
             status = deployment.Status,
             startedAt = deployment.StartedAt,
             completedAt = deployment.CompletedAt,
+            durationSeconds = duration,
             targets = deployment.Targets.Select(t =>
             {
                 var analysis = DeploymentFailureAnalysisJson.Parse(t.FailureAnalysisJson);
@@ -321,4 +438,6 @@ public sealed class DeploymentsController : ControllerBase
     }
 
     public sealed record TriggerDeploymentRequest(string? Branch);
+
+    public sealed record VerificationFixRequest(string CheckId, Guid? TargetId);
 }

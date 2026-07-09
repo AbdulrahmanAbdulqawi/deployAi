@@ -1,0 +1,20 @@
+@if (state() !== 'hidden') {
+  <div class="deployment-status-strip u-glass-panel" role="status">
+    @if (loading()) {
+      <p class="deployment-status-strip__loading detail__muted">Checking deployment setup…</p>
+    } @else {
+      <div class="deployment-status-strip__icon" aria-hidden="true">
+        <app-ui-icon name="alert" size="sm" [statusClass]="iconStatus()" />
+      </div>
+      <div class="deployment-status-strip__copy">
+        <p class="deployment-status-strip__title">{{ title() }}</p>
+        <p class="deployment-status-strip__desc">{{ description() }}</p>
+      </div>
+      <a
+        class="deployment-status-strip__action u-label-caps"
+        [routerLink]="['/projects', projectId(), 'troubleshoot']">
+        {{ ctaLabel() }}
+      </a>
+    }
+  </div>
+}

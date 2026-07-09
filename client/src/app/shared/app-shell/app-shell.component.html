@@ -1,5 +1,11 @@
 <div class="shell">
   <div class="u-ambient-glow" aria-hidden="true"></div>
+  @if (theme.showOrbDrifters()) {
+    <app-orb-drifters-background />
+  }
+  @if (theme.showOrbSnake()) {
+    <app-orb-snake-background />
+  }
 
   <header class="topbar">
     <div class="topbar__start">
@@ -10,6 +16,7 @@
       </nav>
     </div>
     <div class="topbar__actions">
+      <a routerLink="/settings/appearance" class="appearance-link" routerLinkActive="appearance-link--active">Appearance</a>
       <button type="button" class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="theme.mode() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
         @if (theme.mode() === 'dark') {
           <app-ui-icon name="sun" size="sm" statusClass="muted" />

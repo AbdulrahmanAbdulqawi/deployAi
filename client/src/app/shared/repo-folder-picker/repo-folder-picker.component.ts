@@ -13,6 +13,8 @@ export class RepoFolderPickerComponent implements OnChanges {
   @Input({ required: true }) repo!: string;
   @Input({ required: true }) gitRef!: string;
   @Input() initialPath = '';
+  /** When set, reflects a folder the user (or parent) has already confirmed. */
+  @Input() confirmedSelection: string | null = null;
 
   @Output() pathSelected = new EventEmitter<string>();
 
@@ -25,10 +27,12 @@ export class RepoFolderPickerComponent implements OnChanges {
   constructor(private readonly api: ApiService) {}
 
   ngOnChanges(changes: SimpleChanges): void {
+    if (changes['confirmedSelection']) {
+      this.selectedPath.set(this.confirmedSelection);
+    }
+
     if (changes['owner'] || changes['repo'] || changes['gitRef'] || changes['initialPath']) {
       this.currentPath.set(this.normalizePath(this.initialPath));
-      this.selectedPath.set(this.currentPath());
-      this.pathSelected.emit(this.currentPath());
       this.loadDirectories();
     }
   }

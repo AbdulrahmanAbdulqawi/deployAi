@@ -12,7 +12,8 @@
   @if (store.loading() && !store.hasProjects()) {
     <div class="skeleton-grid" aria-busy="true" aria-label="Loading your apps">
       @for (item of [1, 2, 3]; track item) {
-        <div class="skeleton-card u-card">
+        <div class="skeleton-card">
+          <div class="u-skeleton skeleton-orb"></div>
           <div class="u-skeleton skeleton-title"></div>
           <div class="u-skeleton skeleton-line"></div>
           <div class="u-skeleton skeleton-btn"></div>

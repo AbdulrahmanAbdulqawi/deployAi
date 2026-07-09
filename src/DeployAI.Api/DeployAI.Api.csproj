@@ -27,7 +27,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="DeploymentTemplates\**\*">
+    <Content Include="DeploymentTemplates\**\*.tpl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="DeploymentTemplates\**\*.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Update="DeploymentTemplates\catalog.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

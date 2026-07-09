@@ -13,6 +13,6 @@ import { ThemeService } from './core/services/theme.service';
 })
 export class AppComponent {
   constructor(private readonly theme: ThemeService) {
-    this.theme.setMode(this.theme.mode());
+    this.theme.setAppearance(this.theme.appearance());
   }
 }

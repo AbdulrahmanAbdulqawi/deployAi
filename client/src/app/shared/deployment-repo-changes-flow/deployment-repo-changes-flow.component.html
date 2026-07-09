@@ -1,0 +1,128 @@
+<div class="repo-changes" [class.repo-changes--compact]="compact()">
+  @if (!compact() && (contextLines().length > 0 || contextSummary())) {
+    <details class="repo-changes__context" [open]="!compact()">
+      <summary class="repo-changes__context-summary">
+        <app-ui-icon name="log" size="sm" statusClass="muted" />
+        <span>{{ contextTitle() }}</span>
+        <app-ui-icon class="repo-changes__chevron" name="chevron-down" size="sm" statusClass="muted" />
+      </summary>
+      <div class="repo-changes__context-panel">
+        @if (contextHint()) {
+          <p class="repo-changes__context-hint">{{ contextHint() }}</p>
+        }
+        @if (contextLines().length > 0) {
+          <app-live-log-panel
+            [embedded]="true"
+            [readOnly]="true"
+            [showToggle]="false"
+            [showProviderPrefix]="false"
+            [title]="contextTitle()"
+            [lines]="contextLines()" />
+        } @else if (contextSummary()) {
+          <p class="repo-changes__context-text">{{ contextSummary() }}</p>
+        }
+      </div>
+    </details>
+  }
+
+  @if (showGenerateProgress()) {
+    <app-operation-progress
+      class="repo-changes__progress"
+      [mode]="generateProgressMode()"
+      [value]="generateProgressValue()"
+      [label]="generateProgressLabel()"
+      [elapsedMs]="generating() ? generateElapsedMs() : null"
+      [durationMs]="generateDurationMs()"
+      [showElapsed]="generating()"
+      [showDuration]="!generating() && generateDurationMs() !== null"
+      [compact]="compact()" />
+  }
+
+  @if (showClaudeActivity()) {
+    <div class="repo-changes__activity">
+      <div class="repo-changes__activity-label">
+        <app-ui-icon name="code" size="sm" statusClass="accent" />
+        <span class="u-label-caps">Claude activity</span>
+      </div>
+      <app-live-log-panel
+        [embedded]="true"
+        [readOnly]="true"
+        [showToggle]="false"
+        [showProviderPrefix]="false"
+        title="Claude"
+        [connecting]="claudeLive()"
+        [lines]="claudeLines()" />
+    </div>
+  }
+
+  @if (changeResult()) {
+    <div class="repo-changes__result">
+      @if (generateDurationLabel(); as duration) {
+        <p class="repo-changes__duration u-text-muted">Generated in {{ duration }}</p>
+      }
+      <p>
+        Changes are on branch <code class="u-code-sm">{{ changeResult()!.branchName }}</code>.
+        <a class="repo-changes__link" [href]="changeResult()!.pullRequestUrl" target="_blank" rel="noopener">
+          Review pull request
+        </a>
+      </p>
+      <div class="repo-changes__result-actions">
+        <app-ui-button
+          variant="primary"
+          icon="rocket"
+          [disabled]="usingBranch() || merging() || !projectId()"
+          [loading]="usingBranch()"
+          (click)="useBranchAndDeploy()">
+          Use branch &amp; deploy
+        </app-ui-button>
+        <app-ui-button
+          variant="secondary"
+          icon="check"
+          [disabled]="usingBranch() || merging()"
+          [loading]="merging()"
+          (click)="mergeChanges()">
+          {{ mergeButtonLabel() }}
+        </app-ui-button>
+        @if (runRegenerate() || secondaryGenerateLabel()) {
+          <app-ui-button
+            variant="secondary"
+            [disabled]="generating() || usingBranch() || merging()"
+            [loading]="generating()"
+            (click)="regenerateChanges()">
+            {{ secondaryGenerateLabel() ?? 'Regenerate' }}
+          </app-ui-button>
+        }
+      </div>
+    </div>
+  } @else {
+    <div class="repo-changes__actions">
+      @if (showPrimaryGenerate()) {
+        <app-ui-button
+          [variant]="buttonVariant()"
+          icon="code"
+          [disabled]="generating()"
+          [loading]="generating()"
+          (click)="generateChanges()">
+          {{ generateLabel() }}
+        </app-ui-button>
+      }
+      @if (secondaryGenerateLabel()) {
+        <app-ui-button
+          variant="secondary"
+          [disabled]="generating()"
+          [loading]="generating()"
+          (click)="regenerateChanges()">
+          {{ secondaryGenerateLabel() }}
+        </app-ui-button>
+      }
+    </div>
+  }
+
+  @if (message()) {
+    <p class="repo-changes__notice">{{ message() }}</p>
+  }
+
+  @if (error()) {
+    <p class="repo-changes__error">{{ error() }}</p>
+  }
+</div>

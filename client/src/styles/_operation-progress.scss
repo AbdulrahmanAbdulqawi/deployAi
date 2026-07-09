@@ -1,0 +1,72 @@
+@mixin operation-progress-bar {
+  position: relative;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  overflow: hidden;
+}
+
+@mixin operation-progress-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--brand-bar-gradient);
+  transform-origin: left center;
+  transition: width var(--motion-fast) var(--motion-ease);
+}
+
+.operation-progress {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.operation-progress__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.operation-progress__label {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.operation-progress__timing {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.operation-progress__bar {
+  @include operation-progress-bar;
+}
+
+.operation-progress__fill {
+  @include operation-progress-fill;
+}
+
+.operation-progress--complete .operation-progress__fill {
+  background: var(--status-success);
+}
+
+.operation-progress--failed .operation-progress__fill {
+  background: var(--status-danger);
+}
+
+.operation-progress--indeterminate .operation-progress__fill {
+  width: 40%;
+  animation: operation-progress-slide 1.4s var(--motion-ease) infinite;
+}
+
+@keyframes operation-progress-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}

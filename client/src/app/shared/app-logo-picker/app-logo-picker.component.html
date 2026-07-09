@@ -1,0 +1,34 @@
+<div class="logo-picker" [class.logo-picker--compact]="compact">
+  <div class="logo-picker__header">
+    <span class="u-label-caps">App icon</span>
+    @if (selectedLogoKey()) {
+      <button type="button" class="logo-picker__clear" (click)="clearSelection()">Clear</button>
+    }
+  </div>
+
+  <div class="logo-picker__grid" role="radiogroup" [attr.aria-label]="'App icon options for ' + themeStyle() + ' theme'">
+    @for (option of options(); track option.id) {
+      <button
+        type="button"
+        class="logo-picker__option"
+        [class.logo-picker__option--selected]="isSelected(option.id)"
+        [attr.aria-checked]="isSelected(option.id)"
+        [attr.aria-label]="option.label"
+        role="radio"
+        (click)="select(option.id)">
+        <span class="logo-picker__orb" [attr.data-style]="themeStyle()" aria-hidden="true">
+          <span class="logo-picker__orb-highlight"></span>
+          <span class="logo-picker__orb-mark">
+            <app-app-logo [logoKey]="option.id" variant="picker" [styleOverride]="themeStyle()" />
+          </span>
+        </span>
+        <span class="logo-picker__label">{{ option.label }}</span>
+        @if (isSelected(option.id)) {
+          <span class="logo-picker__selected" aria-hidden="true">
+            <app-ui-icon name="check" size="sm" statusClass="success" />
+          </span>
+        }
+      </button>
+    }
+  </div>
+</div>

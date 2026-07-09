@@ -1,0 +1,30 @@
+<div
+  class="operation-progress"
+  [class.operation-progress--compact]="compact()"
+  [class.operation-progress--indeterminate]="mode() === 'indeterminate'"
+  [class.operation-progress--determinate]="mode() === 'determinate'"
+  [class.operation-progress--complete]="mode() === 'complete'"
+  [class.operation-progress--failed]="mode() === 'failed'"
+  role="group"
+  [attr.aria-label]="label() ?? 'Operation progress'">
+  @if (label() || timingLabel()) {
+    <div class="operation-progress__header">
+      @if (label(); as progressLabel) {
+        <p class="operation-progress__label">{{ progressLabel }}</p>
+      }
+      @if (timingLabel(); as timing) {
+        <span class="operation-progress__timing">{{ timing }}</span>
+      }
+    </div>
+  }
+
+  <div
+    class="operation-progress__bar"
+    role="progressbar"
+    [attr.aria-valuemin]="mode() === 'determinate' ? 0 : null"
+    [attr.aria-valuemax]="mode() === 'determinate' ? 100 : null"
+    [attr.aria-valuenow]="mode() === 'determinate' ? value() : null"
+    [attr.aria-valuetext]="label() ?? undefined">
+    <span class="operation-progress__fill" [style.width]="fillWidth()"></span>
+  </div>
+</div>

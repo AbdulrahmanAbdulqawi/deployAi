@@ -5,10 +5,6 @@
   border-left: 4px solid var(--status-warning);
 }
 
-[data-theme='dark'] .fix-panel {
-  border-left-color: color-mix(in srgb, var(--status-warning) 70%, var(--brand-indigo));
-}
-
 .fix-panel__header {
   display: flex;
   align-items: flex-start;

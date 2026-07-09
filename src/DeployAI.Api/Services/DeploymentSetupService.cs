@@ -18,6 +18,7 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
     private readonly IDeploymentFileGeneratorSelector _generatorSelector;
     private readonly IFrontendEnvironmentWiringService _environmentWiring;
     private readonly IEncryptionService _encryption;
+    private readonly IProjectBranchDeployService _branchDeployService;
 
     public DeploymentSetupService(
         DeployAIDbContext db,
@@ -25,7 +26,8 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         IDeploymentReadinessService readinessService,
         IDeploymentFileGeneratorSelector generatorSelector,
         IFrontendEnvironmentWiringService environmentWiring,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IProjectBranchDeployService branchDeployService)
     {
         _db = db;
         _gitHubService = gitHubService;
@@ -33,6 +35,7 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         _generatorSelector = generatorSelector;
         _environmentWiring = environmentWiring;
         _encryption = encryption;
+        _branchDeployService = branchDeployService;
     }
 
     public async Task<DeploymentSetupResult> GenerateSetupBranchAsync(
@@ -233,26 +236,17 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             syncResult.VercelKeysApplied);
     }
 
-    public async Task UseSetupBranchAsync(
+    public Task UseSetupBranchAsync(
         Guid userId,
         Guid projectId,
         string branch,
-        CancellationToken cancellationToken)
-    {
-        var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
-        if (project is null)
-        {
-            throw new DeployAIException("project_not_found", "We couldn't find that app.");
-        }
-
-        project.DefaultBranch = branch;
-        project.UpdatedAt = DateTimeOffset.UtcNow;
-        var state = ParseSetupState(project.DeploymentSetupJson);
-        state["setupBranch"] = branch;
-        state["setupCompletedAt"] = DateTimeOffset.UtcNow.ToString("O");
-        project.DeploymentSetupJson = state.ToJsonString();
-        await _db.SaveChangesAsync(cancellationToken);
-    }
+        CancellationToken cancellationToken) =>
+        _branchDeployService.UseBranchAndDeployAsync(
+            userId,
+            projectId,
+            branch,
+            triggerFullDeploy: false,
+            cancellationToken);
 
     public async Task<bool?> GetAiSetupPreferenceAsync(
         Guid userId,

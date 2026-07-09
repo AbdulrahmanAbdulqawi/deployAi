@@ -6,6 +6,8 @@ import {
   DatabaseRequirementProfile,
   DeploymentDetail,
   DeploymentLogLine,
+  DeploymentVerificationResult,
+  DeploymentVerificationScope,
   DeploymentPlan,
   DeploymentPlanPart,
   DeploymentReadinessResult,
@@ -30,7 +32,8 @@ import {
   ProviderInfo,
   ProviderProject,
   ProviderEnvVar,
-  TriggerDeploymentResponse
+  TriggerDeploymentResponse,
+  UseBranchDeployResult
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -253,6 +256,13 @@ export class ApiService {
     );
   }
 
+  useBranchAndDeploy(projectId: string, branch: string, deploy = true) {
+    return this.http.post<UseBranchDeployResult>(
+      `/api/projects/${projectId}/use-branch-and-deploy`,
+      { branch, deploy }
+    );
+  }
+
   getAiSetupPreference(projectId: string) {
     return this.http.get<{ enabled: boolean | null }>(
       `/api/projects/${projectId}/settings/ai-setup`
@@ -286,6 +296,7 @@ export class ApiService {
     name: string;
     githubRepoFullName: string;
     defaultBranch: string;
+    logoKey?: string | null;
     includePostgres?: boolean;
     includeRedis?: boolean;
     targets: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[];
@@ -297,6 +308,7 @@ export class ApiService {
     name: string;
     githubRepoFullName: string;
     defaultBranch: string;
+    logoKey?: string | null;
     includePostgres?: boolean;
     includeRedis?: boolean;
     parts: {
@@ -322,6 +334,7 @@ export class ApiService {
     payload: {
       name?: string;
       defaultBranch?: string;
+      logoKey?: string | null;
       targets?: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[];
     }
   ) {
@@ -396,6 +409,10 @@ export class ApiService {
     return this.http.get<DeploymentDetail>(`/api/deployments/${id}`);
   }
 
+  verifyDeployment(id: string, scope: DeploymentVerificationScope) {
+    return this.http.post<DeploymentVerificationResult>(`/api/deployments/${id}/verify`, {}, { params: { scope } });
+  }
+
   getDeploymentLogs(id: string, target?: string) {
     const params = target ? { target } : undefined;
     return this.http.get<{ logs: DeploymentLogLine[] }>(`/api/deployments/${id}/logs`, { params });
@@ -410,6 +427,21 @@ export class ApiService {
   }
 
   generateDeploymentFix(deploymentId: string, targetId: string): Observable<DeploymentFixStreamEvent> {
+    return this.streamDeploymentFix(`/api/deployments/${deploymentId}/targets/${targetId}/fix`, {});
+  }
+
+  generateVerificationFix(
+    deploymentId: string,
+    checkId: string,
+    targetId?: string
+  ): Observable<DeploymentFixStreamEvent> {
+    return this.streamDeploymentFix(`/api/deployments/${deploymentId}/verification-fix`, {
+      checkId,
+      targetId: targetId ?? null
+    });
+  }
+
+  private streamDeploymentFix(url: string, body: unknown): Observable<DeploymentFixStreamEvent> {
     return new Observable<DeploymentFixStreamEvent>((subscriber) => {
       const abortController = new AbortController();
       const timeoutId = window.setTimeout(() => abortController.abort(), ApiService.claudeAgentTimeoutMs);
@@ -417,23 +449,23 @@ export class ApiService {
       const run = async (): Promise<void> => {
         try {
           const token = localStorage.getItem('deployai_access_token');
-          const response = await fetch(`/api/deployments/${deploymentId}/targets/${targetId}/fix`, {
+          const response = await fetch(url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               ...(token ? { Authorization: `Bearer ${token}` } : {})
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify(body),
             signal: abortController.signal
           });
 
           const contentType = response.headers.get('content-type') ?? '';
           if (!response.ok && contentType.includes('application/json')) {
-            const body = (await response.json()) as { error?: { code?: string; message?: string } };
+            const parsed = (await response.json()) as { error?: { code?: string; message?: string } };
             subscriber.next({
               type: 'error',
-              code: body.error?.code ?? 'fix_generation_failed',
-              message: body.error?.message ?? 'Could not generate a fix with Claude.'
+              code: parsed.error?.code ?? 'fix_generation_failed',
+              message: parsed.error?.message ?? 'Could not generate a fix with Claude.'
             });
             subscriber.complete();
             return;

@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnInit, signal, viewChild } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
@@ -7,7 +7,6 @@ import { ProjectsStore } from '../core/stores/projects.store';
 import {
   DatabaseRequirementProfile,
   DataServiceInfo,
-  DeploymentPlanPart,
   DeploymentReadinessResult,
   DeploymentSummary,
   ProjectDetail,
@@ -18,14 +17,13 @@ import {
 } from '../core/models/api.models';
 import {
   databaseEngineLabel,
-  parseTargetConfig,
   providerLabel,
   serviceStatusLabel
 } from '../core/utils/target-config';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent, IconName } from '../shared/ui/icon/icon.component';
 import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/dropdown-menu.component';
-import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
+import { DeploymentStatusStripComponent } from '../shared/deployment-status-strip/deployment-status-strip.component';
 import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
 import { ConfirmService } from '../shared/ui/confirm/confirm.service';
 import { ToastService } from '../shared/ui/toast/toast.service';
@@ -43,15 +41,13 @@ interface LiveUrl {
     ButtonComponent,
     IconComponent,
     DropdownMenuComponent,
-    DeploymentSetupPanelComponent,
+    DeploymentStatusStripComponent,
     StatusBadgeComponent
   ],
   templateUrl: './project-detail.component.html',
   styleUrl: './project-detail.component.scss'
 })
 export class ProjectDetailComponent implements OnInit {
-  private readonly setupAnchor = viewChild<ElementRef<HTMLElement>>('setupAnchor');
-
   readonly project = signal<ProjectDetail | null>(null);
   readonly services = signal<ProjectServicesResponse | null>(null);
   readonly latestDeployment = signal<DeploymentSummary | null>(null);
@@ -203,24 +199,8 @@ export class ProjectDetailComponent implements OnInit {
     return new Date(value).toLocaleDateString();
   }
 
-  scrollToSetup(): void {
-    this.setupAnchor()?.nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
-    return this.aiSetup.enabled() && readiness.usesSplitOrigin;
-  }
-
-  setAiSetupEnabled(enabled: boolean): void {
-    if (this.projectId) {
-      this.aiSetup.setEnabledForProject(this.projectId, enabled);
-    } else {
-      this.aiSetup.setEnabled(enabled);
-    }
-  }
-
-  showSetupBanner(readiness: DeploymentReadinessResult): boolean {
-    return readiness.usesSplitOrigin && readiness.missingFiles.length > 0;
+  openTroubleshoot(): void {
+    void this.router.navigate(['/projects', this.projectId, 'troubleshoot']);
   }
 
   databaseIcon(engine?: string): IconName {
@@ -408,53 +388,6 @@ export class ProjectDetailComponent implements OnInit {
     }
 
     this.projectsStore.triggerDeploy(this.projectId);
-  }
-
-  onSetupComplete(): void {
-    this.loadDeploymentReadiness();
-  }
-
-  repoOwner(): string | null {
-    const project = this.project();
-    if (!project) {
-      return null;
-    }
-
-    const [owner] = project.githubRepoFullName.split('/');
-    return owner || null;
-  }
-
-  repoName(): string | null {
-    const project = this.project();
-    if (!project) {
-      return null;
-    }
-
-    const parts = project.githubRepoFullName.split('/');
-    return parts[1] || null;
-  }
-
-  planParts(): DeploymentPlanPart[] {
-    const project = this.project();
-    if (!project) {
-      return [];
-    }
-
-    return project.targets.map(target => {
-      const config = parseTargetConfig(target.config);
-      return {
-        role: config.role ?? target.providerName,
-        providerName: target.providerName,
-        rootDirectory: config.rootDirectory,
-        serviceDirectory: config.serviceDirectory,
-        buildCommand: config.buildCommand,
-        installCommand: config.installCommand,
-        startCommand: config.startCommand,
-        outputDirectory: config.outputDirectory,
-        framework: config.framework,
-        dockerfilePath: config.dockerfilePath
-      };
-    });
   }
 
   openHistory(): void {

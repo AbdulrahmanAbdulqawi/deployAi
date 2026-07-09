@@ -3,12 +3,13 @@ import { StatusBadgeComponent } from '../status-badge/status-badge.component';
 import { plainTargetSummary } from '../../core/utils/target-config';
 import { ProjectSummary } from '../../core/models/api.models';
 import { ButtonComponent } from '../ui/button/button.component';
-import { IconComponent } from '../ui/icon/icon.component';
+import { AppLogoComponent } from '../app-logo/app-logo.component';
+import { isAppLogoId } from '../../core/constants/app-logos';
 
 @Component({
   selector: 'app-project-card',
   standalone: true,
-  imports: [StatusBadgeComponent, ButtonComponent, IconComponent],
+  imports: [StatusBadgeComponent, ButtonComponent, AppLogoComponent],
   templateUrl: './project-card.component.html',
   styleUrl: './project-card.component.scss'
 })
@@ -29,6 +30,26 @@ export class ProjectCardComponent {
 
   get canFix(): boolean {
     return !!this.project.latestDeployment?.canRequestClaudeFix;
+  }
+
+  get hasLogo(): boolean {
+    return isAppLogoId(this.project.logoKey);
+  }
+
+  orbTone(): string {
+    const status = this.project.latestDeployment?.status;
+    switch (status) {
+      case 'success':
+        return 'success';
+      case 'failed':
+        return 'failed';
+      case 'in_progress':
+        return 'working';
+      case 'partial':
+        return 'attention';
+      default:
+        return 'idle';
+    }
   }
 
   onCardClick(): void {

@@ -413,6 +413,135 @@ internal static class ClaudeDeploymentPrompts
         return builder.ToString().Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal);
     }
 
+    internal static string BuildVerificationFixPrompt(
+        string owner,
+        string repo,
+        string gitRef,
+        string providerName,
+        string? framework,
+        DeploymentFailureAnalysis failureAnalysis,
+        DeploymentVerificationFixContext verificationContext,
+        DeployTargetConfig targetConfig,
+        string? repoContext = null,
+        IReadOnlyList<ResolvedDeploymentTemplate>? referenceTemplates = null)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("You are a developer fixing a **live deployment health check failure** detected after a successful deploy.");
+        builder.AppendLine("The build succeeded, but the deployed site or API is misconfigured at runtime.");
+        builder.AppendLine();
+        builder.AppendLine("## Context");
+        builder.AppendLine();
+        builder.AppendLine($"- Repository: {owner}/{repo} @ {gitRef}");
+        builder.AppendLine($"- Provider: {providerName}");
+        if (!string.IsNullOrWhiteSpace(framework))
+        {
+            builder.AppendLine($"- Framework: {framework}");
+        }
+
+        builder.AppendLine($"- Health check: {verificationContext.CheckId} ({verificationContext.Label})");
+        if (!string.IsNullOrWhiteSpace(verificationContext.Url))
+        {
+            builder.AppendLine($"- Live URL: {verificationContext.Url}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(verificationContext.WebsiteUrl))
+        {
+            builder.AppendLine($"- Website URL: {verificationContext.WebsiteUrl}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(verificationContext.ApiUrl))
+        {
+            builder.AppendLine($"- API URL: {verificationContext.ApiUrl}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetConfig.RootDirectory))
+        {
+            builder.AppendLine($"- Website root directory: {targetConfig.RootDirectory}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(targetConfig.OutputDirectory))
+        {
+            builder.AppendLine($"- Expected output directory (from deploy config): {targetConfig.OutputDirectory}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Health Check Failure");
+        builder.AppendLine();
+        builder.AppendLine(failureAnalysis.ErrorExcerpt ?? failureAnalysis.Summary);
+
+        if (failureAnalysis.ReferencedFiles.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Files to inspect first");
+            builder.AppendLine();
+            foreach (var file in failureAnalysis.ReferencedFiles)
+            {
+                builder.AppendLine($"- `{file}`");
+            }
+        }
+
+        builder.AppendLine();
+        builder.AppendLine(BuildVerificationFixHints(verificationContext.CheckId, framework, targetConfig));
+
+        if (!string.IsNullOrWhiteSpace(repoContext))
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Preloaded Repository Context");
+            builder.AppendLine();
+            builder.AppendLine(repoContext);
+        }
+
+        AppendReferenceTemplates(builder, referenceTemplates);
+
+        builder.AppendLine();
+        builder.Append(FixInstructionsNoLocalBuild);
+
+        var apiEnvKeys = string.Join(" / ", CrossProviderUrlWiring.ResolveApiEnvKeys(framework).Select(key => $"`{key}`"));
+        return builder.ToString().Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal);
+    }
+
+    private static string BuildVerificationFixHints(
+        string checkId,
+        string? framework,
+        DeployTargetConfig targetConfig)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("## Fix Guidance");
+        builder.AppendLine();
+
+        if (checkId is "website.reachable" or "website.spa_shell" ||
+            checkId.Contains("output", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AppendLine("- Read `angular.json` to find the browser output path for the production build.");
+            builder.AppendLine("- Set `vercel.json` `outputDirectory` to the Angular browser folder (often `dist/<project>/browser`).");
+            if (!string.IsNullOrWhiteSpace(targetConfig.OutputDirectory))
+            {
+                builder.AppendLine($"- DeployAI expects outputDirectory near: `{targetConfig.OutputDirectory}`.");
+            }
+        }
+
+        if (checkId == "website.split_origin_wiring")
+        {
+            builder.AppendLine("- Ensure `app.config.ts` registers `apiBaseInterceptor` via `provideHttpClient(withInterceptors([...]))`.");
+            builder.AppendLine("- Ensure `environment.production.ts` defines `apiBaseUrl` and Angular `fileReplacements` are configured.");
+            builder.AppendLine("- Services may keep relative `/api/*` paths; the interceptor prefixes them with `environment.apiBaseUrl`.");
+        }
+
+        if (checkId.StartsWith("connection.", StringComparison.Ordinal))
+        {
+            builder.AppendLine("- Fix cross-origin wiring: CORS allowed origins on the API, Vercel rewrites/proxy if used, and frontend API base URL.");
+            builder.AppendLine($"- Frontend API env keys: {string.Join(", ", CrossProviderUrlWiring.ResolveApiEnvKeys(framework).Select(key => $"`{key}`"))}.");
+        }
+
+        if (string.Equals(framework, "angular", StringComparison.OrdinalIgnoreCase) &&
+            checkId.StartsWith("website.", StringComparison.Ordinal))
+        {
+            builder.AppendLine("- Angular 17+ production builds output to a `/browser` subfolder — verify `outputDirectory` includes it.");
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
     internal static string BuildMissingFilesPrompt(
         string owner,
         string repo,

@@ -223,4 +223,41 @@ public class ClaudeDeploymentPromptsTests
         Assert.Contains("single-part deployment", prompt);
         Assert.DoesNotContain("Split-origin checklist", prompt);
     }
+
+    [Fact]
+    public void BuildVerificationFixPrompt_IncludesHealthCheckContextAndOutputDirectoryHints()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Website returned 404",
+            "Health check: Website homepage (website.reachable)\nStatus: failed",
+            ["vercel.json", "angular.json"],
+            true);
+
+        var verificationContext = new DeploymentVerificationFixContext(
+            "website.reachable",
+            "website",
+            "Website homepage",
+            "Website returned 404",
+            "https://app.vercel.app/",
+            "https://app.vercel.app/",
+            null);
+
+        var targetConfig = DeployTargetConfig.Parse("""{"framework":"angular","outputDirectory":"dist/app/browser"}""");
+
+        var prompt = ClaudeDeploymentPrompts.BuildVerificationFixPrompt(
+            "owner",
+            "repo",
+            "main",
+            "vercel",
+            "angular",
+            analysis,
+            verificationContext,
+            targetConfig);
+
+        Assert.Contains("live deployment health check failure", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("website.reachable", prompt);
+        Assert.Contains("dist/app/browser", prompt);
+        Assert.Contains("Local build verification is disabled", prompt);
+    }
 }

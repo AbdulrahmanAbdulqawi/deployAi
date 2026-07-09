@@ -977,6 +977,11 @@ public class FrontendEnvironmentWiringServiceTests
                 """,
                 "sha-existing"));
 
+        var deploymentVerification = new Mock<IDeploymentVerificationService>();
+        deploymentVerification
+            .Setup(v => v.VerifyAsync(It.IsAny<Guid>(), DeploymentVerificationScope.Both, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentVerificationResult(true, "both", [], DateTimeOffset.UtcNow));
+
         return new FrontendEnvironmentWiringService(
             db,
             managementFactory.Object,
@@ -986,7 +991,8 @@ public class FrontendEnvironmentWiringServiceTests
             gitHubService.Object,
             (encryption ?? CreateEncryptionMock()).Object,
             httpClientFactory ?? new StubHttpClientFactory(new StubHttpMessageHandler()),
-            (deploymentReadiness ?? new Mock<IDeploymentReadinessService>()).Object);
+            (deploymentReadiness ?? new Mock<IDeploymentReadinessService>()).Object,
+            deploymentVerification.Object);
     }
 
     private static Mock<IEncryptionService> CreateEncryptionMock()

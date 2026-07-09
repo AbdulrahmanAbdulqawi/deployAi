@@ -53,6 +53,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     private readonly IEncryptionService _encryption;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDeploymentReadinessService _deploymentReadiness;
+    private readonly IDeploymentVerificationService _deploymentVerification;
 
     public FrontendEnvironmentWiringService(
         DeployAIDbContext db,
@@ -63,7 +64,8 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         IGitHubService gitHubService,
         IEncryptionService encryption,
         IHttpClientFactory httpClientFactory,
-        IDeploymentReadinessService deploymentReadiness)
+        IDeploymentReadinessService deploymentReadiness,
+        IDeploymentVerificationService deploymentVerification)
     {
         _db = db;
         _managementFactory = managementFactory;
@@ -74,6 +76,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         _encryption = encryption;
         _httpClientFactory = httpClientFactory;
         _deploymentReadiness = deploymentReadiness;
+        _deploymentVerification = deploymentVerification;
     }
 
     public async Task<EnvironmentSyncResult> SyncCrossProviderEnvironmentAsync(
@@ -461,97 +464,21 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         Guid deploymentId,
         CancellationToken cancellationToken)
     {
-        var deployment = await _db.Deployments
-            .Include(d => d.Targets)
-            .Include(d => d.Project)
-            .ThenInclude(p => p.DeployTargets)
-            .FirstOrDefaultAsync(d => d.Id == deploymentId, cancellationToken);
+        var result = await _deploymentVerification.VerifyAsync(
+            deploymentId,
+            DeploymentVerificationScope.Both,
+            cancellationToken);
 
-        if (deployment is null)
-        {
-            return [];
-        }
-
-        var websiteTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
-            t.Status == DeploymentStatuses.Success);
-        var serverTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-            t.Status == DeploymentStatuses.Success);
-
-        if (websiteTarget is null || serverTarget is null ||
-            string.IsNullOrWhiteSpace(websiteTarget.DeployUrl) ||
-            string.IsNullOrWhiteSpace(serverTarget.DeployUrl))
-        {
-            return [];
-        }
-
-        var websiteDeployTarget = deployment.Project.DeployTargets
-            .FirstOrDefault(t => t.Id == websiteTarget.DeployTargetId);
-        var serverDeployTarget = deployment.Project.DeployTargets
-            .FirstOrDefault(t => t.Id == serverTarget.DeployTargetId);
-        var websiteConfig = DeployTargetConfig.Parse(websiteDeployTarget?.ConfigJson);
-        var serverConfig = DeployTargetConfig.Parse(serverDeployTarget?.ConfigJson);
-        var messages = new List<string>();
-        var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
-        client.Timeout = TimeSpan.FromSeconds(20);
-
-        var apiUrl = CrossProviderUrlWiring.NormalizeOrigin(serverTarget.DeployUrl);
-        var websiteUrl = CrossProviderUrlWiring.NormalizeOrigin(websiteTarget.DeployUrl);
-
-        if (websiteDeployTarget?.Credential is not null)
-        {
-            var vercelManagement = _managementFactory.GetManagement("vercel");
-            if (vercelManagement is IWebsiteApiProxySupport proxySupport)
+        return result.Checks
+            .Where(check => check.Target is "server" or "connection")
+            .Where(check => check.Status is not "skipped")
+            .Select(check => check.Status switch
             {
-                var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
-                var resolved = await proxySupport.ResolvePublicWebsiteUrlAsync(
-                    credentials,
-                    websiteDeployTarget.ProviderProjectId,
-                    websiteTarget.DeployUrl,
-                    cancellationToken);
-                if (!string.IsNullOrWhiteSpace(resolved))
-                {
-                    websiteUrl = CrossProviderUrlWiring.NormalizeOrigin(resolved);
-                }
-            }
-        }
-
-        await VerifyReachableAsync(
-            client,
-            $"{apiUrl}/",
-            label: "Railway API",
-            messages,
-            cancellationToken);
-
-        if (CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteConfig?.Framework, serverConfig?.Framework))
-        {
-            await VerifySplitOriginApiHealthAsync(
-                client,
-                $"{apiUrl}/api/v1/health",
-                label: "Railway API health",
-                messages,
-                cancellationToken);
-        }
-        else if (CrossProviderUrlWiring.UsesRelativeApiPaths(websiteConfig?.Framework))
-        {
-            await VerifyProxiedApiHealthAsync(
-                client,
-                $"{websiteUrl}/api/health",
-                label: "Vercel website proxy",
-                messages,
-                cancellationToken);
-        }
-
-        await VerifyCorsHeaderAsync(
-            client,
-            $"{apiUrl}/",
-            websiteUrl,
-            label: "Railway CORS",
-            messages,
-            cancellationToken);
-
-        return messages;
+                "passed" => $"{check.Label} check passed: {check.Message}",
+                "warning" => $"{check.Label} check warning: {check.Message}",
+                _ => $"{check.Label} check failed: {check.Message}"
+            })
+            .ToList();
     }
 
     internal static IReadOnlyList<string> ResolveApiEnvKeys(string? framework) =>
@@ -906,7 +833,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
         client.Timeout = TimeSpan.FromSeconds(20);
 
-        await VerifyReachableAsync(
+        await DeploymentEndpointProbes.AppendReachableMessageAsync(
             client,
             $"{apiUrl}/",
             label: "Railway API",
@@ -915,7 +842,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
 
         if (CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteFramework, serverFramework))
         {
-            await VerifySplitOriginApiHealthAsync(
+            await DeploymentEndpointProbes.AppendSplitOriginHealthMessageAsync(
                 client,
                 $"{apiUrl}/api/v1/health",
                 label: "Railway API health",
@@ -924,7 +851,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         }
         else if (CrossProviderUrlWiring.UsesRelativeApiPaths(websiteFramework))
         {
-            await VerifyProxiedApiLoginAsync(
+            await DeploymentEndpointProbes.AppendProxiedLoginMessageAsync(
                 client,
                 websiteUrl,
                 label: "Vercel website proxy",
@@ -932,7 +859,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 cancellationToken);
         }
 
-        await VerifyCorsHeaderAsync(
+        await DeploymentEndpointProbes.AppendCorsMessageAsync(
             client,
             $"{apiUrl}/",
             websiteUrl,
@@ -1235,30 +1162,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         return createCommitSha;
     }
 
-    private static async Task VerifyReachableAsync(
-        HttpClient client,
-        string url,
-        string label,
-        List<string> messages,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var response = await client.GetAsync(url, cancellationToken);
-            if ((int)response.StatusCode >= 500)
-            {
-                messages.Add($"{label} check failed ({(int)response.StatusCode}): {url}");
-                return;
-            }
-
-            messages.Add($"{label} check passed: {url}");
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"{label} check error: {ex.Message}");
-        }
-    }
-
     private async Task<bool?> ProbeProxiedApiPostAsync(
         string websiteUrl,
         CancellationToken cancellationToken)
@@ -1267,10 +1170,13 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         {
             var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
             client.Timeout = TimeSpan.FromSeconds(20);
-            return await EvaluateProxiedApiPostResponseAsync(
-                client,
-                websiteUrl,
-                cancellationToken);
+            var result = await DeploymentEndpointProbes.CheckProxiedApiLoginAsync(client, websiteUrl, cancellationToken);
+            return result.Status switch
+            {
+                ProbeCheckStatus.Passed => true,
+                ProbeCheckStatus.Failed => false,
+                _ => null
+            };
         }
         catch
         {
@@ -1278,13 +1184,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         }
     }
 
-    /// <summary>
-    /// Checks whether the deployed SPA build has split-origin wiring baked in:
-    /// apiBaseInterceptor registered (withInterceptors), non-empty apiBaseUrl, and no
-    /// relative /api paths without an interceptor.
-    /// Returns true when wired, false when the bundle will 405 on API calls,
-    /// null when the site could not be inspected.
-    /// </summary>
     private async Task<bool?> ProbeDeployedSpaWiredToApiAsync(
         string websiteUrl,
         string apiUrl,
@@ -1295,33 +1194,10 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         {
             var client = _httpClientFactory.CreateClient(nameof(FrontendEnvironmentWiringService));
             client.Timeout = TimeSpan.FromSeconds(20);
-            var baseUrl = websiteUrl.TrimEnd('/');
-
-            var html = await client.GetStringAsync($"{baseUrl}/", cancellationToken);
-            var scriptBodies = new List<string> { html };
-            foreach (var source in ExtractScriptSources(html))
-            {
-                var scriptUrl = source.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                    ? source
-                    : $"{baseUrl}/{source.TrimStart('/')}";
-
-                try
-                {
-                    scriptBodies.Add(await client.GetStringAsync(scriptUrl, cancellationToken));
-                }
-                catch
-                {
-                    // Best-effort: continue with other bundles.
-                }
-            }
-
-            if (scriptBodies.Count == 1)
-            {
-                return null;
-            }
-
-            var analysis = SplitOriginClientWiringAnalyzer.AnalyzeBundleScripts(scriptBodies);
-            return analysis.IsWired;
+            return await DeploymentEndpointProbes.ProbeDeployedSpaWiredToApiAsync(
+                client,
+                websiteUrl,
+                cancellationToken);
         }
         catch
         {
@@ -1367,46 +1243,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         return true;
     }
 
-    // Angular's build references the entry bundles with <script src> and the statically
-    // imported chunks (where an env-baked constant may land) with <link rel="modulepreload">.
-    private static IReadOnlyList<string> ExtractScriptSources(string html)
-    {
-        var sources = new List<string>();
-
-        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
-                     html,
-                     "<script[^>]+src\\s*=\\s*[\"']([^\"']+)[\"']",
-                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-        {
-            sources.Add(match.Groups[1].Value);
-        }
-
-        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
-                     html,
-                     "<link[^>]+>",
-                     System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-        {
-            if (!match.Value.Contains("modulepreload", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var href = System.Text.RegularExpressions.Regex.Match(
-                match.Value,
-                "href\\s*=\\s*[\"']([^\"']+)[\"']",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (href.Success)
-            {
-                sources.Add(href.Groups[1].Value);
-            }
-        }
-
-        return sources
-            .Where(source => !string.IsNullOrWhiteSpace(source))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
     /// <summary>
     /// Scans the project's repository for the split-origin wiring files (env script,
     /// api-base interceptor, ...). Returns the Blocking findings, or null when the
@@ -1450,172 +1286,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         }
 
         return $"Vercel deployment missing split-origin bundle wiring (apiBaseInterceptor and apiBaseUrl required; production redeploy required).";
-    }
-
-    private static async Task<bool?> EvaluateProxiedApiPostResponseAsync(
-        HttpClient client,
-        string websiteUrl,
-        CancellationToken cancellationToken)
-    {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"{websiteUrl.TrimEnd('/')}/api/v1/auth/login");
-        request.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
-        using var response = await client.SendAsync(request, cancellationToken);
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
-
-        if (response.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
-        {
-            return false;
-        }
-
-        if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static async Task VerifyProxiedApiLoginAsync(
-        HttpClient client,
-        string websiteUrl,
-        string label,
-        List<string> messages,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var proxyWorking = await EvaluateProxiedApiPostResponseAsync(
-                client,
-                websiteUrl,
-                cancellationToken);
-
-            if (proxyWorking == false)
-            {
-                messages.Add($"{label} check returned 405 for POST /api/v1/auth/login. Production domain may still point at an old Vercel deployment.");
-                return;
-            }
-
-            if (proxyWorking is null)
-            {
-                messages.Add($"{label} check error: could not reach POST /api/v1/auth/login");
-                return;
-            }
-
-            messages.Add($"{label} check passed: POST /api/v1/auth/login");
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"{label} check error: {ex.Message}");
-        }
-    }
-
-    private static async Task VerifySplitOriginApiHealthAsync(
-        HttpClient client,
-        string url,
-        string label,
-        List<string> messages,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var response = await client.GetAsync(url, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                messages.Add($"{label} check failed ({(int)response.StatusCode}): {url}");
-                return;
-            }
-
-            if (!body.Contains("healthy", StringComparison.OrdinalIgnoreCase))
-            {
-                messages.Add($"{label} check returned an unexpected body: {url}");
-                return;
-            }
-
-            messages.Add($"{label} check passed: {url}");
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"{label} check error: {ex.Message}");
-        }
-    }
-
-    private static async Task VerifyProxiedApiHealthAsync(
-        HttpClient client,
-        string url,
-        string label,
-        List<string> messages,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var response = await client.GetAsync(url, cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            var contentType = response.Content.Headers.ContentType?.MediaType ?? "unknown";
-
-            if (!response.IsSuccessStatusCode)
-            {
-                messages.Add($"{label} check failed ({(int)response.StatusCode}): {url}");
-                return;
-            }
-
-            if (contentType.Contains("html", StringComparison.OrdinalIgnoreCase))
-            {
-                messages.Add($"{label} check returned HTML instead of API JSON. Verify Vercel rewrites to the Railway API.");
-                return;
-            }
-
-            if (!body.Contains("\"status\"", StringComparison.OrdinalIgnoreCase) &&
-                !body.Contains("ok", StringComparison.OrdinalIgnoreCase))
-            {
-                messages.Add($"{label} check returned an unexpected body: {url}");
-                return;
-            }
-
-            messages.Add($"{label} check passed: {url}");
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"{label} check error: {ex.Message}");
-        }
-    }
-
-    private static async Task VerifyCorsHeaderAsync(
-        HttpClient client,
-        string url,
-        string origin,
-        string label,
-        List<string> messages,
-        CancellationToken cancellationToken)
-    {
-        var preflightUrl = url.TrimEnd('/') + "/api/v1/auth/login";
-        using var request = new HttpRequestMessage(HttpMethod.Options, preflightUrl);
-        request.Headers.TryAddWithoutValidation("Origin", origin);
-        request.Headers.TryAddWithoutValidation("Access-Control-Request-Method", "POST");
-
-        try
-        {
-            using var response = await client.SendAsync(request, cancellationToken);
-            if ((int)response.StatusCode >= 500)
-            {
-                messages.Add($"{label} check failed ({(int)response.StatusCode}): {preflightUrl}");
-                return;
-            }
-
-            if (!response.Headers.Contains("Access-Control-Allow-Origin"))
-            {
-                messages.Add($"{label} check: server reachable but Access-Control-Allow-Origin is missing for {origin}. A server redeploy may still be in progress.");
-                return;
-            }
-
-            messages.Add($"{label} check passed for origin {origin}.");
-        }
-        catch (Exception ex)
-        {
-            messages.Add($"{label} check error: {ex.Message}");
-        }
     }
 
     private sealed record ServerWiringContext(

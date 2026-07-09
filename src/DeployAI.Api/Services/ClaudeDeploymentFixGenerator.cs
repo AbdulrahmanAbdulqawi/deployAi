@@ -43,7 +43,8 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         DeployTargetConfig targetConfig,
         DeploymentFailureAnalysis failureAnalysis,
         Func<string, Task>? reportActivity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DeploymentVerificationFixContext? verificationContext = null)
     {
         if (!_anthropic.IsConfigured)
         {
@@ -53,8 +54,8 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         }
 
         var repoRef = new GitHubRepoRef(githubAccessToken, owner, repo, gitRef);
-        var allowAgentBuilds = _fixBuildOptions.AllowAgentBuildCommands;
-        var verifyOnSubmit = _fixBuildOptions.VerifyOnSubmitLocally;
+        var allowAgentBuilds = verificationContext is null && _fixBuildOptions.AllowAgentBuildCommands;
+        var verifyOnSubmit = verificationContext is null && _fixBuildOptions.VerifyOnSubmitLocally;
 
         await ReportAsync(reportActivity, "Preparing fix workspace…");
         await using var buildSession = await _buildWorkspace.CreateSessionAsync(
@@ -77,19 +78,33 @@ public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
         var repoContext = await BuildRepoContextAsync(repoRef, targetConfig, failureAnalysis, cancellationToken);
         var referenceTemplates = ResolveFixReferenceTemplates(providerName, framework, targetConfig, failureAnalysis);
 
-        var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
-            owner,
-            repo,
-            gitRef,
-            providerName,
-            framework,
-            failureAnalysis,
-            repoContext,
-            referenceTemplates,
-            buildSession.VerificationPlan,
-            allowAgentBuilds);
+        var prompt = verificationContext is not null
+            ? ClaudeDeploymentPrompts.BuildVerificationFixPrompt(
+                owner,
+                repo,
+                gitRef,
+                providerName,
+                framework,
+                failureAnalysis,
+                verificationContext,
+                targetConfig,
+                repoContext,
+                referenceTemplates)
+            : ClaudeDeploymentPrompts.BuildFixPrompt(
+                owner,
+                repo,
+                gitRef,
+                providerName,
+                framework,
+                failureAnalysis,
+                repoContext,
+                referenceTemplates,
+                buildSession.VerificationPlan,
+                allowAgentBuilds);
 
-        await ReportAsync(reportActivity, "Starting Claude fix agent…");
+        await ReportAsync(reportActivity, verificationContext is not null
+            ? "Starting Claude verification fix agent…"
+            : "Starting Claude fix agent…");
 
         var responseText = await _anthropic.RunAgentWithToolsAsync(
             prompt,

@@ -18,7 +18,7 @@
   background: color-mix(in srgb, var(--surface-page) 40%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .topbar__start {
@@ -68,6 +68,29 @@ nav a.active {
   gap: var(--space-4);
 }
 
+.appearance-link {
+  display: none;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    color: var(--brand-indigo);
+    background: var(--surface-interactive);
+  }
+
+  &--active {
+    color: var(--brand-indigo);
+    background: var(--surface-subtle);
+  }
+}
+
 .theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -84,7 +107,7 @@ nav a.active {
     color var(--motion-fast) var(--motion-ease);
 
   &:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-interactive);
     color: var(--brand-indigo);
   }
 }
@@ -125,6 +148,10 @@ main {
   .sign-out-btn {
     display: inline-flex;
   }
+
+  .appearance-link {
+    display: inline-flex;
+  }
 }
 
 @media (max-width: 640px) {
@@ -147,4 +174,34 @@ main {
   border-bottom-color: transparent;
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
+}
+
+:host-context([data-style='notebook']) {
+  .topbar {
+    padding-right: var(--space-8);
+    padding-left: var(--notebook-content-inset);
+  }
+
+  main {
+    padding-top: 6.5rem;
+    padding-right: var(--space-8);
+    padding-bottom: var(--space-8);
+    padding-left: var(--notebook-content-inset);
+  }
+}
+
+@media (max-width: 640px) {
+  :host-context([data-style='notebook']) {
+    .topbar {
+      padding-right: var(--space-4);
+      padding-left: var(--notebook-content-inset);
+    }
+
+    main {
+      padding-top: 5.5rem;
+      padding-right: var(--space-4);
+      padding-bottom: var(--space-6);
+      padding-left: var(--notebook-content-inset);
+    }
+  }
 }

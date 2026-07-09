@@ -40,6 +40,7 @@
         </div>
         <div class="hero__actions">
           <app-ui-button variant="secondary" icon="clock" (click)="openHistory()">History</app-ui-button>
+          <app-ui-button variant="secondary" icon="settings" (click)="openTroubleshoot()">Troubleshoot</app-ui-button>
           <app-ui-button variant="secondary" icon="pencil" (click)="openEdit()">Edit</app-ui-button>
           <app-ui-button
             variant="primary"
@@ -85,61 +86,11 @@
       }
     </header>
 
-    @if (deploymentReadiness(); as readiness) {
-      @if (readiness.usesSplitOrigin) {
-        <div class="ai-toggle u-glass-panel">
-          <label class="ai-toggle__label">
-            <span class="ai-toggle__text">
-              <strong>AI deployment setup</strong>
-              <span class="setup-panel__hint">
-                Let Claude generate and fix this app's split-origin deployment files. When off, DeployAI uses built-in templates.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              [checked]="aiSetup.enabled()"
-              (change)="setAiSetupEnabled($any($event.target).checked)"
-            />
-          </label>
-        </div>
-      @if (showDeploymentSetupPanel(readiness)) {
-        @if (showSetupBanner(readiness)) {
-          <div
-            class="readiness-banner u-glass-panel"
-            [class.readiness-banner--recommended]="readiness.isReady"
-            role="status">
-            <div class="readiness-banner__icon" aria-hidden="true">
-              <app-ui-icon name="alert" size="sm" [statusClass]="readiness.isReady ? 'accent' : 'warning'" />
-            </div>
-            <div class="readiness-banner__copy">
-              @if (readiness.isReady) {
-                <p class="readiness-banner__title">Optional deployment improvements</p>
-                <p class="readiness-banner__desc">Fine-tune your split-origin wiring anytime — before or after you publish.</p>
-              } @else {
-                <p class="readiness-banner__title">Finish deployment setup</p>
-                <p class="readiness-banner__desc">Some split-origin files are missing or need updating before this app can deploy reliably.</p>
-              }
-            </div>
-            <button type="button" class="readiness-banner__action u-label-caps" (click)="scrollToSetup()">
-              {{ readiness.isReady ? 'Review' : 'Set up' }}
-            </button>
-          </div>
-        }
-        <div #setupAnchor>
-          @if (repoOwner() && repoName()) {
-            <app-deployment-setup-panel
-              [owner]="repoOwner()!"
-              [repo]="repoName()!"
-              [gitRef]="project()!.defaultBranch"
-              [parts]="planParts()"
-              [projectId]="projectId"
-              [readiness]="readiness"
-              (setupComplete)="onSetupComplete()" />
-          }
-        </div>
-      }
-      }
-    }
+    <app-deployment-status-strip
+      [projectId]="projectId"
+      [readiness]="deploymentReadiness()"
+      [aiSetupEnabled]="aiSetup.enabled()"
+      [loading]="loadingDeploymentReadiness()" />
 
     @if (services(); as svc) {
       <section class="resources u-glass-panel">
@@ -426,13 +377,14 @@
       </div>
     }
 
-    <section class="danger-zone u-glass-panel">
+    <section class="danger-zone">
       <div class="danger-zone__copy">
-        <h2 class="u-title-lg">Danger zone</h2>
+        <h2 class="section__label u-label-caps">Danger zone</h2>
         <p class="detail__muted">Permanently remove this app and unlink its connected services.</p>
       </div>
       <app-ui-button
         variant="secondary"
+        tone="danger"
         icon="trash"
         [disabled]="deleting()"
         [loading]="deleting()"

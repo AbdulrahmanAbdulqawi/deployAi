@@ -1,0 +1,18 @@
+<div class="orb-snake" aria-hidden="true">
+  @for (index of segmentIndexes(); track index) {
+    <div
+      #segmentRef
+      class="orb-snake__segment {{ toneClass(index) }}"
+      [class.orb-snake__segment--stunned]="index === 0 && headStunned()">
+      <span class="orb-snake__highlight"></span>
+      <span class="orb-snake__shadow"></span>
+    </div>
+  }
+
+  @for (snack of fallingSnacks(); track snack.id) {
+    <div #snackRef class="orb-snake__food" [attr.data-snack-id]="snack.id">
+      <span class="orb-snake__food-highlight"></span>
+      <span class="orb-snake__food-glow"></span>
+    </div>
+  }
+</div>

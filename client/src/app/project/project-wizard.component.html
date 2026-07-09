@@ -93,6 +93,10 @@
       </div>
     }
     @case (3) {
+      <div class="wizard__logo-panel u-glass-panel">
+        <app-app-logo-picker [(selectedLogoKey)]="selectedLogoKey" [compact]="true" />
+      </div>
+
       <app-deploy-plan
         [loading]="loadingDeploymentPlan()"
         [plan]="deploymentPlan()"
@@ -147,6 +151,7 @@
                   [repo]="repoName()!"
                   [gitRef]="selectedBranch()!"
                   [initialPath]="websiteRootPath"
+                  [confirmedSelection]="websiteFolderSelected ? websiteRootPath : null"
                   (pathSelected)="onWebsiteFolderSelected($event)" />
               }
             </div>
@@ -161,6 +166,7 @@
                   [repo]="repoName()!"
                   [gitRef]="selectedBranch()!"
                   [initialPath]="serverRootPath"
+                  [confirmedSelection]="serverFolderSelected ? serverRootPath : null"
                   (pathSelected)="onServerFolderSelected($event)" />
               }
             </div>
@@ -312,6 +318,8 @@
           <span class="u-label-caps">App name</span>
           <input type="text" [(ngModel)]="projectName" />
         </label>
+
+        <app-app-logo-picker [(selectedLogoKey)]="selectedLogoKey" />
 
         <ul class="wizard__summary">
           <li><span class="u-label-caps">App</span><span class="u-code-md">{{ selectedRepo()?.fullName }}</span></li>

@@ -1,0 +1,192 @@
+<section
+  class="health-panel u-glass-panel"
+  [class.health-panel--has-failures]="verificationResult() && !verificationResult()!.success"
+  aria-labelledby="health-panel-title">
+  <div class="health-panel__header">
+    <div class="health-panel__icon" aria-hidden="true">
+      <app-ui-icon name="globe" size="sm" statusClass="accent" />
+    </div>
+    <div class="health-panel__heading">
+      <h3 id="health-panel-title" class="health-panel__title u-title-lg">Deployment health checks</h3>
+      <p class="health-panel__summary">
+        Diagnose your live website, API, and cross-origin wiring. When a check finds a repo or config issue, generate a fix with Claude.
+      </p>
+    </div>
+    <app-ui-button
+      class="health-panel__run-btn"
+      variant="secondary"
+      icon="check"
+      [disabled]="!canRunChecks()"
+      [loading]="verifying()"
+      (click)="runChecks()">
+      {{ verifying() ? 'Running checks…' : 'Run checks' }}
+    </app-ui-button>
+  </div>
+
+  @if (scopeOptions().length > 1) {
+    <div class="health-panel__controls">
+      <div class="health-panel__scopes" role="group" aria-label="Check scope">
+        @for (option of scopeOptions(); track option.value) {
+          <button
+            type="button"
+            class="health-panel__scope"
+            [class.health-panel__scope--active]="verificationScope() === option.value"
+            [attr.aria-pressed]="verificationScope() === option.value"
+            (click)="setScope(option.value)">
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
+  }
+
+  @if (verifying()) {
+    <div class="health-panel__loading" aria-live="polite">
+      <app-operation-progress
+        mode="indeterminate"
+        label="Probing your live deployment…"
+        [elapsedMs]="verifyElapsedMs()" />
+    </div>
+  }
+
+  @if (!verificationResult() && !verifying()) {
+    <div class="health-panel__empty">
+      <div class="health-panel__empty-intro">
+        <app-ui-icon name="info" size="sm" statusClass="muted" />
+        <p>Run checks to verify your live site, API, and cross-origin connection (CORS, split-origin wiring).</p>
+      </div>
+      @if (plannedCheckGroups().length > 0) {
+        <div class="health-panel__planned" aria-label="Checks that will run">
+          @for (group of plannedCheckGroups(); track group.key) {
+            <section class="health-panel__group health-panel__group--planned">
+              <h4 class="health-panel__group-title u-label-caps">{{ group.label }}</h4>
+              <ul class="health-panel__checks">
+                @for (check of group.checks; track check.id) {
+                  <li class="health-panel__check health-panel__check--planned">
+                    <span class="health-panel__check-label">{{ check.label }}</span>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  @if (verificationResult(); as result) {
+    <div class="health-panel__results" role="status" aria-live="polite">
+      <div class="health-panel__results-meta">
+        <span
+          class="health-panel__results-badge"
+          [class.health-panel__results-badge--ok]="result.success"
+          [class.health-panel__results-badge--fail]="!result.success">
+          <app-ui-icon
+            [name]="result.success ? 'check' : 'alert'"
+            size="sm"
+            [statusClass]="result.success ? 'success' : 'danger'" />
+          {{ result.success ? 'All checks passed' : 'Some checks need attention' }}
+        </span>
+        <span class="health-panel__results-time u-text-muted">
+          Last run {{ result.completedAt | date: 'short' }}
+          @if (checkDurationLabel(); as duration) {
+            · Completed in {{ duration }}
+          }
+        </span>
+      </div>
+
+      <div class="health-panel__stats">
+        @if (resultStats().passed > 0) {
+          <span class="health-panel__stat health-panel__stat--ok">{{ resultStats().passed }} passed</span>
+        }
+        @if (resultStats().failed > 0) {
+          <span class="health-panel__stat health-panel__stat--fail">{{ resultStats().failed }} failed</span>
+        }
+        @if (resultStats().warning > 0) {
+          <span class="health-panel__stat health-panel__stat--warn">{{ resultStats().warning }} warnings</span>
+        }
+        @if (resultStats().skipped > 0) {
+          <span class="health-panel__stat">{{ resultStats().skipped }} skipped</span>
+        }
+      </div>
+
+      @for (group of groupedChecks(); track group.key) {
+        <section class="health-panel__group">
+          <h4 class="health-panel__group-title u-label-caps">{{ group.label }}</h4>
+          <ul class="health-panel__checks">
+            @for (check of group.checks; track check.id) {
+              <li
+                class="health-panel__check"
+                [class.health-panel__check--failed]="check.status === 'failed'"
+                [class.health-panel__check--warning]="check.status === 'warning'"
+                [class.health-panel__check--skipped]="check.status === 'skipped'">
+                <span class="health-panel__check-icon" aria-hidden="true">
+                  <app-ui-icon
+                    [name]="statusIcon(check.status)"
+                    size="sm"
+                    [statusClass]="statusClass(check.status)" />
+                </span>
+                <div class="health-panel__check-body">
+                  <div class="health-panel__check-heading">
+                    <span class="health-panel__check-label">{{ check.label }}</span>
+                    <span class="health-panel__check-status">{{ statusLabel(check.status) }}</span>
+                  </div>
+                  <p class="health-panel__check-message">{{ check.message }}</p>
+                  @if (check.url) {
+                    <a class="health-panel__check-url" [href]="check.url" target="_blank" rel="noopener">
+                      {{ check.url }}
+                      <app-ui-icon name="external" size="sm" statusClass="accent" />
+                    </a>
+                  }
+
+                  @if (showOutputDirectoryHint(check)) {
+                    <p class="health-panel__hint">
+                      Redeploying alone will not fix this. Claude can update
+                      <code class="u-code-sm">vercel.json</code> — Angular apps often need
+                      <code class="u-code-sm">"outputDirectory": "dist/&lt;project&gt;/browser"</code>.
+                    </p>
+                  }
+
+                  <div class="health-panel__check-actions">
+                    @if (canShowClaudeFix(check)) {
+                      <app-deployment-repo-changes-flow
+                        [owner]="repoOwner()!"
+                        [repo]="repo()!"
+                        [projectId]="projectId()"
+                        [baseBranch]="branch()"
+                        mergeMode="fix"
+                        buttonVariant="primary"
+                        [compact]="true"
+                        contextTitle="Health check sent to Claude"
+                        contextHint="Claude will inspect the referenced files and open a pull request with configuration fixes."
+                        [contextLines]="checkContextLines(check)"
+                        generateLabel="Generate fix with Claude"
+                        mergeSuccessMessage="Fix merged. Publish again from your project, then re-run checks."
+                        [runGenerate]="verificationFixRunner(check)"
+                      />
+                    }
+
+                    @if (canActOnCheck(check) && actionLabel(check); as label) {
+                      <app-ui-button
+                        variant="secondary"
+                        [icon]="check.suggestedAction === 'reconnect' ? 'refresh' : 'rocket'"
+                        [disabled]="check.suggestedAction === 'reconnect' ? reconnecting() : isRedeploying(check.suggestedAction === 'redeploy_server' ? serverTarget() : websiteTarget())"
+                        [loading]="check.suggestedAction === 'reconnect' ? reconnecting() : isRedeploying(check.suggestedAction === 'redeploy_server' ? serverTarget() : websiteTarget())"
+                        (click)="triggerAction(check)">
+                        {{ label }}
+                      </app-ui-button>
+                    }
+                  </div>
+                </div>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+    </div>
+  }
+
+  @if (verifyError()) {
+    <p class="health-panel__error">{{ verifyError() }}</p>
+  }
+</section>

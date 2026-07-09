@@ -21,6 +21,7 @@ import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
+import { AppLogoPickerComponent } from '../shared/app-logo-picker/app-logo-picker.component';
 import { ProjectsStore } from '../core/stores/projects.store';
 
 interface EnvRow {
@@ -33,7 +34,7 @@ type DeploymentMode = 'website' | 'server' | 'both';
 @Component({
   selector: 'app-project-wizard',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ButtonComponent, IconComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ButtonComponent, IconComponent, AppLogoPickerComponent],
   templateUrl: './project-wizard.component.html',
   styleUrl: './project-wizard.component.scss'
 })
@@ -154,6 +155,7 @@ export class ProjectWizardComponent implements OnInit {
 
   search = '';
   projectName = '';
+  readonly selectedLogoKey = signal<string | null>(null);
   newVercelProjectName = '';
   newRailwayProjectName = '';
   selectedVercelCredentialId = '';
@@ -163,6 +165,8 @@ export class ProjectWizardComponent implements OnInit {
   publishServer = false;
   websiteRootPath = '';
   serverRootPath = '';
+  websiteFolderSelected = false;
+  serverFolderSelected = false;
   envRows: EnvRow[] = [{ key: '', value: '' }];
 
   constructor(
@@ -395,6 +399,8 @@ export class ProjectWizardComponent implements OnInit {
     this.publishServer = false;
     this.websiteRootPath = '';
     this.serverRootPath = '';
+    this.websiteFolderSelected = false;
+    this.serverFolderSelected = false;
     this.websiteBuildProfile.set(null);
     this.serverBuildProfile.set(null);
     this.databaseRequirements.set(null);
@@ -505,6 +511,7 @@ export class ProjectWizardComponent implements OnInit {
       name: this.projectName,
       githubRepoFullName: repo.fullName,
       defaultBranch: branch,
+      logoKey: this.selectedLogoKey(),
       includePostgres: dbProfile?.requiresPostgres,
       includeRedis: dbProfile?.requiresRedis,
       parts
@@ -551,6 +558,7 @@ export class ProjectWizardComponent implements OnInit {
       name: this.projectName,
       githubRepoFullName: repo.fullName,
       defaultBranch: branch,
+      logoKey: this.selectedLogoKey(),
       includePostgres: dbProfile?.requiresPostgres,
       includeRedis: dbProfile?.requiresRedis,
       targets
@@ -616,6 +624,7 @@ export class ProjectWizardComponent implements OnInit {
 
     if (websitePart) {
       this.websiteRootPath = websitePart.rootDirectory ?? '';
+      this.websiteFolderSelected = true;
       this.websiteBuildProfile.set({
         rootDirectory: websitePart.rootDirectory ?? '',
         buildCommand: websitePart.buildCommand ?? 'npm run build',
@@ -628,6 +637,7 @@ export class ProjectWizardComponent implements OnInit {
     if (serverPart) {
       const serviceDirectory = serverPart.serviceDirectory ?? serverPart.rootDirectory ?? '';
       this.serverRootPath = serviceDirectory;
+      this.serverFolderSelected = true;
       this.serverBuildProfile.set({
         rootDirectory: serverPart.rootDirectory ?? serviceDirectory,
         buildCommand: serverPart.buildCommand,
@@ -654,6 +664,14 @@ export class ProjectWizardComponent implements OnInit {
     this.deploymentMode = mode;
     this.publishWebsite = mode === 'website' || mode === 'both';
     this.publishServer = mode === 'server' || mode === 'both';
+    if (!this.publishWebsite) {
+      this.websiteRootPath = '';
+      this.websiteFolderSelected = false;
+    }
+    if (!this.publishServer) {
+      this.serverRootPath = '';
+      this.serverFolderSelected = false;
+    }
     this.suggestDefaultFolders();
   }
 
@@ -661,10 +679,10 @@ export class ProjectWizardComponent implements OnInit {
     if (this.deploymentMode === null) {
       return false;
     }
-    if (this.publishWebsite && !this.websiteRootPath.trim()) {
+    if (this.publishWebsite && !this.websiteFolderSelected) {
       return false;
     }
-    if (this.publishServer && !this.serverRootPath.trim()) {
+    if (this.publishServer && !this.serverFolderSelected) {
       return false;
     }
     return true;
@@ -674,10 +692,10 @@ export class ProjectWizardComponent implements OnInit {
     if (this.deploymentMode === null) {
       return 'Choose what you want to publish.';
     }
-    if (this.publishWebsite && !this.websiteRootPath.trim()) {
+    if (this.publishWebsite && !this.websiteFolderSelected) {
       return 'Choose the website folder to continue.';
     }
-    if (this.publishServer && !this.serverRootPath.trim()) {
+    if (this.publishServer && !this.serverFolderSelected) {
       return 'Choose the server folder to continue.';
     }
     return '';
@@ -881,6 +899,7 @@ export class ProjectWizardComponent implements OnInit {
       name: this.projectName,
       githubRepoFullName: repo.fullName,
       defaultBranch: branch,
+      logoKey: this.selectedLogoKey(),
       targets
     }).subscribe({
       next: (project) => {
@@ -917,6 +936,7 @@ export class ProjectWizardComponent implements OnInit {
 
   onWebsiteFolderSelected(path: string): void {
     this.websiteRootPath = path;
+    this.websiteFolderSelected = true;
     this.detectWebsiteBuildProfile(path);
   }
 
@@ -966,6 +986,7 @@ export class ProjectWizardComponent implements OnInit {
 
   onServerFolderSelected(path: string): void {
     this.serverRootPath = path;
+    this.serverFolderSelected = true;
     this.detectServerBuildProfile(path);
     this.detectDatabaseRequirements(path);
   }

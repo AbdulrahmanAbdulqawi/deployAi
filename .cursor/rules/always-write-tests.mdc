@@ -1,0 +1,67 @@
+---
+description: Always add or update tests when changing frontend or backend behavior
+alwaysApply: true
+---
+
+# Always write tests for new changes
+
+When you add or change **behavior** (logic, APIs, UI flows, services, utilities), include tests in the **same task**. Do not treat tests as optional follow-up work.
+
+## When tests are required
+
+- New or changed **business logic**, utilities, parsers, mappers, or computed values
+- New or changed **API endpoints**, controllers, or service methods
+- Bug fixes (add a regression test that fails before the fix)
+- Refactors that alter observable behavior
+
+## When tests are optional
+
+- Pure formatting, comments, or renames with no behavior change
+- Config-only changes (unless they affect runtime behavior)
+- Generated files, lockfiles, or assets with no logic
+
+## Frontend (Angular)
+
+- Place specs next to source: `*.spec.ts` beside the file under test
+- Prefer unit tests for utilities, services, stores, and pure component logic
+- Use existing patterns in this repo:
+  - `client/src/app/core/utils/*.spec.ts`
+  - `client/src/app/shared/**/*.spec.ts`
+- Run: `npm test -- --include="**/your-file.spec.ts" --browsers=ChromeHeadless --watch=false` (from `client/`)
+- For UI-only styling with no logic change, tests are not required
+
+## Backend (.NET)
+
+- Add tests in `src/DeployAI.Tests/`, mirroring the area under test:
+  - Services → `Services/*Tests.cs`
+  - Providers → `Providers/*Tests.cs`
+  - Controllers/API mapping → `Services/` or `Integration/` as appropriate
+- Use **xUnit** + **Moq**; follow naming: `MethodName_Scenario_ExpectedResult`
+- Prefer testing pure logic directly; mock external I/O (HTTP, DB, providers)
+- Run: `dotnet test src/DeployAI.Tests/DeployAI.Tests.csproj --filter "FullyQualifiedName~YourTestClass"`
+
+## Definition of done
+
+Before finishing a implementation task:
+
+1. **Identify** what behavior changed
+2. **Add or update** at least one test that would fail without the change
+3. **Run** the relevant test command and fix failures
+4. Mention in the summary which tests were added and that they passed
+
+## Examples
+
+```typescript
+// New utility → add client/src/app/core/utils/foo.spec.ts
+describe('computeFoo', () => {
+  it('returns expected value for split-origin case', () => { ... });
+});
+```
+
+```csharp
+// New service method → add DeployAI.Tests/Services/FooServiceTests.cs
+[Fact]
+public async Task DoThingAsync_WhenInputInvalid_ThrowsDeployAIException() { ... }
+```
+
+If a change spans frontend and backend, add tests on **both sides** when both layers have new behavior.

@@ -118,6 +118,7 @@ export interface ProjectTarget {
 export interface ProjectSummary {
   id: string;
   name: string;
+  logoKey?: string | null;
   githubRepoFullName: string;
   defaultBranch: string;
   targets: { providerName: string }[];
@@ -242,11 +243,18 @@ export interface DeploymentFailureAnalysis {
   canRequestClaudeFix: boolean;
 }
 
+export interface UseBranchDeployResult {
+  branch: string;
+  deploymentId?: string | null;
+  message?: string | null;
+}
+
 export interface DeploymentFixResult {
   branchName: string;
   pullRequestNumber: number;
   pullRequestUrl: string;
   committedFiles: string[];
+  durationSeconds?: number;
 }
 
 export interface DeploymentDetail {
@@ -258,6 +266,7 @@ export interface DeploymentDetail {
   status: string;
   startedAt?: string;
   completedAt?: string;
+  durationSeconds?: number;
   targets: {
     id: string;
     deployTargetId: string;
@@ -268,6 +277,33 @@ export interface DeploymentDetail {
     completedAt?: string;
     failureAnalysis?: DeploymentFailureAnalysis | null;
   }[];
+}
+
+export type DeploymentVerificationScope = 'website' | 'server' | 'both';
+export type VerificationCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
+export type VerificationSuggestedAction =
+  | 'reconnect'
+  | 'redeploy_website'
+  | 'redeploy_server'
+  | 'fix_output_directory';
+
+export interface DeploymentVerificationCheck {
+  id: string;
+  target: 'website' | 'server' | 'connection';
+  label: string;
+  status: VerificationCheckStatus;
+  message: string;
+  url?: string | null;
+  suggestedAction?: VerificationSuggestedAction | null;
+  canRequestClaudeFix: boolean;
+  referencedFiles: string[];
+}
+
+export interface DeploymentVerificationResult {
+  success: boolean;
+  scope: DeploymentVerificationScope;
+  completedAt: string;
+  checks: DeploymentVerificationCheck[];
 }
 
 export interface DeploymentLogLine {
@@ -305,13 +341,15 @@ export interface DeploymentSetupResult {
 }
 
 export type DeploymentFixStreamEvent =
+  | { type: 'started'; startedAt: string }
   | { type: 'log'; message: string }
-  | ({ type: 'complete' } & DeploymentFixResult)
+  | ({ type: 'complete' } & DeploymentFixResult & { durationSeconds?: number })
   | { type: 'error'; code: string; message: string };
 
 export type DeploymentSetupStreamEvent =
+  | { type: 'started'; startedAt: string }
   | { type: 'log'; message: string }
-  | ({ type: 'complete' } & DeploymentSetupResult)
+  | ({ type: 'complete' } & DeploymentSetupResult & { durationSeconds?: number })
   | { type: 'error'; code: string; message: string };
 
 export interface DeploymentSetupMergeResult {

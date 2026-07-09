@@ -2,11 +2,7 @@
   display: grid;
   gap: var(--space-4);
   padding: var(--space-5);
-  border-left: 4px solid rgba(76, 215, 246, 0.5);
-}
-
-[data-theme='dark'] .setup-panel {
-  border-left-color: color-mix(in srgb, var(--brand-cyan) 70%, var(--brand-indigo));
+  border-left: 4px solid color-mix(in srgb, var(--brand-cyan) 70%, var(--brand-indigo));
 }
 
 .setup-panel__header {
@@ -58,8 +54,6 @@
 
 .setup-panel__title {
   margin: 0;
-  font-size: var(--font-size-title);
-  font-weight: 500;
   color: var(--text-primary);
 }
 
@@ -98,7 +92,7 @@
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-faint);
   background: color-mix(in srgb, var(--surface-raised) 50%, transparent);
 }
 
@@ -212,4 +206,32 @@
 .setup-panel__activity app-live-log-panel ::ng-deep .terminal {
   border: none;
   box-shadow: none;
+}
+
+:host-context([data-style='notebook']) {
+  .setup-panel {
+    border: none;
+    border-left: none;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .setup-panel__title {
+    font-family: var(--font-sans);
+  }
+
+  .setup-panel__summary,
+  .setup-panel__complete {
+    font-family: var(--font-sans);
+    font-size: var(--pen-size-body);
+    line-height: var(--pen-line-height);
+  }
+
+  .setup-panel__group-title {
+    font-family: var(--font-sans);
+    font-size: var(--pen-size-fine);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
 }

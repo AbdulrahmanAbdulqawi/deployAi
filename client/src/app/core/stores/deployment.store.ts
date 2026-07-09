@@ -4,6 +4,7 @@ import { SignalRService } from '../services/signalr.service';
 import { DeploymentDetail } from '../models/api.models';
 import { ActivityLine } from '../../shared/live-log-panel/live-log-panel.component';
 import { ProjectsStore } from './projects.store';
+import { computeDeploymentProgress } from '../utils/deployment-progress';
 
 @Injectable({ providedIn: 'root' })
 export class DeploymentStore {
@@ -29,6 +30,8 @@ export class DeploymentStore {
   });
 
   readonly overallStatus = computed(() => this.deployment()?.status ?? 'pending');
+
+  readonly deployProgress = computed(() => computeDeploymentProgress(this.deployment()));
 
   private activeDeploymentId: string | null = null;
   private connected = false;

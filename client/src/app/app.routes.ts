@@ -42,6 +42,10 @@ export const routes: Routes = [
           {
             path: 'account',
             loadComponent: () => import('./settings/account/account.component').then(m => m.AccountComponent)
+          },
+          {
+            path: 'appearance',
+            loadComponent: () => import('./settings/appearance/appearance.component').then(m => m.AppearanceComponent)
           }
         ]
       },
@@ -56,6 +60,10 @@ export const routes: Routes = [
       {
         path: 'projects/:id/history',
         loadComponent: () => import('./history/history.component').then(m => m.HistoryComponent)
+      },
+      {
+        path: 'projects/:id/troubleshoot',
+        loadComponent: () => import('./project/project-troubleshoot.component').then(m => m.ProjectTroubleshootComponent)
       },
       {
         path: 'projects/:projectId/deploy/:deploymentId',

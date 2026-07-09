@@ -43,53 +43,117 @@
   }
 }
 
+:host-context([data-style='notebook']) ::ng-deep .dashboard__add-btn .ui-btn--primary {
+  font-family: var(--font-sans);
+  font-size: var(--pen-size-note);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  box-shadow: none;
+}
+
+:host-context([data-style='notebook']) .header__subtitle {
+  font-family: var(--font-sans);
+  font-size: var(--pen-size-body);
+  line-height: var(--pen-line-height);
+  color: var(--text-secondary);
+}
+
 .grid {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  justify-items: center;
+}
+
+:host-context([data-style='notebook']) .grid,
+:host-context([data-style='notebook']) .skeleton-grid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 14rem));
+  justify-content: center;
+  justify-items: center;
+}
+
+:host-context([data-style='notebook']) .skeleton-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: var(--space-4) var(--space-3);
+  max-width: 14rem;
+  min-height: auto;
+}
+
+.skeleton-orb {
+  width: 4.75rem;
+  height: 4.75rem;
+  border-radius: 50%;
+}
+
+:host-context([data-style='notebook']) .error-state {
+  background: var(--notebook-sheet-bg);
+  border: 1px solid var(--notebook-section-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--notebook-sheet-shadow);
+  padding: var(--space-5);
 }
 
 @media (min-width: 768px) {
   .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
   }
 }
 
 @media (min-width: 1024px) {
   .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
   }
 }
 
 .skeleton-grid {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-5);
+  grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+  justify-items: center;
 }
 
 @media (min-width: 768px) {
   .skeleton-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
   }
 }
 
 @media (min-width: 1024px) {
   .skeleton-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 14rem));
   }
 }
 
 .skeleton-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: var(--space-3);
+  width: 100%;
+  max-width: 14rem;
+  padding: var(--space-4);
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .skeleton-title {
   height: 1.25rem;
-  width: 60%;
+  width: 70%;
 }
 
 .skeleton-line {
   height: 0.875rem;
-  width: 80%;
+  width: 85%;
 }
 
 .skeleton-btn {

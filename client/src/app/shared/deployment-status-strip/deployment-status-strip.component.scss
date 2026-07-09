@@ -1,0 +1,57 @@
+.deployment-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.deployment-status-strip__loading {
+  margin: 0;
+  width: 100%;
+}
+
+.deployment-status-strip__icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.deployment-status-strip__copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.deployment-status-strip__title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.deployment-status-strip__desc {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.deployment-status-strip__action {
+  color: var(--text-link);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    color: var(--brand-indigo);
+    text-decoration: underline;
+  }
+}
+
+@media (max-width: 640px) {
+  .deployment-status-strip__action {
+    width: 100%;
+  }
+}

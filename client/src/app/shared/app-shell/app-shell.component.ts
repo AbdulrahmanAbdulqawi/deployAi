@@ -3,11 +3,13 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { IconComponent } from '../ui/icon/icon.component';
+import { OrbSnakeBackgroundComponent } from '../orb-snake-background/orb-snake-background.component';
+import { OrbDriftersBackgroundComponent } from '../orb-drifters-background/orb-drifters-background.component';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, OrbSnakeBackgroundComponent, OrbDriftersBackgroundComponent],
   templateUrl: './app-shell.component.html',
   styleUrl: './app-shell.component.scss'
 })

@@ -85,6 +85,8 @@ public sealed class DeploymentSetupController : ControllerBase
         var userId = RequireUserId();
         Response.ContentType = "application/x-ndjson; charset=utf-8";
         Response.Headers.CacheControl = "no-cache";
+        var startedAt = DateTimeOffset.UtcNow;
+        await WriteStreamEventAsync(new { type = "started", startedAt }, cancellationToken);
 
         async Task ReportActivity(string message)
         {
@@ -106,6 +108,7 @@ public sealed class DeploymentSetupController : ControllerBase
                 ReportActivity,
                 cancellationToken);
 
+            var durationSeconds = (int)Math.Max(0, (DateTimeOffset.UtcNow - startedAt).TotalSeconds);
             await WriteStreamEventAsync(
                 new
                 {
@@ -113,7 +116,8 @@ public sealed class DeploymentSetupController : ControllerBase
                     branchName = result.BranchName,
                     pullRequestNumber = result.PullRequestNumber,
                     pullRequestUrl = result.PullRequestUrl,
-                    committedFiles = result.CommittedFiles
+                    committedFiles = result.CommittedFiles,
+                    durationSeconds
                 },
                 cancellationToken);
         }

@@ -1,74 +1,26 @@
-<section class="fix-panel u-glass-panel">
-  <div class="fix-panel__header">
-    <div class="fix-panel__icon" aria-hidden="true">
-      <app-ui-icon name="alert" size="sm" statusClass="warning" />
-    </div>
-    <div>
-      <h3 class="fix-panel__title">Build error detected</h3>
-      <p class="fix-panel__summary">{{ failureAnalysis().summary }}</p>
-    </div>
-  </div>
-
-  @if (claudeErrorLines().length > 0) {
-    <details class="fix-panel__log" open>
-      <summary class="fix-panel__log-summary">
-        <app-ui-icon name="log" size="sm" statusClass="muted" />
-        <span>Error sent to Claude</span>
-        <app-ui-icon class="fix-panel__chevron" name="chevron-down" size="sm" statusClass="muted" />
-      </summary>
-      <div class="fix-panel__log-panel">
-        <p class="fix-panel__log-hint">
-          This excerpt from the build log is sent to Claude as part of the fix request. Confirm it reflects the failure you expect before generating a fix.
-        </p>
-        <app-live-log-panel
-          [embedded]="true"
-          [readOnly]="true"
-          [showToggle]="false"
-          [showProviderPrefix]="false"
-          title="Build error"
-          [lines]="claudeErrorLines()" />
-      </div>
-    </details>
-  }
-
-  @if (showClaudeActivity()) {
-    <div class="fix-panel__activity">
-      <div class="fix-panel__activity-label">
-        <app-ui-icon name="code" size="sm" statusClass="accent" />
-        <span class="u-label-caps">Claude activity</span>
-      </div>
-      <app-live-log-panel
-        [embedded]="true"
-        [readOnly]="true"
-        [showToggle]="false"
-        [showProviderPrefix]="false"
-        title="Claude"
-        [connecting]="claudeLive()"
-        [lines]="claudeLines()" />
-    </div>
-  }
-
-  @if (fixResult()) {
-    <div class="fix-panel__result">
-      <p>
-        Fix branch <code class="u-code-sm">{{ fixResult()!.branchName }}</code> created.
-        <a class="fix-panel__link" [href]="fixResult()!.pullRequestUrl" target="_blank" rel="noopener">Open pull request</a>
-      </p>
-      <app-ui-button variant="primary" icon="check" (click)="mergeFix()">Merge pull request</app-ui-button>
-    </div>
-  } @else {
-    <div class="fix-panel__actions">
-      <app-ui-button variant="primary" icon="code" [disabled]="generating()" [loading]="generating()" (click)="generateFix()">
-        Generate fix with Claude
-      </app-ui-button>
-    </div>
-  }
-
-  @if (message()) {
-    <p class="fix-panel__notice">{{ message() }}</p>
-  }
-
-  @if (error()) {
-    <p class="fix-panel__error">{{ error() }}</p>
-  }
-</section>
+<section class="fix-panel u-glass-panel">
+  <div class="fix-panel__header">
+    <div class="fix-panel__icon" aria-hidden="true">
+      <app-ui-icon name="alert" size="sm" statusClass="warning" />
+    </div>
+    <div>
+      <h3 class="fix-panel__title">Build error detected</h3>
+      <p class="fix-panel__summary">{{ failureAnalysis().summary }}</p>
+    </div>
+  </div>
+
+  <app-deployment-repo-changes-flow
+    [owner]="owner()"
+    [repo]="repo()"
+    [projectId]="projectId()"
+    [baseBranch]="baseBranch()"
+    mergeMode="fix"
+    contextTitle="Error sent to Claude"
+    contextHint="This excerpt from the build log is sent to Claude as part of the fix request. Confirm it reflects the failure you expect before generating a fix."
+    [contextLines]="claudeErrorLines()"
+    generateLabel="Generate fix with Claude"
+    mergeSuccessMessage="Fix merged. Publish again to deploy the updated code."
+    [runGenerate]="runGenerate"
+    (fixComplete)="fixComplete.emit()"
+  />
+</section>

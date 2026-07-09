@@ -19,17 +19,20 @@ public sealed class ProjectsController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IProjectTeardownService _projectTeardown;
+    private readonly IProjectBranchDeployService _branchDeployService;
 
     public ProjectsController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
-        IProjectTeardownService projectTeardown)
+        IProjectTeardownService projectTeardown,
+        IProjectBranchDeployService branchDeployService)
     {
         _db = db;
         _currentUser = currentUser;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _projectTeardown = projectTeardown;
+        _branchDeployService = branchDeployService;
     }
 
     [HttpGet]
@@ -68,6 +71,7 @@ public sealed class ProjectsController : ControllerBase
             {
                 id = p.Id,
                 name = p.Name,
+                logoKey = p.LogoKey,
                 githubRepoFullName = p.GitHubRepoFullName,
                 defaultBranch = p.DefaultBranch,
                 targets = p.DeployTargets
@@ -157,6 +161,7 @@ public sealed class ProjectsController : ControllerBase
             Id = Guid.NewGuid(),
             UserId = userId,
             Name = request.Name,
+            LogoKey = NormalizeLogoKey(request.LogoKey),
             GitHubRepoFullName = normalizedRepo,
             DefaultBranch = request.DefaultBranch,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -217,7 +222,8 @@ public sealed class ProjectsController : ControllerBase
             request.DefaultBranch,
             targets,
             request.IncludePostgres ?? false,
-            request.IncludeRedis ?? false);
+            request.IncludeRedis ?? false,
+            request.LogoKey);
 
         return await Create(createRequest, cancellationToken);
     }
@@ -249,6 +255,10 @@ public sealed class ProjectsController : ControllerBase
         }
 
         project.Name = request.Name ?? project.Name;
+        if (request.LogoKey is not null)
+        {
+            project.LogoKey = NormalizeLogoKey(request.LogoKey);
+        }
         project.DefaultBranch = request.DefaultBranch ?? project.DefaultBranch;
         project.UpdatedAt = DateTimeOffset.UtcNow;
 
@@ -379,6 +389,28 @@ public sealed class ProjectsController : ControllerBase
         }
     }
 
+    [HttpPost("{id:guid}/use-branch-and-deploy")]
+    public async Task<IActionResult> UseBranchAndDeploy(
+        Guid id,
+        [FromBody] UseBranchAndDeployRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var result = await _branchDeployService.UseBranchAndDeployAsync(
+            userId,
+            id,
+            request.Branch,
+            request.Deploy,
+            cancellationToken);
+
+        return Ok(new
+        {
+            branch = result.Branch,
+            deploymentId = result.DeploymentId,
+            message = result.Message
+        });
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -410,6 +442,7 @@ public sealed class ProjectsController : ControllerBase
         {
             id = project.Id,
             name = project.Name,
+            logoKey = project.LogoKey,
             githubRepoFullName = project.GitHubRepoFullName,
             defaultBranch = project.DefaultBranch,
             environmentSync = MapEnvironmentSync(project.EnvironmentSyncJson),
@@ -476,13 +509,25 @@ public sealed class ProjectsController : ControllerBase
             "server").ToJson();
     }
 
+    private static string? NormalizeLogoKey(string? logoKey)
+    {
+        if (string.IsNullOrWhiteSpace(logoKey))
+        {
+            return null;
+        }
+
+        var normalized = logoKey.Trim().ToLowerInvariant();
+        return normalized.Length > 32 ? normalized[..32] : normalized;
+    }
+
     public sealed record CreateProjectRequest(
         string Name,
         string GitHubRepoFullName,
         string DefaultBranch,
         List<ProjectTargetRequest> Targets,
         bool IncludePostgres = false,
-        bool IncludeRedis = false);
+        bool IncludeRedis = false,
+        string? LogoKey = null);
 
     public sealed record CreateProjectFromPlanRequest(
         string Name,
@@ -490,7 +535,8 @@ public sealed class ProjectsController : ControllerBase
         string DefaultBranch,
         List<PlanPartTargetRequest> Parts,
         bool? IncludePostgres = null,
-        bool? IncludeRedis = null);
+        bool? IncludeRedis = null,
+        string? LogoKey = null);
 
     public sealed record PlanPartTargetRequest(
         string Role,
@@ -509,7 +555,8 @@ public sealed class ProjectsController : ControllerBase
     public sealed record UpdateProjectRequest(
         string? Name,
         string? DefaultBranch,
-        List<ProjectTargetRequest>? Targets);
+        List<ProjectTargetRequest>? Targets,
+        string? LogoKey = null);
 
     public sealed record ProjectTargetRequest(
         string ProviderName,
@@ -518,4 +565,6 @@ public sealed class ProjectsController : ControllerBase
         string? Config);
 
     public sealed record ProvisionRailwayDatabasesRequest(bool Postgres, bool Redis);
+
+    public sealed record UseBranchAndDeployRequest(string Branch, bool Deploy = true);
 }

@@ -97,7 +97,8 @@ public class DeploymentFixServiceTests
                 It.IsAny<DeployTargetConfig>(),
                 It.IsAny<DeploymentFailureAnalysis>(),
                 It.IsAny<Func<string, Task>>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<CancellationToken>(),
+                null))
             .ReturnsAsync([new GeneratedDeploymentFile("src/app/app.component.ts", "fixed")]);
 
         var gitHub = new Mock<IGitHubService>();
@@ -126,8 +127,9 @@ public class DeploymentFixServiceTests
         encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("token");
 
         var failureAnalyzer = new Mock<IDeploymentFailureAnalyzer>();
+        var verification = new Mock<IDeploymentVerificationService>();
 
-        var service = new DeploymentFixService(db, gitHub.Object, generator.Object, failureAnalyzer.Object, encryption.Object);
+        var service = new DeploymentFixService(db, gitHub.Object, generator.Object, failureAnalyzer.Object, verification.Object, encryption.Object);
         var result = await service.GenerateFixPullRequestAsync(userId, deploymentId, deploymentTargetId, null, CancellationToken.None);
 
         Assert.Equal(7, result.PullRequestNumber);

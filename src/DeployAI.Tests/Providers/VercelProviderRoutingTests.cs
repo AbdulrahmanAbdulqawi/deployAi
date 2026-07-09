@@ -58,11 +58,26 @@ public class VercelApiSupportRoutingTests
     [Theory]
     [InlineData("idaara-git-main-user-projects.vercel.app", true)]
     [InlineData("idaara-1tlfebzm4-user-7865s-projects.vercel.app", true)]
+    [InlineData("portfolio-e9aptsrdq-abdulrahmanabdulqawi76-7865s-projects.vercel.app", true)]
     [InlineData("idaara-livid.vercel.app", false)]
     [InlineData("idaara.vercel.app", false)]
+    [InlineData("portfolio-six-jet-40.vercel.app", false)]
     public void IsPreviewAlias_DetectsPreviewHosts(string alias, bool expected)
     {
         Assert.Equal(expected, VercelApiSupport.IsPreviewAlias(alias));
+    }
+
+    [Fact]
+    public void ExtractPrimaryProductionAlias_UsesVercelWordSuffixedProductionDomain()
+    {
+        var alias = VercelApiSupport.ExtractPrimaryProductionAlias(
+            [
+                "portfolio-e9aptsrdq-abdulrahmanabdulqawi76-7865s-projects.vercel.app",
+                "portfolio-six-jet-40.vercel.app"
+            ],
+            "portfolio");
+
+        Assert.Equal("portfolio-six-jet-40.vercel.app", alias);
     }
 }
 

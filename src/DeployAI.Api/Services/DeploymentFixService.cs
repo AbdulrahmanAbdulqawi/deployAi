@@ -5,6 +5,7 @@ using DeployAI.Data;
 using DeployAI.Data.Entities;
 using DeployAI.Infrastructure.GitHub;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 
 namespace DeployAI.Api.Services;
 
@@ -14,6 +15,7 @@ public sealed class DeploymentFixService : IDeploymentFixService
     private readonly IGitHubService _gitHubService;
     private readonly IDeploymentFixGenerator _fixGenerator;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
+    private readonly IDeploymentVerificationService _verificationService;
     private readonly IEncryptionService _encryption;
 
     public DeploymentFixService(
@@ -21,12 +23,14 @@ public sealed class DeploymentFixService : IDeploymentFixService
         IGitHubService gitHubService,
         IDeploymentFixGenerator fixGenerator,
         IDeploymentFailureAnalyzer failureAnalyzer,
+        IDeploymentVerificationService verificationService,
         IEncryptionService encryption)
     {
         _db = db;
         _gitHubService = gitHubService;
         _fixGenerator = fixGenerator;
         _failureAnalyzer = failureAnalyzer;
+        _verificationService = verificationService;
         _encryption = encryption;
     }
 
@@ -69,12 +73,138 @@ public sealed class DeploymentFixService : IDeploymentFixService
 
         analysis = await RefreshFailureAnalysisAsync(target, analysis, cancellationToken);
 
+        return await CreateFixPullRequestAsync(
+            deployment,
+            target,
+            analysis,
+            verificationContext: null,
+            reportActivity,
+            cancellationToken);
+    }
+
+    public async Task<DeploymentFixResult> GenerateVerificationFixPullRequestAsync(
+        Guid userId,
+        Guid deploymentId,
+        string checkId,
+        Guid? deploymentTargetId,
+        Func<string, Task>? reportActivity,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(checkId))
+        {
+            throw new DeployAIException("invalid_request", "A health check id is required.");
+        }
+
+        var deployment = await _db.Deployments
+            .Include(d => d.Project)
+            .Include(d => d.Targets)
+            .ThenInclude(t => t.DeployTarget)
+            .FirstOrDefaultAsync(d => d.Id == deploymentId && d.Project.UserId == userId, cancellationToken);
+
+        if (deployment is null)
+        {
+            throw new DeployAIException("not_found", "We couldn't find that deployment.");
+        }
+
+        var verification = await _verificationService.VerifyAsync(
+            deploymentId,
+            DeploymentVerificationScope.Both,
+            cancellationToken);
+
+        var check = verification.Checks.FirstOrDefault(c =>
+            string.Equals(c.Id, checkId, StringComparison.OrdinalIgnoreCase));
+        if (check is null)
+        {
+            throw new DeployAIException("check_not_found", "That health check was not found for this deployment.");
+        }
+
+        if (!check.CanRequestClaudeFix)
+        {
+            throw new DeployAIException(
+                "fix_not_applicable",
+                "This health check cannot be fixed with Claude.");
+        }
+
+        var target = ResolveVerificationFixTarget(deployment, check, deploymentTargetId);
+        var websiteTarget = deployment.Targets.FirstOrDefault(t =>
+            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase));
+        var serverTarget = deployment.Targets.FirstOrDefault(t =>
+            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase));
+
+        var verificationContext = new DeploymentVerificationFixContext(
+            check.Id,
+            check.Target,
+            check.Label,
+            check.Message,
+            check.Url,
+            websiteTarget?.DeployUrl,
+            serverTarget?.DeployUrl);
+
+        var excerpt = new StringBuilder()
+            .AppendLine($"Health check: {check.Label} ({check.Id})")
+            .AppendLine($"Status: {check.Status}")
+            .AppendLine($"Message: {check.Message}");
+        if (!string.IsNullOrWhiteSpace(check.Url))
+        {
+            excerpt.AppendLine($"URL: {check.Url}");
+        }
+
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            check.Message,
+            excerpt.ToString().Trim(),
+            check.ReferencedFiles,
+            true);
+
+        return await CreateFixPullRequestAsync(
+            deployment,
+            target,
+            analysis,
+            verificationContext,
+            reportActivity,
+            cancellationToken);
+    }
+
+    private static DeploymentTarget ResolveVerificationFixTarget(
+        Deployment deployment,
+        DeploymentVerificationCheck check,
+        Guid? deploymentTargetId)
+    {
+        if (deploymentTargetId is not null)
+        {
+            var explicitTarget = deployment.Targets.FirstOrDefault(t => t.Id == deploymentTargetId.Value);
+            if (explicitTarget is not null)
+            {
+                return explicitTarget;
+            }
+        }
+
+        return check.Target switch
+        {
+            "server" => deployment.Targets.FirstOrDefault(t =>
+                             string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+                         ?? throw new DeployAIException("not_found", "We couldn't find the server target for this fix."),
+            _ => deployment.Targets.FirstOrDefault(t =>
+                      string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+                  ?? deployment.Targets.First()
+        };
+    }
+
+    private async Task<DeploymentFixResult> CreateFixPullRequestAsync(
+        Deployment deployment,
+        DeploymentTarget target,
+        DeploymentFailureAnalysis analysis,
+        DeploymentVerificationFixContext? verificationContext,
+        Func<string, Task>? reportActivity,
+        CancellationToken cancellationToken)
+    {
         var repoParts = deployment.Project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (repoParts.Length != 2)
         {
             throw new DeployAIException("invalid_repository", "Invalid GitHub repository name.");
         }
 
+        var userId = deployment.Project.UserId;
         var token = await GetGitHubTokenAsync(userId, cancellationToken);
         var gitRef = deployment.GitCommitSha ?? deployment.Branch;
         var targetConfig = DeployTargetConfig.Parse(target.DeployTarget.ConfigJson);
@@ -89,7 +219,8 @@ public sealed class DeploymentFixService : IDeploymentFixService
             targetConfig,
             analysis,
             reportActivity,
-            cancellationToken);
+            cancellationToken,
+            verificationContext);
 
         if (generated is null || generated.Count == 0)
         {
@@ -112,7 +243,9 @@ public sealed class DeploymentFixService : IDeploymentFixService
             throw new DeployAIException("github_ref_unavailable", "Could not resolve the Git reference for the fix branch.");
         }
 
-        var branchPrefix = $"deployai/fix-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+        var branchPrefix = verificationContext is null
+            ? $"deployai/fix-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}"
+            : $"deployai/verify-fix-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
         string? createdBranch = null;
         var branchName = branchPrefix;
         for (var attempt = 0; attempt < 5; attempt++)
@@ -136,12 +269,16 @@ public sealed class DeploymentFixService : IDeploymentFixService
             throw new DeployAIException("fix_branch_failed", "Could not create a fix branch.");
         }
 
+        var commitMessage = verificationContext is null
+            ? "DeployAI: fix build errors from failed deployment"
+            : $"DeployAI: fix health check {verificationContext.CheckId}";
+
         var commitSha = await _gitHubService.CommitFilesAsync(
             token,
             repoParts[0],
             repoParts[1],
             branchName,
-            "DeployAI: fix build errors from failed deployment",
+            commitMessage,
             generated.Select(file => (file.Path, file.Content)).ToArray(),
             cancellationToken);
 
@@ -150,14 +287,22 @@ public sealed class DeploymentFixService : IDeploymentFixService
             throw new DeployAIException("fix_commit_failed", "Could not commit generated fix files.");
         }
 
+        var pullRequestTitle = verificationContext is null
+            ? "DeployAI: fix build errors"
+            : $"DeployAI: fix {verificationContext.Label}";
+
+        var pullRequestBody = verificationContext is null
+            ? $"Fixes a {target.ProviderName} build failure detected during deployment {deployment.Id}."
+            : $"Fixes live deployment health check `{verificationContext.CheckId}` for deployment {deployment.Id}.";
+
         var pullRequest = await _gitHubService.CreatePullRequestAsync(
             token,
             repoParts[0],
             repoParts[1],
-            "DeployAI: fix build errors",
+            pullRequestTitle,
             branchName,
             deployment.Branch,
-            $"Fixes a {target.ProviderName} build failure detected during deployment {deployment.Id}.",
+            pullRequestBody,
             cancellationToken);
 
         if (pullRequest is null)

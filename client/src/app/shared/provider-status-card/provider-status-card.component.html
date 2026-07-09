@@ -6,20 +6,18 @@
   [class.provider-card--railway]="providerName === 'railway'">
   @if (live) {
     <div class="provider-card__header">
-      <div class="provider-card__brand">
-        <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
-          @if (providerName === 'vercel') {
-            <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
-            </svg>
-          } @else {
-            <app-ui-icon name="link" size="sm" statusClass="accent" />
-          }
-        </div>
-        <div>
-          <strong class="u-title-lg">{{ roleLabel }}</strong>
-          <p class="u-text-muted">{{ providerSubtitle }}</p>
-        </div>
+      <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
+        @if (providerName === 'vercel') {
+          <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+          </svg>
+        } @else {
+          <app-ui-icon name="link" size="sm" statusClass="accent" />
+        }
+      </div>
+      <div class="provider-card__heading">
+        <strong class="u-title-lg">{{ roleLabel }}</strong>
+        <p class="u-text-muted">{{ providerSubtitle }}</p>
       </div>
       <div class="provider-card__header-end">
         @if (status === 'in_progress') {
@@ -32,24 +30,22 @@
   } @else {
     <button type="button" class="provider-card__toggle" (click)="toggleExpanded()" [attr.aria-expanded]="expanded">
       <div class="provider-card__header">
-        <div class="provider-card__brand">
-          <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
-            @if (providerName === 'vercel') {
-              <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
-              </svg>
-            } @else {
-              <app-ui-icon name="link" size="sm" statusClass="accent" />
-            }
-          </div>
-          <div>
-            <strong class="u-title-lg">{{ roleLabel }}</strong>
-            @if (showProviderName) {
-              <p class="u-text-muted">{{ providerDisplayName }}</p>
-            } @else {
-              <p class="u-text-muted">{{ providerSubtitle }}</p>
-            }
-          </div>
+        <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
+          @if (providerName === 'vercel') {
+            <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
+            </svg>
+          } @else {
+            <app-ui-icon name="link" size="sm" statusClass="accent" />
+          }
+        </div>
+        <div class="provider-card__heading">
+          <strong class="u-title-lg">{{ roleLabel }}</strong>
+          @if (showProviderName) {
+            <p class="u-text-muted">{{ providerDisplayName }}</p>
+          } @else {
+            <p class="u-text-muted">{{ providerSubtitle }}</p>
+          }
         </div>
         <div class="provider-card__header-end">
           @if (status === 'in_progress') {
@@ -81,6 +77,9 @@
         <app-ui-icon name="clock" size="sm" statusClass="muted" />
       }
       <span class="provider-card__step-text">{{ liveStatusText }}</span>
+      @if (elapsedLabel) {
+        <span class="provider-card__elapsed u-text-muted">{{ elapsedLabel }}</span>
+      }
     </div>
     <div
       class="provider-card__bar"
@@ -99,7 +98,11 @@
     }
   }
 
-  @if (!live && status === 'in_progress' && elapsedLabel) {
+  @if (!live && (status === 'in_progress' || redeploying) && elapsedLabel) {
+    <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
+  }
+
+  @if (!live && status === 'success' && elapsedLabel) {
     <p class="progress u-text-secondary">{{ elapsedLabel }}</p>
   }
 

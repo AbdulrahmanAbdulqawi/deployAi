@@ -1,0 +1,54 @@
+---
+description: Prefer enums over string literals and string unions for fixed value sets
+alwaysApply: true
+---
+
+# Prefer enums over strings
+
+When a value comes from a **fixed, known set** (status, category, provider, scope, action, etc.), use an **enum** — not raw strings, string constants, or string union types.
+
+## C#
+
+```csharp
+// ❌ BAD
+if (check.Status == "failed") { ... }
+public const string CategoryBuild = "code_build";
+
+// ✅ GOOD
+if (check.Status == VerificationCheckStatus.Failed) { ... }
+public enum DeploymentFailureCategory { CodeBuild, ... }
+```
+
+- Add enums in `DeployAI.Core` when shared across layers; use `internal enum` for API-only sets.
+- Serialize enums to API/JSON with explicit names (`JsonStringEnumConverter`, `[JsonConverter]`) when clients expect strings.
+- Do not compare or assign magic strings for domain concepts — extend the enum instead.
+
+## TypeScript
+
+```typescript
+// ❌ BAD
+type Status = 'passed' | 'failed' | 'warning';
+if (check.status === 'failed') { ... }
+
+// ✅ GOOD
+export enum VerificationCheckStatus {
+  Passed = 'passed',
+  Failed = 'failed',
+  Warning = 'warning',
+}
+if (check.status === VerificationCheckStatus.Failed) { ... }
+```
+
+- Use **string enums** (`EnumMember = 'value'`) when values must match API JSON.
+- Replace string union types with enums in models, components, and services.
+- Use exhaustive `switch` with a `never` default when switching on enums.
+
+## When strings are OK
+
+- Truly free-form user input or dynamic external data with no closed set.
+- One-off display labels or log messages (not identifiers).
+- Third-party APIs that require specific string formats and cannot be modeled as enums.
+
+## When editing existing code
+
+If you touch code that compares or types a fixed string set, convert it to an enum in the same change when the scope is small. For large refactors, add the enum and migrate call sites you are already modifying.

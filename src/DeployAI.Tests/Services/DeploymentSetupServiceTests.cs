@@ -89,7 +89,8 @@ public class DeploymentSetupServiceTests
             readiness.Object,
             SelectorReturning(generator.Object),
             environmentWiring.Object,
-            encryption.Object);
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
 
         var parts = new[]
         {
@@ -184,7 +185,8 @@ public class DeploymentSetupServiceTests
             readiness.Object,
             SelectorReturning(generator.Object),
             new Mock<IFrontendEnvironmentWiringService>().Object,
-            encryption.Object);
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
 
         var parts = new[]
         {
@@ -258,7 +260,8 @@ public class DeploymentSetupServiceTests
             new Mock<IDeploymentReadinessService>().Object,
             SelectorReturning(new Mock<IDeploymentFileGenerator>().Object),
             environmentWiring.Object,
-            encryption.Object);
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
 
         var result = await service.MergeSetupPullRequestAsync(
             userId,
@@ -342,7 +345,8 @@ public class DeploymentSetupServiceTests
             readiness.Object,
             SelectorReturning(generator.Object),
             new Mock<IFrontendEnvironmentWiringService>().Object,
-            encryption.Object);
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
 
         await service.GenerateSetupBranchAsync(
             userId,

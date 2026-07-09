@@ -74,9 +74,9 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-4);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-page) 50%, transparent);
+  background: var(--surface-interactive);
 }
 
 .plan-card__stat-value {
@@ -100,9 +100,9 @@
   display: grid;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-faint);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-page) 35%, transparent);
+  background: var(--surface-interactive);
 }
 
 .plan-card__destinations strong {
@@ -119,9 +119,9 @@
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--surface-inset);
 }
 
 .plan-card__config-header {
@@ -130,7 +130,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding-bottom: var(--space-2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .plan-card__config-edit {
@@ -185,7 +185,7 @@
   justify-content: space-between;
   gap: var(--space-4);
   padding-top: var(--space-6);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--border-default);
 }
 
 .plan-card__actions-end {
@@ -206,18 +206,15 @@
   gap: var(--space-1);
   text-align: left;
   padding: var(--space-4);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-page) 35%, transparent);
+  background: var(--surface-interactive);
   color: var(--text-primary);
   cursor: pointer;
-  transition:
-    border-color var(--motion-fast) var(--motion-ease),
-    box-shadow var(--motion-fast) var(--motion-ease);
+  transition: border-color var(--motion-fast) var(--motion-ease);
 
   &:hover:not(:disabled) {
     border-color: var(--border-accent);
-    box-shadow: var(--glow-accent);
   }
 
   &:disabled {

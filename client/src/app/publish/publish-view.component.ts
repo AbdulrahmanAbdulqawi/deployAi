@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, effect, signal } from '@angular/core';
+import { Component, DestroyRef, OnDestroy, OnInit, effect, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DeploymentStore } from '../core/stores/deployment.store';
@@ -12,13 +12,25 @@ import { IconComponent } from '../shared/ui/icon/icon.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { LiveLogPanelComponent } from '../shared/live-log-panel/live-log-panel.component';
 import { DeploymentFixPanelComponent } from '../shared/deployment-fix-panel/deployment-fix-panel.component';
+import { OperationProgressComponent } from '../shared/operation-progress/operation-progress.component';
 import { ToastService } from '../shared/ui/toast/toast.service';
+import { ElapsedTimer, ElapsedTimerService } from '../core/services/elapsed-timer.service';
+import { durationMsFromTimestamps, formatDurationMs, formatDurationSeconds } from '../core/utils/duration';
+import type { OperationProgressMode } from '../shared/operation-progress/operation-progress.component';
 
 @Component({
   selector: 'app-publish-view',
   standalone: true,
-  imports: [DatePipe, StatusBadgeComponent, ProviderStatusCardComponent, IconComponent, ButtonComponent, LiveLogPanelComponent, DeploymentFixPanelComponent],
-  templateUrl: './publish-view.component.html',
+  imports: [
+    DatePipe,
+    StatusBadgeComponent,
+    ProviderStatusCardComponent,
+    IconComponent,
+    ButtonComponent,
+    LiveLogPanelComponent,
+    DeploymentFixPanelComponent,
+    OperationProgressComponent
+  ],  templateUrl: './publish-view.component.html',
   styleUrl: './publish-view.component.scss'
 })
 export class PublishViewComponent implements OnInit, OnDestroy {
@@ -33,26 +45,40 @@ export class PublishViewComponent implements OnInit, OnDestroy {
 
   private projectLoadedFor: string | null = null;
   private copiedTimer?: ReturnType<typeof setTimeout>;
+  private readonly deployTimer: ElapsedTimer;
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor(
     readonly store: DeploymentStore,
     private readonly route: ActivatedRoute,
     private readonly router: Router,
     private readonly api: ApiService,
-    private readonly toast: ToastService
+    private readonly toast: ToastService,
+    elapsedTimerService: ElapsedTimerService
   ) {
+    this.deployTimer = elapsedTimerService.create();
+    this.destroyRef.onDestroy(() => this.deployTimer.destroy());
+
     effect(() => {
       const deployment = this.store.deployment();
       if (!deployment) {
+        this.deployTimer.reset();
         return;
       }
 
       this.loadProjectRepo(deployment.projectId);
 
+      if (this.store.isComplete()) {
+        this.deployTimer.stop();
+      } else if (deployment.startedAt) {
+        this.deployTimer.start(deployment.startedAt);
+      } else {
+        this.deployTimer.start();
+      }
+
       if (!this.store.isComplete()) {
         return;
       }
-
       const nextExpanded = { ...this.expandedTargets() };
       let changed = false;
       for (const target of deployment.targets) {
@@ -88,6 +114,18 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       return;
     }
     void this.router.navigate(['/dashboard']);
+  }
+
+  openTroubleshoot(): void {
+    const deployment = this.store.deployment();
+    if (!deployment) {
+      return;
+    }
+
+    void this.router.navigate(
+      ['/projects', deployment.projectId, 'troubleshoot'],
+      { queryParams: { deploymentId: deployment.id } }
+    );
   }
 
   roleLabel(providerName: string): string {
@@ -133,37 +171,41 @@ export class PublishViewComponent implements OnInit, OnDestroy {
     return 'Preparing deployment…';
   }
 
-  elapsedLabel(): string {
-    const deployment = this.store.deployment();
-    if (!deployment?.startedAt) {
-      return '00:00';
+  deployProgressMode(): OperationProgressMode {
+    const progress = this.store.deployProgress();
+    if (!progress) {
+      return 'indeterminate';
     }
+    return progress.mode;
+  }
 
-    const elapsedMs = Date.now() - new Date(deployment.startedAt).getTime();
-    const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  deployProgressPercent(): number {
+    return this.store.deployProgress()?.percent ?? 0;
+  }
+
+  deployProgressLabel(): string {
+    return this.store.deployProgress()?.label ?? this.phaseHeading();
+  }
+
+  deployElapsedMs(): number {
+    return this.deployTimer.elapsedMs();
   }
 
   durationLabel(): string | null {
     const deployment = this.store.deployment();
-    if (!deployment?.startedAt || !deployment.completedAt) {
+    if (!deployment) {
       return null;
     }
 
-    const ms = new Date(deployment.completedAt).getTime() - new Date(deployment.startedAt).getTime();
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    if (totalSeconds < 60) {
-      return `${totalSeconds}s`;
+    if (deployment.durationSeconds !== undefined && deployment.durationSeconds !== null) {
+      return formatDurationSeconds(deployment.durationSeconds);
     }
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+
+    const ms = durationMsFromTimestamps(deployment.startedAt, deployment.completedAt);
+    return ms === null ? null : formatDurationMs(ms);
   }
 
-  finishedAt(): string | null {
-    return this.store.deployment()?.completedAt ?? null;
+  finishedAt(): string | null {    return this.store.deployment()?.completedAt ?? null;
   }
 
   liveServices(): { label: string; url: string; status: string; providerName: string }[] {

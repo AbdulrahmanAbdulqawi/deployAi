@@ -6,28 +6,34 @@
   (click)="onCardClick()"
   (keydown.enter)="onCardClick()"
   (keydown.space)="$event.preventDefault(); onCardClick()">
-  @if (isDeploying) {
-    <div class="project-card__progress" aria-hidden="true">
-      <div class="project-card__progress-fill"></div>
+  <div class="project-card__orb-stage" aria-hidden="true">
+    <div class="project-card__orb" [class]="'project-card__orb--' + orbTone()">
+      <span class="project-card__orb-highlight"></span>
+      @if (hasLogo) {
+        <span class="project-card__orb-logo">
+          <app-app-logo [logoKey]="project.logoKey ?? null" variant="orb" />
+        </span>
+      }
+      @if (isDeploying) {
+        <span class="project-card__orb-ring"></span>
+      }
     </div>
-  }
+    <span class="project-card__orb-shadow"></span>
+  </div>
 
   <div class="project-card__body">
-    <div class="project-card__header">
-      <div class="project-card__title">
-        <div class="project-card__name-row">
-          <h3 class="u-title-lg">{{ project.name }}</h3>
-          @if (project.latestDeployment) {
-            <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
-          } @else {
-            <app-status-badge status="idle" />
-          }
-        </div>
-        <p class="project-card__repo">
-          <app-ui-icon name="code" size="sm" statusClass="muted" />
-          <span class="u-code-sm">{{ project.githubRepoFullName }}</span>
-        </p>
+    <div class="project-card__title">
+      <h3 class="u-title-lg">{{ project.name }}</h3>
+      <div class="project-card__badge">
+        @if (project.latestDeployment) {
+          <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
+        } @else {
+          <app-status-badge status="idle" />
+        }
       </div>
+      <p class="project-card__repo">
+        <span class="u-code-sm">{{ project.githubRepoFullName }}</span>
+      </p>
     </div>
 
     <div class="project-card__footer">

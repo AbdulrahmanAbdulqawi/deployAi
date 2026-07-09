@@ -93,15 +93,19 @@
           }
         </div>
       </div>
-      @if (!store.isComplete()) {
-        <div class="live-deploy__elapsed">
-          <div class="u-code-md">{{ elapsedLabel() }}</div>
-          <div class="u-label-caps live-deploy__elapsed-label">Elapsed</div>
-        </div>
-      } @else {
+      @if (store.isComplete()) {
         <app-status-badge [status]="store.overallStatus()" [live]="false" />
       }
     </header>
+
+    @if (!store.isComplete() && store.deployProgress(); as progress) {
+      <app-operation-progress
+        class="live-deploy__progress"
+        [mode]="deployProgressMode()"
+        [value]="deployProgressPercent()"
+        [label]="deployProgressLabel()"
+        [elapsedMs]="deployElapsedMs()" />
+    }
 
     @if (store.isComplete() && store.overallStatus() === 'success') {
       <section class="summary u-glass-panel" role="status" aria-live="polite">
@@ -252,8 +256,10 @@
           <app-deployment-fix-panel
             [deploymentId]="store.deployment()!.id"
             [targetId]="target.id"
+            [projectId]="store.deployment()!.projectId"
             [owner]="repoOwner()!"
             [repo]="repoName()!"
+            [baseBranch]="store.deployment()!.branch"
             [failureAnalysis]="target.failureAnalysis!"
           />
         }
@@ -269,6 +275,7 @@
             [status]="target.status"
             [deployUrl]="target.deployUrl"
             [startedAt]="target.startedAt"
+            [completedAt]="target.completedAt"
             [showProviderName]="false"
             [live]="true"
           />
@@ -293,6 +300,7 @@
             [status]="target.status"
             [deployUrl]="target.deployUrl"
             [startedAt]="target.startedAt"
+            [completedAt]="target.completedAt"
             [checkedAt]="target.completedAt"
             [showProviderName]="false"
             [showOpenLink]="false"
@@ -305,6 +313,15 @@
             (redeploy)="redeployTarget(target)"
           />
         }
+      </div>
+    }
+
+    @if (store.isComplete()) {
+      <div class="live-deploy__troubleshoot">
+        <button type="button" class="live-deploy__troubleshoot-link" (click)="openTroubleshoot()">
+          Open troubleshooting
+          <app-ui-icon name="arrow-right" size="sm" statusClass="accent" />
+        </button>
       </div>
     }
 

@@ -8,7 +8,7 @@
       <app-ui-icon name="settings" size="sm" statusClass="accent" />
     </div>
     <div class="setup-panel__heading">
-      <h3 class="setup-panel__title">Split-origin deployment setup</h3>
+      <h3 class="setup-panel__title u-title-lg">Split-origin deployment setup</h3>
       <p class="setup-panel__summary">
         AI reviews your repository and prepares the files and configuration needed for a reliable split-origin deployment.
       </p>
@@ -19,109 +19,82 @@
   </button>
 
   @if (!collapsed()) {
-  @if (readiness()) {
-    @if (hasMissingFiles()) {
-      @if (blockingFiles().length > 0) {
-        <h4 class="setup-panel__group-title">Required</h4>
-        <ul class="missing-list">
-          @for (file of blockingFiles(); track file.path) {
-            <li [class]="severityClass(file.severity)">
-              <strong>{{ file.path }}</strong>
-              <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
-              <span>{{ file.reason }}</span>
-            </li>
-          }
-        </ul>
-      }
-
-      @if (recommendedFiles().length > 0) {
-        <h4 class="setup-panel__group-title">Recommended</h4>
-        <ul class="missing-list">
-          @for (file of recommendedFiles(); track file.path) {
-            <li [class]="severityClass(file.severity)">
-              <strong>{{ file.path }}</strong>
-              <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
-              <span>{{ file.reason }}</span>
-            </li>
-          }
-        </ul>
-      }
-    } @else {
-      <p class="setup-panel__complete">
-        Your repository looks deployment-ready. Regenerate only if you've changed the repository or the last run missed something.
-      </p>
-    }
-
-    @for (warning of readiness()!.warnings; track warning) {
-      <p class="setup-panel__warning">{{ warning }}</p>
-    }
-  }
-
-  @if (showClaudeActivity()) {
-    <div class="setup-panel__activity">
-      <div class="setup-panel__activity-label">
-        <app-ui-icon name="code" size="sm" statusClass="accent" />
-        <span class="u-label-caps">AI activity</span>
-      </div>
-      <app-live-log-panel
-        [embedded]="true"
-        [readOnly]="true"
-        [showToggle]="false"
-        [showProviderPrefix]="false"
-        title="Claude"
-        [connecting]="claudeLive()"
-        [lines]="claudeLines()" />
-    </div>
-  }
-
-  @if (setupResult()) {
-    <div class="setup-panel__result">
-      <p>
-        Changes are ready on <code>{{ setupResult()!.branchName }}</code>.
-        <a class="setup-panel__link" [href]="setupResult()!.pullRequestUrl" target="_blank" rel="noopener">Review pull request</a>
-      </p>
-    </div>
-    <div class="setup-panel__actions">
-      <app-ui-button (click)="mergeSetup()">Merge &amp; apply</app-ui-button>
-      <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
-        Regenerate
-      </app-ui-button>
-    </div>
-  } @else {
-    <div class="setup-panel__actions">
+    @if (readiness()) {
       @if (hasMissingFiles()) {
-        <app-ui-button [disabled]="generating()" [loading]="generating()" (click)="generateSetup()">
-          Generate setup with AI
-        </app-ui-button>
+        @if (blockingFiles().length > 0) {
+          <h4 class="setup-panel__group-title">Required</h4>
+          <ul class="missing-list">
+            @for (file of blockingFiles(); track file.path) {
+              <li [class]="severityClass(file.severity)">
+                <strong>{{ file.path }}</strong>
+                <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
+                <span>{{ file.reason }}</span>
+              </li>
+            }
+          </ul>
+        }
+
+        @if (recommendedFiles().length > 0) {
+          <h4 class="setup-panel__group-title">Recommended</h4>
+          <ul class="missing-list">
+            @for (file of recommendedFiles(); track file.path) {
+              <li [class]="severityClass(file.severity)">
+                <strong>{{ file.path }}</strong>
+                <span class="severity-badge">{{ severityLabel(file.severity) }}</span>
+                <span>{{ file.reason }}</span>
+              </li>
+            }
+          </ul>
+        }
+      } @else {
+        <p class="setup-panel__complete">
+          Your repository looks deployment-ready. Regenerate only if you've changed the repository or the last run missed something.
+        </p>
       }
-      <app-ui-button variant="secondary" [disabled]="generating()" [loading]="generating()" (click)="regenerateSetup()">
-        {{ hasMissingFiles() ? 'Regenerate' : 'Regenerate with AI' }}
-      </app-ui-button>
-    </div>
-  }
 
-  @if (mergeResult()) {
-    @if (mergeResult()!.envSync === 'completed') {
-      <p class="setup-panel__env-sync">
-        Environment variables synced.
-        @if (mergeResult()!.vercelKeysApplied.length) {
-          Vercel: {{ mergeResult()!.vercelKeysApplied.join(', ') }}.
-        }
-        @if (mergeResult()!.railwayKeysApplied.length) {
-          Railway: {{ mergeResult()!.railwayKeysApplied.join(', ') }}.
-        }
-      </p>
-    } @else if (mergeResult()!.envSync === 'pending') {
-      <p class="setup-panel__env-sync setup-panel__env-sync--pending">
-        {{ mergeResult()!.envSyncReason ?? 'Environment variables will sync after the first successful deploy.' }}
-      </p>
-    } @else if (mergeResult()!.envSyncReason) {
-      <p class="setup-panel__env-sync setup-panel__env-sync--pending">{{ mergeResult()!.envSyncReason }}</p>
+      @for (warning of readiness()!.warnings; track warning) {
+        <p class="setup-panel__warning">{{ warning }}</p>
+      }
     }
-  }
 
-  @if (error()) {
-    <p class="setup-panel__error">{{ error() }}</p>
-  }
+    <app-deployment-repo-changes-flow
+      [owner]="owner()"
+      [repo]="repo()"
+      [projectId]="projectId()"
+      [baseBranch]="gitRef()"
+      mergeMode="setup"
+      generateLabel="Generate setup with AI"
+      [showPrimaryGenerate]="hasMissingFiles()"
+      [secondaryGenerateLabel]="hasMissingFiles() ? 'Regenerate' : 'Regenerate with AI'"
+      mergeSuccessMessage="Setup merged. Publish again to deploy the updated configuration."
+      [runGenerate]="runGenerate"
+      [runRegenerate]="runRegenerate"
+      (mergeComplete)="onMergeComplete($event)"
+      (deployStarted)="onDeployStarted()"
+    />
+
+    @if (mergeResult()) {
+      @if (mergeResult()!.envSync === 'completed') {
+        <p class="setup-panel__env-sync">
+          Environment variables synced.
+          @if (mergeResult()!.vercelKeysApplied.length) {
+            Vercel: {{ mergeResult()!.vercelKeysApplied.join(', ') }}.
+          }
+          @if (mergeResult()!.railwayKeysApplied.length) {
+            Railway: {{ mergeResult()!.railwayKeysApplied.join(', ') }}.
+          }
+        </p>
+      } @else if (mergeResult()!.envSync === 'pending') {
+        <p class="setup-panel__env-sync setup-panel__env-sync--pending">
+          {{ mergeResult()!.envSyncReason ?? 'Environment variables will sync after the first successful deploy.' }}
+        </p>
+      } @else if (mergeResult()!.envSyncReason) {
+        <p class="setup-panel__env-sync setup-panel__env-sync--pending">{{ mergeResult()!.envSyncReason }}</p>
+      }
+    }
+
+    @if (error()) {
+      <p class="setup-panel__error">{{ error() }}</p>
+    }
   }
 </section>

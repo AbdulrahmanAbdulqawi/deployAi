@@ -22,6 +22,8 @@ export class ProjectEditComponent implements OnInit {
   readonly project = signal<ProjectDetail | null>(null);
   readonly branches = signal<GitHubBranch[]>([]);
   readonly editableTargets = signal<TargetConfig[]>([]);
+  readonly pageLoading = signal(true);
+  readonly loadError = signal<string | null>(null);
   readonly saving = signal(false);
   readonly deleting = signal(false);
   readonly message = signal<string | null>(null);
@@ -44,6 +46,9 @@ export class ProjectEditComponent implements OnInit {
 
   ngOnInit(): void {
     this.projectId = this.route.snapshot.paramMap.get('id') ?? '';
+    this.pageLoading.set(true);
+    this.loadError.set(null);
+
     this.api.getProject(this.projectId).subscribe({
       next: (project) => {
         this.project.set(project);
@@ -70,12 +75,21 @@ export class ProjectEditComponent implements OnInit {
           }
         }
         this.loadBranches(project.githubRepoFullName);
+        this.pageLoading.set(false);
       },
       error: (err) => {
-        this.message.set(err?.error?.error?.message ?? 'Could not load that app.');
-        this.isError.set(true);
+        this.loadError.set(err?.error?.error?.message ?? 'Could not load that app.');
+        this.pageLoading.set(false);
       }
     });
+  }
+
+  goToProject(): void {
+    void this.router.navigate(['/projects', this.projectId]);
+  }
+
+  goToProjects(): void {
+    void this.router.navigate(['/dashboard']);
   }
 
   repoOwner(): string | null {
@@ -105,7 +119,13 @@ export class ProjectEditComponent implements OnInit {
   }
 
   hasTargetPath(target: TargetConfig): boolean {
-    return !!(target.serviceDirectory ?? target.rootDirectory);
+    const path = target.serviceDirectory ?? target.rootDirectory;
+    return path !== undefined && path !== null;
+  }
+
+  targetFolderPath(target: TargetConfig): string | null {
+    const path = target.serviceDirectory ?? target.rootDirectory;
+    return path !== undefined && path !== null ? path : null;
   }
 
   buildSummaryRows(): {

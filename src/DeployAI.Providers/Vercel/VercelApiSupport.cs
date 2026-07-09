@@ -231,13 +231,14 @@ public static partial class VercelApiSupport
             return true;
         }
 
-        if (!host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase))
+        // Team-scoped deployment URLs embed the account slug, e.g.
+        // portfolio-e9aptsrdq-abdulrahmanabdulqawi76-7865s-projects.vercel.app
+        if (host.Contains("-user-", StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return true;
         }
 
-        var subdomain = host[..^".vercel.app".Length];
-        return subdomain.Count(c => c == '-') >= 3;
+        return false;
     }
 
     private static string NormalizeAliasHost(string alias) =>

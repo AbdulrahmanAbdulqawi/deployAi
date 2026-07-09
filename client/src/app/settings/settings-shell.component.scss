@@ -2,18 +2,22 @@
   display: grid;
   gap: var(--space-2);
   max-width: 90rem;
+  font-family: var(--font-sans);
 }
 
 .settings-shell h1 {
   margin: 0 0 var(--space-2);
+  line-height: 1.15;
 }
 
 .settings-nav {
   display: flex;
-  gap: var(--space-6);
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-6);
   margin-bottom: var(--space-6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-default);
   padding-bottom: var(--space-1);
+  font-family: var(--font-sans);
 }
 
 .settings-nav a {
@@ -23,7 +27,7 @@
   text-decoration: none;
   color: var(--text-muted);
   font-weight: 500;
-  font-size: 1rem;
+  font-size: var(--font-size-sm);
   margin-bottom: -1px;
   transition:
     color var(--motion-fast) var(--motion-ease),

@@ -1,0 +1,61 @@
+---
+description: Prefer design tokens over hardcoded colors and theme-specific component styles
+alwaysApply: true
+---
+
+# Prefer design tokens
+
+Use CSS custom properties from [`client/src/styles/_tokens.scss`](client/src/styles/_tokens.scss) for colors, borders, and surfaces. Theme differences belong in tokens, not scattered component overrides.
+
+## Surfaces and borders
+
+```scss
+// ❌ BAD
+border: 1px solid rgba(255, 255, 255, 0.1);
+background: rgba(255, 255, 255, 0.03);
+
+[data-theme='dark'] .my-panel {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+// ✅ GOOD
+border: 1px solid var(--border-default);
+background: var(--surface-hover);
+```
+
+| Need | Token |
+|------|-------|
+| Default border | `--border-default` |
+| Divider / inner border | `--border-subtle` |
+| Soft tile border | `--border-faint` |
+| Hover fill | `--surface-hover` |
+| Option/tile background | `--surface-interactive` |
+| Card/panel background | `--surface-card` |
+| Status colors | `--status-*`, `--status-*-bg`, `--status-*-border` |
+
+## Cards and panels
+
+- Use shared classes: `.u-glass-panel`, `.u-card`, `.card` (all flat token-based surfaces).
+- **No** `box-shadow` on cards/panels.
+- **No** `backdrop-filter` on cards/panels.
+- **No** pseudo-element inset borders for fake depth.
+
+Elevation shadows are allowed only for overlays: dialogs, toasts, dropdowns, focus rings.
+
+## When hardcoded values are OK
+
+- Brand/provider logos (Vercel black, Railway purple, etc.).
+- Button gradients and glows in button components **for the default style only**.
+- Terminal/log panel styling.
+- Decorative animations (shimmer gradients).
+- Notebook theme preview thumbnails in Settings → Appearance.
+
+## Visual styles (`data-style`)
+
+New visual styles (e.g. `notebook`) must be token-driven via `[data-style='…']` blocks in [`client/src/styles/_tokens.scss`](client/src/styles/_tokens.scss) or [`client/src/styles/_notebook.scss`](client/src/styles/_notebook.scss). Do not add one-off component theme branches unless a global selector cannot reach the element.
+
+Paper shadows on cards are allowed **only** when `data-style="notebook"`.
+
+## When editing existing code
+
+Replace `rgba(255, 255, 255, …)` and redundant `[data-theme='dark']` blocks with tokens in the same change when you touch that file.

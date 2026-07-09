@@ -1,5 +1,6 @@
 :root {
   --black: #000000;
+  --font-display: var(--font-sans);
   --white: #ffffff;
   --neutral-950: #0a0a0a;
   --neutral-900: #111111;
@@ -23,13 +24,13 @@
 
 :root,
 [data-theme='light'] {
-  --surface-page: #f8fafc;
-  --surface-card: var(--white);
-  --surface-raised: var(--white);
-  --surface-popover: var(--white);
-  --surface-subtle: #f1f5f9;
-  --surface-inset: #f8fafc;
-  --surface-chip: #f1f5f9;
+  --surface-page: #f1f5f9;
+  --surface-card: #f9fafb;
+  --surface-raised: #f9fafb;
+  --surface-popover: #f9fafb;
+  --surface-subtle: #e9eef4;
+  --surface-inset: #eef2f6;
+  --surface-chip: #e9eef4;
 
   --text-primary: #111827;
   --text-secondary: #4b5563;
@@ -54,10 +55,10 @@
   --btn-primary-text: var(--white);
   --btn-primary-border: #2563eb;
 
-  --btn-secondary-bg: var(--white);
+  --btn-secondary-bg: #f9fafb;
   --btn-secondary-text: #111827;
   --btn-secondary-border: #cbd5e1;
-  --btn-secondary-hover: #f1f5f9;
+  --btn-secondary-hover: #e9eef4;
   --btn-secondary-icon: #2563eb;
 
   --btn-success-bg: #059669;
@@ -78,19 +79,24 @@
   --btn-success-gradient: linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);
   --btn-success-hover-gradient: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%);
   --page-bg:
-    radial-gradient(ellipse 90% 60% at 8% -15%, rgba(79, 70, 229, 0.14), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 95% 0%, rgba(6, 182, 212, 0.1), transparent 50%),
-    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(37, 99, 235, 0.06), transparent 60%),
+    radial-gradient(ellipse 90% 60% at 8% -15%, rgba(79, 70, 229, 0.08), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 95% 0%, rgba(6, 182, 212, 0.06), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(37, 99, 235, 0.04), transparent 60%),
     var(--surface-page);
   --border-accent: rgba(79, 70, 229, 0.35);
   --glow-accent: 0 8px 28px rgba(37, 99, 235, 0.18);
-  --shadow-card-hover: 0 10px 28px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(79, 70, 229, 0.08);
+  --shadow-card-hover: none;
   --provider-vercel: var(--black);
   --provider-railway: #853bce;
 
   --border-default: #e5e7eb;
   --border-strong: #d1d5db;
   --border-dashed: #d1d5db;
+  --border-subtle: #f1f5f9;
+  --border-faint: #e2e8f0;
+
+  --surface-hover: #e9eef4;
+  --surface-interactive: #eef2f6;
 
   --backdrop: rgba(15, 23, 42, 0.45);
 
@@ -135,7 +141,7 @@
   --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.35);
-  --shadow-raised: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-raised: none;
   --shadow-overlay: 0 8px 24px rgba(15, 23, 42, 0.12);
 
   --terminal-bg: #f6f8fa;
@@ -211,18 +217,23 @@
     #0b1326;
   --border-accent: rgba(192, 193, 255, 0.35);
   --glow-accent: 0 4px 12px rgba(128, 131, 255, 0.2);
-  --shadow-card-hover: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: none;
   --provider-vercel: var(--white);
   --provider-railway: #c084fc;
 
   --border-default: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.16);
   --border-dashed: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-faint: rgba(255, 255, 255, 0.08);
+
+  --surface-hover: rgba(255, 255, 255, 0.03);
+  --surface-interactive: rgba(255, 255, 255, 0.05);
 
   --backdrop: rgba(6, 14, 32, 0.82);
 
   --focus-ring: 0 0 0 3px rgba(192, 193, 255, 0.35);
-  --shadow-raised: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-raised: none;
   --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.72);
 
   --control-height: 40px;

@@ -50,9 +50,9 @@
 }
 
 .idle {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-interactive);
   color: var(--text-secondary);
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-default);
 }
 
 .badge--dot {

@@ -3,13 +3,17 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
 import { DeploymentSummary } from '../core/models/api.models';
 import { EmptyStateComponent } from '../shared/empty-state/empty-state.component';
+import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
 import { IconComponent, IconName, IconStatusClass } from '../shared/ui/icon/icon.component';
+import { roleLabelForProvider } from '../core/utils/target-config';
+import { formatDurationSeconds } from '../core/utils/duration';
 
 @Component({
   selector: 'app-history',
   standalone: true,
   imports: [
     EmptyStateComponent,
+    StatusBadgeComponent,
     IconComponent
   ],
   templateUrl: './history.component.html',
@@ -105,8 +109,16 @@ export class HistoryComponent implements OnInit {
     void this.router.navigate(['/projects', this.projectId, 'deploy', deploymentId]);
   }
 
-  back(): void {
+  goToProject(): void {
     void this.router.navigate(['/projects', this.projectId]);
+  }
+
+  goToProjects(): void {
+    void this.router.navigate(['/dashboard']);
+  }
+
+  providerLabel(providerName: string): string {
+    return roleLabelForProvider(providerName);
   }
 
   formatWhen(value?: string): string {
@@ -148,12 +160,7 @@ export class HistoryComponent implements OnInit {
     if (seconds === undefined || seconds === null) {
       return null;
     }
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    const rest = seconds % 60;
-    return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+    return formatDurationSeconds(seconds);
   }
 
   private dayLabel(value?: string): string {
