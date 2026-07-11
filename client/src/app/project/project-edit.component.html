@@ -80,6 +80,13 @@
               <span class="u-code-md">github.com/{{ project()!.githubRepoFullName }}.git</span>
             </div>
           </div>
+          <label class="edit__field edit__field--full edit__toggle">
+            <span class="edit__toggle-copy">
+              <span class="u-label-caps">Auto-deploy on push</span>
+              <span class="edit__toggle-hint u-text-secondary">Publish automatically when you push to the version branch</span>
+            </span>
+            <input type="checkbox" [(ngModel)]="autoDeployEnabled" />
+          </label>
         </div>
       </div>
     </section>

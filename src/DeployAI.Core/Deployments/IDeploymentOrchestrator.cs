@@ -2,7 +2,12 @@ namespace DeployAI.Core.Deployments;
 
 public interface IDeploymentOrchestrator
 {
-    Task<TriggerDeploymentResult> TriggerAsync(Guid projectId, Guid userId, string branch, CancellationToken cancellationToken);
+    Task<TriggerDeploymentResult> TriggerAsync(
+        Guid projectId,
+        Guid userId,
+        string branch,
+        CancellationToken cancellationToken,
+        DeploymentTriggeredBy triggeredBy = DeploymentTriggeredBy.User);
 
     Task<TriggerDeploymentResult> TriggerTargetAsync(
         Guid projectId,

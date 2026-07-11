@@ -1,0 +1,32 @@
+.health-banner {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border-subtle);
+}
+
+.health-banner__icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.health-banner__copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.health-banner__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.health-banner__desc,
+.health-banner__meta {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}

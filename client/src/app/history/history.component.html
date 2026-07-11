@@ -90,6 +90,9 @@
                     @if (item.gitCommitSha) {
                       <span class="history__sha u-code-sm">{{ item.gitCommitSha.slice(0, 7) }}</span>
                     }
+                    @if (item.triggeredBy === 'webhook') {
+                      <span class="history__auto u-code-sm">Auto</span>
+                    }
                     @for (target of item.targets; track target.providerName) {
                       <span class="history__provider u-code-sm">{{ providerLabel(target.providerName) }}</span>
                     }

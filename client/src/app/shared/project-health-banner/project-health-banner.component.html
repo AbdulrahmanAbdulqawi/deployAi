@@ -1,0 +1,22 @@
+@if (health(); as state) {
+  <section class="health-banner u-glass-panel" role="status">
+    <div class="health-banner__icon" aria-hidden="true">
+      <app-ui-icon
+        [name]="state.status === 'healthy' ? 'check' : state.status === 'down' ? 'x' : 'alert'"
+        size="sm"
+        [statusClass]="statusIcon()" />
+    </div>
+    <div class="health-banner__copy">
+      <h2 class="health-banner__title">Live health: {{ statusLabel() }}</h2>
+      <p class="health-banner__desc u-text-secondary">
+        {{ state.summary ?? 'Ongoing checks monitor your website and API.' }}
+      </p>
+      <p class="health-banner__meta u-text-muted">
+        {{ state.passedChecks }} of {{ state.totalChecks }} checks passed
+        @if (state.lastCheckedAt) {
+          · Last checked {{ state.lastCheckedAt | date: 'short' }}
+        }
+      </p>
+    </div>
+  </section>
+}

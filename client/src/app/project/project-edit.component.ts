@@ -35,6 +35,7 @@ export class ProjectEditComponent implements OnInit {
 
   name = '';
   defaultBranch = '';
+  autoDeployEnabled = false;
   private projectId = '';
 
   constructor(
@@ -54,6 +55,7 @@ export class ProjectEditComponent implements OnInit {
         this.project.set(project);
         this.name = project.name;
         this.defaultBranch = project.defaultBranch;
+        this.autoDeployEnabled = project.autoDeployEnabled ?? false;
         this.editableTargets.set(
           project.targets
             .filter(target => parseTargetConfig(target.config).role !== 'database')
@@ -324,6 +326,7 @@ export class ProjectEditComponent implements OnInit {
     this.api.updateProject(this.projectId, {
       name: this.name,
       defaultBranch: this.defaultBranch,
+      autoDeployEnabled: this.autoDeployEnabled,
       targets: this.editableTargets().map(target => ({
         providerName: target.providerName,
         credentialId: target.credentialId,

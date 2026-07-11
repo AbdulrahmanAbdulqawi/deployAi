@@ -303,6 +303,18 @@
   color: var(--text-muted);
 }
 
+.history__sha {
+  color: var(--text-muted);
+}
+
+.history__auto {
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-interactive);
+  color: var(--text-secondary);
+}
+
 @media (max-width: 640px) {
   .history__row {
     grid-template-columns: auto 1fr auto;

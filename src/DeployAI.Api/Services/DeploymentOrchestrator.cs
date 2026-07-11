@@ -34,7 +34,12 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         _encryption = encryption;
     }
 
-    public async Task<TriggerDeploymentResult> TriggerAsync(Guid projectId, Guid userId, string branch, CancellationToken cancellationToken)
+    public async Task<TriggerDeploymentResult> TriggerAsync(
+        Guid projectId,
+        Guid userId,
+        string branch,
+        CancellationToken cancellationToken,
+        DeploymentTriggeredBy triggeredBy = DeploymentTriggeredBy.User)
     {
         var project = await _db.Projects
             .Include(p => p.DeployTargets)
@@ -74,7 +79,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             Id = Guid.NewGuid(),
             ProjectId = project.Id,
             Branch = branch,
-            TriggeredBy = "user",
+            TriggeredBy = DeploymentTriggeredByValues.ToApiValue(triggeredBy),
             Status = DeploymentStatuses.Pending,
             CreatedAt = DateTimeOffset.UtcNow,
             GitCommitSha = commitSha,
@@ -272,6 +277,7 @@ public sealed class DeploymentJobRunner
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
     private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
+    private readonly IDeploymentNotificationService _deploymentNotifications;
 
     public DeploymentJobRunner(
         DeployAIDbContext db,
@@ -283,7 +289,8 @@ public sealed class DeploymentJobRunner
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
-        Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions)
+        Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions,
+        IDeploymentNotificationService deploymentNotifications)
     {
         _db = db;
         _providerFactory = providerFactory;
@@ -295,6 +302,7 @@ public sealed class DeploymentJobRunner
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
         _anthropicOptions = anthropicOptions.Value;
+        _deploymentNotifications = deploymentNotifications;
     }
 
     public async Task RunAsync(Guid deploymentTargetId, CancellationToken cancellationToken)
@@ -664,6 +672,8 @@ public sealed class DeploymentJobRunner
 
         await _hub.Clients.Group(deploymentId.ToString())
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
+
+        await _deploymentNotifications.NotifyDeploymentCompletedAsync(deploymentId, cancellationToken);
     }
 
     private async Task PersistAndBroadcastLogAsync(

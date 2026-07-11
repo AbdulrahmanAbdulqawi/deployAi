@@ -81,6 +81,24 @@
   }
 }
 
+.edit__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+.edit__toggle-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.edit__toggle-hint {
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
 .edit__input {
   width: 100%;
   min-height: 3rem;

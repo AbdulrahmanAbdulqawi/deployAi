@@ -1,5 +1,6 @@
 using DeployAI.Core.Security;
 using DeployAI.Infrastructure.Auth;
+using DeployAI.Infrastructure.Email;
 using DeployAI.Infrastructure.GitHub;
 using DeployAI.Infrastructure.Vercel;
 using DeployAI.Infrastructure.Options;
@@ -20,9 +21,11 @@ public static class DependencyInjection
         services.Configure<RailwayOptions>(configuration.GetSection(RailwayOptions.SectionName));
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<AppOptions>(configuration.GetSection(AppOptions.SectionName));
+        services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
 
         services.AddSingleton<IEncryptionService, AesEncryptionService>();
         services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        services.AddSingleton<DeployAI.Infrastructure.Email.IEmailSender, DeployAI.Infrastructure.Email.SmtpEmailSender>();
         services.AddHttpClient<IGitHubService, GitHubService>();
         services.AddHttpClient<IVercelOAuthService, VercelOAuthService>();
         services.AddHttpClient<IRailwayOAuthService, RailwayOAuthService>();

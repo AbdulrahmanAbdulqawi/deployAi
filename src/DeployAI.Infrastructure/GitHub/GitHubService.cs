@@ -96,6 +96,9 @@ public sealed record GitHubCommitInfo(
     [property: JsonPropertyName("sha")] string Sha,
     [property: JsonPropertyName("commit")] GitHubCommitDetails Commit);
 
+public sealed record GitHubHookResponse(
+    [property: JsonPropertyName("id")] long Id);
+
 public sealed record GitHubCommitDetails(
     [property: JsonPropertyName("message")] string Message);
 
@@ -158,6 +161,19 @@ public interface IGitHubService
         string owner,
         string repo,
         string gitRef,
+        CancellationToken cancellationToken);
+    Task<long> CreateRepoWebhookAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string webhookUrl,
+        string secret,
+        CancellationToken cancellationToken);
+    Task DeleteRepoWebhookAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        long hookId,
         CancellationToken cancellationToken);
 }
 
@@ -630,6 +646,60 @@ public sealed class GitHubService : IGitHubService
         EnsureGitHubAuthorized(response);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStreamAsync(cancellationToken);
+    }
+
+    public async Task<long> CreateRepoWebhookAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string webhookUrl,
+        string secret,
+        CancellationToken cancellationToken)
+    {
+        var url = $"https://api.github.com/repos/{owner}/{repo}/hooks";
+        using var request = CreateAuthorizedRequest(HttpMethod.Post, url, accessToken);
+        request.Content = JsonContent.Create(new
+        {
+            name = "web",
+            active = true,
+            events = new[] { "push" },
+            config = new
+            {
+                url = webhookUrl,
+                content_type = "json",
+                secret
+            }
+        });
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        EnsureGitHubAuthorized(response);
+        response.EnsureSuccessStatusCode();
+        var hook = await response.Content.ReadFromJsonAsync<GitHubHookResponse>(cancellationToken);
+        if (hook is null || hook.Id <= 0)
+        {
+            throw new InvalidOperationException("GitHub did not return a webhook id.");
+        }
+
+        return hook.Id;
+    }
+
+    public async Task DeleteRepoWebhookAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        long hookId,
+        CancellationToken cancellationToken)
+    {
+        var url = $"https://api.github.com/repos/{owner}/{repo}/hooks/{hookId}";
+        using var request = CreateAuthorizedRequest(HttpMethod.Delete, url, accessToken);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        EnsureGitHubAuthorized(response);
+        response.EnsureSuccessStatusCode();
     }
 
     private static string NormalizeContentPath(string? path)

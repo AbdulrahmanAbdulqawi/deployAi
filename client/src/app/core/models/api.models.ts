@@ -133,7 +133,31 @@ export interface ProjectSummary {
 
 export interface ProjectDetail extends Omit<ProjectSummary, 'latestDeployment' | 'targets'> {
   targets: ProjectTarget[];
+  autoDeployEnabled?: boolean;
+  health?: ProjectHealthState | null;
   environmentSync?: EnvironmentSyncState | null;
+}
+
+export enum ProjectHealthStatus {
+  Healthy = 'healthy',
+  Degraded = 'degraded',
+  Down = 'down',
+  Unknown = 'unknown'
+}
+
+export interface ProjectHealthState {
+  lastCheckedAt: string;
+  status: ProjectHealthStatus;
+  passedChecks: number;
+  totalChecks: number;
+  summary?: string;
+  deploymentId?: string;
+}
+
+export interface NotificationPreferencesResponse {
+  emailOnSuccess: boolean;
+  emailOnFailure: boolean;
+  emailOnComplete: boolean;
 }
 
 export interface EnvironmentSyncState {
@@ -224,6 +248,7 @@ export interface DeploymentSummary {
   gitCommitSha?: string;
   gitCommitMessage?: string;
   status: string;
+  triggeredBy?: string;
   durationSeconds?: number;
   startedAt?: string;
   completedAt?: string;
@@ -264,6 +289,7 @@ export interface DeploymentDetail {
   gitCommitSha?: string;
   gitCommitMessage?: string;
   status: string;
+  triggeredBy?: string;
   startedAt?: string;
   completedAt?: string;
   durationSeconds?: number;

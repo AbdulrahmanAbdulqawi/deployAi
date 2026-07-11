@@ -26,6 +26,7 @@ import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/d
 import { DeploymentStatusStripComponent } from '../shared/deployment-status-strip/deployment-status-strip.component';
 import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
 import { EnvironmentDriftBannerComponent } from '../shared/environment-drift-banner/environment-drift-banner.component';
+import { ProjectHealthBannerComponent } from '../shared/project-health-banner/project-health-banner.component';
 import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
 import { ConfirmService } from '../shared/ui/confirm/confirm.service';
 import { ToastService } from '../shared/ui/toast/toast.service';
@@ -46,6 +47,7 @@ interface LiveUrl {
     DeploymentStatusStripComponent,
     ReadinessScorecardComponent,
     EnvironmentDriftBannerComponent,
+    ProjectHealthBannerComponent,
     StatusBadgeComponent
   ],
   templateUrl: './project-detail.component.html',

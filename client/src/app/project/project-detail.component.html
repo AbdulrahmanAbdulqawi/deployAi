@@ -90,6 +90,10 @@
       [projectId]="projectId"
       [hasSplitOrigin]="hasSplitOrigin()" />
 
+    @if (project()?.health) {
+      <app-project-health-banner [health]="project()!.health" />
+    }
+
     @if (aiSetup.enabled()) {
       <app-readiness-scorecard
         [projectId]="projectId"

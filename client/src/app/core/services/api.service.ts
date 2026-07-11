@@ -25,6 +25,7 @@ import {
   EnvironmentSyncResult,
   EnvironmentSyncState,
   ProjectDetail,
+  NotificationPreferencesResponse,
   ProjectServicesResponse,
   ProjectServiceStatus,
   DataServiceInfo,
@@ -335,10 +336,19 @@ export class ApiService {
       name?: string;
       defaultBranch?: string;
       logoKey?: string | null;
+      autoDeployEnabled?: boolean;
       targets?: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[];
     }
   ) {
     return this.http.put<ProjectDetail>(`/api/projects/${id}`, payload);
+  }
+
+  getNotificationPreferences() {
+    return this.http.get<NotificationPreferencesResponse>('/api/notifications/preferences');
+  }
+
+  updateNotificationPreferences(payload: { emailOnSuccess: boolean; emailOnFailure: boolean }) {
+    return this.http.put<NotificationPreferencesResponse>('/api/notifications/preferences', payload);
   }
 
   deleteProject(id: string) {

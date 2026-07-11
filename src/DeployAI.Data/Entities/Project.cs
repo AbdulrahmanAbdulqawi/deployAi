@@ -12,6 +12,9 @@ public class Project
     public DateTimeOffset UpdatedAt { get; set; }
     public string? EnvironmentSyncJson { get; set; }
     public string? DeploymentSetupJson { get; set; }
+    public bool AutoDeployEnabled { get; set; }
+    public long? GitHubWebhookId { get; set; }
+    public string? HealthJson { get; set; }
 
     public User User { get; set; } = null!;
     public ICollection<DeployTarget> DeployTargets { get; set; } = [];

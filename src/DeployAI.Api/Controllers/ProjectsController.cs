@@ -20,19 +20,22 @@ public sealed class ProjectsController : ControllerBase
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IProjectTeardownService _projectTeardown;
     private readonly IProjectBranchDeployService _branchDeployService;
+    private readonly IGitHubWebhookRegistrationService _webhookRegistration;
 
     public ProjectsController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IProjectTeardownService projectTeardown,
-        IProjectBranchDeployService branchDeployService)
+        IProjectBranchDeployService branchDeployService,
+        IGitHubWebhookRegistrationService webhookRegistration)
     {
         _db = db;
         _currentUser = currentUser;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _projectTeardown = projectTeardown;
         _branchDeployService = branchDeployService;
+        _webhookRegistration = webhookRegistration;
     }
 
     [HttpGet]
@@ -267,8 +270,46 @@ public sealed class ProjectsController : ControllerBase
             ApplyTargetUpdates(project, request.Targets);
         }
 
+        if (request.AutoDeployEnabled.HasValue)
+        {
+            await _webhookRegistration.SetAutoDeployAsync(project, request.AutoDeployEnabled.Value, cancellationToken);
+        }
+
+        project.UpdatedAt = DateTimeOffset.UtcNow;
+
         await _db.SaveChangesAsync(cancellationToken);
         return Ok(await MapProjectAsync(id, cancellationToken));
+    }
+
+    [HttpGet("{id:guid}/health")]
+    public async Task<IActionResult> GetHealth(Guid id, CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var project = await _db.Projects
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId, cancellationToken);
+
+        if (project is null)
+        {
+            return NotFound(new { error = new { code = "not_found", message = "We couldn't find that app." } });
+        }
+
+        var health = ProjectHealthState.Parse(project.HealthJson);
+        if (health is null)
+        {
+            return Ok(new { checked = false });
+        }
+
+        return Ok(new
+        {
+            checked = true,
+            lastCheckedAt = health.LastCheckedAt,
+            status = health.Status.ToString().ToLowerInvariant(),
+            passedChecks = health.PassedChecks,
+            totalChecks = health.TotalChecks,
+            summary = health.Summary,
+            deploymentId = health.DeploymentId
+        });
     }
 
     [HttpPost("{id:guid}/railway-databases")]
@@ -445,6 +486,8 @@ public sealed class ProjectsController : ControllerBase
             logoKey = project.LogoKey,
             githubRepoFullName = project.GitHubRepoFullName,
             defaultBranch = project.DefaultBranch,
+            autoDeployEnabled = project.AutoDeployEnabled,
+            health = MapHealth(project.HealthJson),
             environmentSync = MapEnvironmentSync(project.EnvironmentSyncJson),
             targets = project.DeployTargets.Select(t => new
             {
@@ -454,6 +497,25 @@ public sealed class ProjectsController : ControllerBase
                 providerProjectId = t.ProviderProjectId,
                 config = t.ConfigJson
             })
+        };
+    }
+
+    private static object? MapHealth(string? json)
+    {
+        var health = ProjectHealthState.Parse(json);
+        if (health is null)
+        {
+            return null;
+        }
+
+        return new
+        {
+            lastCheckedAt = health.LastCheckedAt,
+            status = health.Status.ToString().ToLowerInvariant(),
+            passedChecks = health.PassedChecks,
+            totalChecks = health.TotalChecks,
+            summary = health.Summary,
+            deploymentId = health.DeploymentId
         };
     }
 
@@ -556,7 +618,8 @@ public sealed class ProjectsController : ControllerBase
         string? Name,
         string? DefaultBranch,
         List<ProjectTargetRequest>? Targets,
-        string? LogoKey = null);
+        string? LogoKey = null,
+        bool? AutoDeployEnabled = null);
 
     public sealed record ProjectTargetRequest(
         string ProviderName,
