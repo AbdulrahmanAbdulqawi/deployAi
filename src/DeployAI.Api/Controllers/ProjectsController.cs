@@ -297,12 +297,12 @@ public sealed class ProjectsController : ControllerBase
         var health = ProjectHealthState.Parse(project.HealthJson);
         if (health is null)
         {
-            return Ok(new { checked = false });
+            return Ok(new { hasHealthCheck = false });
         }
 
         return Ok(new
         {
-            checked = true,
+            hasHealthCheck = true,
             lastCheckedAt = health.LastCheckedAt,
             status = health.Status.ToString().ToLowerInvariant(),
             passedChecks = health.PassedChecks,

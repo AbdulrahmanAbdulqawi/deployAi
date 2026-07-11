@@ -11,6 +11,12 @@ export interface ProviderInfo {
   apiStyle: string;
 }
 
+export enum ProviderName {
+  Vercel = 'vercel',
+  Railway = 'railway',
+  Coolify = 'coolify',
+}
+
 export interface CredentialSummary {
   id: string;
   providerName: string;

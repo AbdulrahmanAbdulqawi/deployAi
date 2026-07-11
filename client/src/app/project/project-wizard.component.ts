@@ -14,7 +14,8 @@ import {
   ServerBuildProfile,
   GitHubBranch,
   GitHubRepo,
-  ProviderProject
+  ProviderProject,
+  ProviderName
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
@@ -30,7 +31,7 @@ interface EnvRow {
   value: string;
 }
 
-type DeploymentMode = 'website' | 'server' | 'both';
+type DeploymentMode = 'website' | 'server' | 'both' | 'coolify';
 
 @Component({
   selector: 'app-project-wizard',
@@ -46,10 +47,13 @@ export class ProjectWizardComponent implements OnInit {
   readonly credentials = signal<CredentialSummary[]>([]);
   readonly vercelProjects = signal<ProviderProject[]>([]);
   readonly railwayProjects = signal<ProviderProject[]>([]);
+  readonly coolifyProjects = signal<ProviderProject[]>([]);
+  readonly selectedCoolifyProjectId = signal<string | null>(null);
   readonly selectedRepo = signal<GitHubRepo | null>(null);
   readonly selectedBranch = signal<string | null>(null);
   readonly selectedVercelProjectId = signal<string | null>(null);
   readonly selectedRailwayProjectId = signal<string | null>(null);
+  readonly loadingCoolifyProjects = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly loadingCredentials = signal(true);
@@ -159,9 +163,11 @@ export class ProjectWizardComponent implements OnInit {
   readonly selectedLogoKey = signal<string | null>(null);
   newVercelProjectName = '';
   newRailwayProjectName = '';
+  selectedCoolifyCredentialId = '';
   selectedVercelCredentialId = '';
   selectedRailwayCredentialId = '';
   deploymentMode: DeploymentMode | null = null;
+  publishCoolify = false;
   publishWebsite = false;
   publishServer = false;
   websiteRootPath = '';
@@ -204,15 +210,20 @@ export class ProjectWizardComponent implements OnInit {
       next: (response) => {
         this.credentials.set(response.credentials);
         this.loadingCredentials.set(false);
-        const vercel = response.credentials.find(c => c.providerName === 'vercel');
+        const vercel = response.credentials.find(c => c.providerName === ProviderName.Vercel);
         if (vercel) {
           this.selectedVercelCredentialId = vercel.id;
           this.loadVercelProjects();
         }
-        const railway = response.credentials.find(c => c.providerName === 'railway');
+        const railway = response.credentials.find(c => c.providerName === ProviderName.Railway);
         if (railway) {
           this.selectedRailwayCredentialId = railway.id;
           this.loadRailwayProjects();
+        }
+        const coolify = response.credentials.find(c => c.providerName === ProviderName.Coolify);
+        if (coolify) {
+          this.selectedCoolifyCredentialId = coolify.id;
+          this.loadCoolifyProjects();
         }
       },
       error: (err) => {
@@ -262,15 +273,22 @@ export class ProjectWizardComponent implements OnInit {
     if (this.publishServer && this.railwayCredentials().length === 0) {
       missing.push('Railway');
     }
+    if (this.publishCoolify && this.coolifyCredentials().length === 0) {
+      missing.push('Coolify');
+    }
     return missing;
   }
 
   vercelCredentials(): CredentialSummary[] {
-    return this.credentials().filter(c => c.providerName === 'vercel');
+    return this.credentials().filter(c => c.providerName === ProviderName.Vercel);
   }
 
   railwayCredentials(): CredentialSummary[] {
-    return this.credentials().filter(c => c.providerName === 'railway');
+    return this.credentials().filter(c => c.providerName === ProviderName.Railway);
+  }
+
+  coolifyCredentials(): CredentialSummary[] {
+    return this.credentials().filter(c => c.providerName === ProviderName.Coolify);
   }
 
   loadRepos(): void {
@@ -534,7 +552,7 @@ export class ProjectWizardComponent implements OnInit {
         return throwError(() => new Error('Vercel setup is incomplete.'));
       }
       targets.push({
-        providerName: 'vercel',
+        providerName: ProviderName.Vercel,
         credentialId: this.selectedVercelCredentialId,
         providerProjectId: vercelProjectId,
         config: this.buildWebsiteTargetConfig()
@@ -547,10 +565,23 @@ export class ProjectWizardComponent implements OnInit {
         return throwError(() => new Error('Railway setup is incomplete.'));
       }
       targets.push({
-        providerName: 'railway',
+        providerName: ProviderName.Railway,
         credentialId: this.selectedRailwayCredentialId,
         providerProjectId: railwayProjectId,
         config: this.buildServerTargetConfig()
+      });
+    }
+
+    if (this.publishCoolify) {
+      const coolifyProjectId = this.selectedCoolifyProjectId();
+      if (!coolifyProjectId || !this.selectedCoolifyCredentialId) {
+        return throwError(() => new Error('Coolify setup is incomplete.'));
+      }
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: coolifyProjectId,
+        config: JSON.stringify({ role: 'server' })
       });
     }
 
@@ -665,6 +696,7 @@ export class ProjectWizardComponent implements OnInit {
     this.deploymentMode = mode;
     this.publishWebsite = mode === 'website' || mode === 'both';
     this.publishServer = mode === 'server' || mode === 'both';
+    this.publishCoolify = mode === 'coolify';
     if (!this.publishWebsite) {
       this.websiteRootPath = '';
       this.websiteFolderSelected = false;
@@ -680,6 +712,9 @@ export class ProjectWizardComponent implements OnInit {
     if (this.deploymentMode === null) {
       return false;
     }
+    if (this.publishCoolify) {
+      return true;
+    }
     if (this.publishWebsite && !this.websiteFolderSelected) {
       return false;
     }
@@ -692,6 +727,9 @@ export class ProjectWizardComponent implements OnInit {
   partsStepBlockedHint(): string {
     if (this.deploymentMode === null) {
       return 'Choose what you want to publish.';
+    }
+    if (this.publishCoolify) {
+      return '';
     }
     if (this.publishWebsite && !this.websiteFolderSelected) {
       return 'Choose the website folder to continue.';
@@ -709,7 +747,23 @@ export class ProjectWizardComponent implements OnInit {
     if (this.publishServer && !this.selectedRailwayProjectId()) {
       return 'Select or create a Railway service to continue.';
     }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      return 'Select a Coolify application to continue.';
+    }
     return 'Finish hosting setup to continue.';
+  }
+
+  canContinueFromHostingStep(): boolean {
+    if (this.publishWebsite && !this.selectedVercelProjectId()) {
+      return false;
+    }
+    if (this.publishServer && !this.selectedRailwayProjectId()) {
+      return false;
+    }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      return false;
+    }
+    return this.publishWebsite || this.publishServer || this.publishCoolify;
   }
 
   enterHostingStep(): void {
@@ -719,6 +773,9 @@ export class ProjectWizardComponent implements OnInit {
     }
     if (this.publishServer && this.railwayCredentials().length > 0) {
       this.loadRailwayProjects();
+    }
+    if (this.publishCoolify && this.coolifyCredentials().length > 0) {
+      this.loadCoolifyProjects();
     }
   }
 
@@ -752,14 +809,9 @@ export class ProjectWizardComponent implements OnInit {
     }
   }
 
-  canContinueFromHostingStep(): boolean {
-    if (this.publishWebsite && !this.selectedVercelProjectId()) {
-      return false;
-    }
-    if (this.publishServer && !this.selectedRailwayProjectId()) {
-      return false;
-    }
-    return this.publishWebsite || this.publishServer;
+  onCoolifyCredentialChange(): void {
+    this.selectedCoolifyProjectId.set(null);
+    this.loadCoolifyProjects();
   }
 
   detectedDatabaseSummary(): string {
@@ -807,6 +859,22 @@ export class ProjectWizardComponent implements OnInit {
       error: (err) => {
         this.loadingRailwayProjects.set(false);
         this.error.set(err?.error?.error?.message ?? 'Could not load your Railway services.');
+      }
+    });
+  }
+
+  loadCoolifyProjects(): void {
+    if (!this.selectedCoolifyCredentialId) return;
+    this.loadingCoolifyProjects.set(true);
+    this.selectedCoolifyProjectId.set(null);
+    this.api.listProviderProjects(this.selectedCoolifyCredentialId).subscribe({
+      next: (response) => {
+        this.coolifyProjects.set(response.projects);
+        this.loadingCoolifyProjects.set(false);
+      },
+      error: (err) => {
+        this.loadingCoolifyProjects.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify applications.');
       }
     });
   }
@@ -877,7 +945,7 @@ export class ProjectWizardComponent implements OnInit {
       const vercelProjectId = this.selectedVercelProjectId();
       if (!vercelProjectId || !this.selectedVercelCredentialId) return;
       targets.push({
-        providerName: 'vercel',
+        providerName: ProviderName.Vercel,
         credentialId: this.selectedVercelCredentialId,
         providerProjectId: vercelProjectId,
         config: this.buildWebsiteTargetConfig()
@@ -888,10 +956,21 @@ export class ProjectWizardComponent implements OnInit {
       const railwayProjectId = this.selectedRailwayProjectId();
       if (!railwayProjectId || !this.selectedRailwayCredentialId) return;
       targets.push({
-        providerName: 'railway',
+        providerName: ProviderName.Railway,
         credentialId: this.selectedRailwayCredentialId,
         providerProjectId: railwayProjectId,
         config: this.buildServerTargetConfig()
+      });
+    }
+
+    if (this.publishCoolify) {
+      const coolifyProjectId = this.selectedCoolifyProjectId();
+      if (!coolifyProjectId || !this.selectedCoolifyCredentialId) return;
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: coolifyProjectId,
+        config: JSON.stringify({ role: 'server' })
       });
     }
 

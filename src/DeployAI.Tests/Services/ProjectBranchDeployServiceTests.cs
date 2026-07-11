@@ -67,7 +67,7 @@ public class ProjectBranchDeployServiceTests
         var project = await db.Projects.FirstAsync(p => p.Id == projectId);
         Assert.Equal("deployai/fix-1", project.DefaultBranch);
         orchestrator.Verify(
-            o => o.TriggerAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            o => o.TriggerAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>(), It.IsAny<DeploymentTriggeredBy>()),
             Times.Never);
     }
 
@@ -106,7 +106,7 @@ public class ProjectBranchDeployServiceTests
 
         var orchestrator = new Mock<IDeploymentOrchestrator>();
         orchestrator
-            .Setup(o => o.TriggerAsync(projectId, userId, "deployai/setup-1", It.IsAny<CancellationToken>()))
+            .Setup(o => o.TriggerAsync(projectId, userId, "deployai/setup-1", It.IsAny<CancellationToken>(), DeploymentTriggeredBy.User))
             .ReturnsAsync(new TriggerDeploymentResult(deploymentId, "pending", []));
 
         var encryption = new Mock<IEncryptionService>();
@@ -127,7 +127,7 @@ public class ProjectBranchDeployServiceTests
 
         Assert.Equal(deploymentId, result.DeploymentId);
         orchestrator.Verify(
-            o => o.TriggerAsync(projectId, userId, "deployai/setup-1", It.IsAny<CancellationToken>()),
+            o => o.TriggerAsync(projectId, userId, "deployai/setup-1", It.IsAny<CancellationToken>(), DeploymentTriggeredBy.User),
             Times.Once);
     }
 

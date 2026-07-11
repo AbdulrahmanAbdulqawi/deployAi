@@ -22,6 +22,20 @@ public class ProviderFactoryTests
     }
 
     [Fact]
+    public void GetAvailableProviders_IncludesCoolify()
+    {
+        var coolify = new Mock<IDeploymentProvider>();
+        coolify.Setup(p => p.ProviderName).Returns(ProviderNameValues.Coolify);
+        coolify.Setup(p => p.DisplayName).Returns("Coolify");
+        coolify.Setup(p => p.ApiStyle).Returns("rest");
+
+        var factory = new ProviderFactory([coolify.Object]);
+        var providers = factory.GetAvailableProviders();
+
+        Assert.Contains(providers, p => p.Name == ProviderNameValues.Coolify && p.DisplayName == "Coolify");
+    }
+
+    [Fact]
     public void GetProvider_ThrowsForUnknownProvider()
     {
         var factory = new ProviderFactory(Array.Empty<IDeploymentProvider>());

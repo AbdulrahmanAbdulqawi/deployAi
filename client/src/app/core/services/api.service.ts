@@ -54,8 +54,8 @@ export class ApiService {
     return this.http.get<{ credentials: CredentialSummary[] }>('/api/credentials');
   }
 
-  addCredential(providerName: string, token: string, label?: string) {
-    return this.http.post<CredentialSummary>('/api/credentials', { providerName, token, label });
+  addCredential(providerName: string, token: string, label?: string, instanceUrl?: string) {
+    return this.http.post<CredentialSummary>('/api/credentials', { providerName, token, label, instanceUrl });
   }
 
   deleteCredential(id: string) {

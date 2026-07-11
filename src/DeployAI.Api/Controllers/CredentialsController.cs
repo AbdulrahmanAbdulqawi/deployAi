@@ -60,7 +60,8 @@ public sealed class CredentialsController : ControllerBase
     {
         var userId = RequireUserId();
         var provider = _providerFactory.GetProvider(request.ProviderName);
-        var isValid = await provider.ValidateCredentialsAsync(new ProviderCredentials(request.Token), cancellationToken);
+        var tokenToStore = BuildCredentialToken(provider.ProviderName, request);
+        var isValid = await provider.ValidateCredentialsAsync(new ProviderCredentials(tokenToStore), cancellationToken);
         if (!isValid)
         {
             throw new DeployAIException("provider_token_invalid", $"Your {provider.DisplayName} connection needs refreshing. Check the access key and try again.");
@@ -76,7 +77,7 @@ public sealed class CredentialsController : ControllerBase
             if (existingRailway is not null)
             {
                 existingRailway.Label = label;
-                existingRailway.TokenEncrypted = _encryption.Encrypt(request.Token);
+                existingRailway.TokenEncrypted = _encryption.Encrypt(tokenToStore);
                 existingRailway.IsValid = true;
                 existingRailway.LastValidatedAt = DateTimeOffset.UtcNow;
                 await _db.SaveChangesAsync(cancellationToken);
@@ -97,7 +98,7 @@ public sealed class CredentialsController : ControllerBase
             UserId = userId,
             ProviderName = provider.ProviderName,
             Label = string.IsNullOrWhiteSpace(request.Label) ? "Default" : request.Label,
-            TokenEncrypted = _encryption.Encrypt(request.Token),
+            TokenEncrypted = _encryption.Encrypt(tokenToStore),
             IsValid = true,
             LastValidatedAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow
@@ -153,10 +154,25 @@ public sealed class CredentialsController : ControllerBase
         return Ok(new { projects });
     }
 
+    private static string BuildCredentialToken(string providerName, CreateCredentialRequest request)
+    {
+        if (!string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return request.Token;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.InstanceUrl))
+        {
+            throw new DeployAIException("coolify_instance_url_required", "Enter your Coolify instance URL (for example, https://coolify.example.com).");
+        }
+
+        return CoolifyCredentialStorage.Serialize(request.InstanceUrl, request.Token);
+    }
+
     private Guid RequireUserId()
     {
         return _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
     }
 
-    public sealed record CreateCredentialRequest(string ProviderName, string Token, string? Label);
+    public sealed record CreateCredentialRequest(string ProviderName, string Token, string? Label, string? InstanceUrl);
 }

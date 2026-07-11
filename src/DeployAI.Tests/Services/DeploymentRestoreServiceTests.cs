@@ -19,7 +19,7 @@ public class DeploymentRestoreServiceTests
         var ex = await Assert.ThrowsAsync<DeployAIException>(() =>
             service.RestorePreviousAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Equal("not_found", ex.Code);
+        Assert.Equal("not_found", ex.ErrorCode);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class DeploymentRestoreServiceTests
         var ex = await Assert.ThrowsAsync<DeployAIException>(() =>
             service.RestorePreviousAsync(deploymentId, userId, CancellationToken.None));
 
-        Assert.Equal("invalid_state", ex.Code);
+        Assert.Equal("invalid_state", ex.ErrorCode);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class DeploymentRestoreServiceTests
         var ex = await Assert.ThrowsAsync<DeployAIException>(() =>
             service.RestorePreviousAsync(deploymentId, userId, CancellationToken.None));
 
-        Assert.Equal("no_previous", ex.Code);
+        Assert.Equal("no_previous", ex.ErrorCode);
     }
 
     [Fact]

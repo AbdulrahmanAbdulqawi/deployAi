@@ -261,6 +261,11 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             return 2;
         }
 
+        if (string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
         return 1;
     }
 }

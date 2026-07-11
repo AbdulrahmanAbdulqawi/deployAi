@@ -128,7 +128,17 @@
               <strong>Both</strong>
               <span>Full-stack split origin</span>
             </button>
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'coolify'" (click)="setDeploymentMode('coolify')">
+              <strong>Coolify</strong>
+              <span>Existing app on your server</span>
+            </button>
           </div>
+
+          @if (publishCoolify) {
+            <p class="wizard__hint">
+              Publish tells Coolify to rebuild from the Git branch already configured in your Coolify application.
+            </p>
+          }
 
           @if (deploymentReadiness(); as readiness) {
             @if (showDeploymentSetupPanel(readiness)) {
@@ -303,6 +313,39 @@
           </section>
         }
 
+        @if (publishCoolify) {
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Coolify application</h3>
+            @if (loadingCredentials()) {
+              <p class="wizard__muted">Loading…</p>
+            } @else if (coolifyCredentials().length === 0) {
+              <div class="wizard__callout">
+                <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Connect Coolify in Settings</app-ui-button>
+              </div>
+            } @else {
+              <label class="wizard__field">
+                <span class="u-label-caps">Connection</span>
+                <select [(ngModel)]="selectedCoolifyCredentialId" (ngModelChange)="onCoolifyCredentialChange()">
+                  @for (cred of coolifyCredentials(); track cred.id) {
+                    <option [value]="cred.id">{{ cred.label }}</option>
+                  }
+                </select>
+              </label>
+              @if (loadingCoolifyProjects()) {
+                <p class="wizard__muted">Loading…</p>
+              } @else {
+                <div class="wizard__options">
+                  @for (project of coolifyProjects(); track project.id) {
+                    <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedCoolifyProjectId() === project.id" (click)="selectedCoolifyProjectId.set(project.id)">
+                      {{ project.name }}
+                    </button>
+                  }
+                </div>
+              }
+            }
+          </section>
+        }
+
         <div class="wizard__actions">
           <app-ui-button variant="secondary" icon="arrow-left" (click)="step.set(3)">Back</app-ui-button>
           @if (canContinueFromHostingStep()) {
@@ -344,6 +387,9 @@
             @if (serverBuildProfile()?.startCommand) {
               <li><span class="u-label-caps">Start command</span><span class="u-code-md">{{ serverBuildProfile()!.startCommand }}</span></li>
             }
+          }
+          @if (publishCoolify) {
+            <li><span class="u-label-caps">Coolify</span><span class="u-code-md">{{ selectedCoolifyProjectId() }}</span></li>
           }
         </ul>
 

@@ -99,7 +99,7 @@ public sealed class GitHubWebhookHandler : IGitHubWebhookHandler
                     cancellationToken,
                     DeploymentTriggeredBy.Webhook);
             }
-            catch (DeployAIException ex) when (ex.Code is "deployment_not_ready" or "no_targets")
+            catch (DeployAIException ex) when (ex.ErrorCode is "deployment_not_ready" or "no_targets")
             {
                 _logger.LogWarning(
                     "Auto-deploy skipped for project {ProjectId}: {Message}",

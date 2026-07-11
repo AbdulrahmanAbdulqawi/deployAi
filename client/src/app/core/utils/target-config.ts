@@ -1,3 +1,5 @@
+import { ProviderName } from '../models/api.models';
+
 export interface TargetConfig {
   rootDirectory?: string;
   role?: string;
@@ -34,27 +36,35 @@ export function databaseEngineLabel(engine?: string): string {
 }
 
 export function providerLabel(providerName: string): string {
-  if (providerName === 'vercel') return 'Vercel';
-  if (providerName === 'railway') return 'Railway';
+  if (providerName === ProviderName.Vercel) return 'Vercel';
+  if (providerName === ProviderName.Railway) return 'Railway';
+  if (providerName === ProviderName.Coolify) return 'Coolify';
   return providerName;
 }
 
 export function roleLabelForProvider(providerName: string): string {
-  if (providerName === 'vercel') return 'Your site';
-  if (providerName === 'railway') return 'Your API';
+  if (providerName === ProviderName.Vercel) return 'Your site';
+  if (providerName === ProviderName.Railway) return 'Your API';
+  if (providerName === ProviderName.Coolify) return 'Your Coolify app';
   return providerName;
 }
 
 export function plainTargetSummary(targets: { providerName: string }[]): string {
   const parts: string[] = [];
-  if (targets.some(t => t.providerName === 'vercel')) {
+  if (targets.some(t => t.providerName === ProviderName.Vercel)) {
     parts.push('Site');
   }
-  if (targets.some(t => t.providerName === 'railway')) {
+  if (targets.some(t => t.providerName === ProviderName.Railway)) {
     parts.push('API');
   }
+  if (targets.some(t => t.providerName === ProviderName.Coolify)) {
+    parts.push('Coolify');
+  }
   const other = targets
-    .filter(t => t.providerName !== 'vercel' && t.providerName !== 'railway')
+    .filter(t =>
+      t.providerName !== ProviderName.Vercel &&
+      t.providerName !== ProviderName.Railway &&
+      t.providerName !== ProviderName.Coolify)
     .map(t => t.providerName);
   return [...parts, ...other].join(' + ') || 'App';
 }
