@@ -77,10 +77,9 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             return EmptyResult(scope, "Deployment not found.");
         }
 
-        var websiteTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase));
-        var serverTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase));
+        var websiteTarget = DeploymentTargetResolution.FindWebsiteTarget(deployment.Targets);
+        var serverTarget = DeploymentTargetResolution.FindServerTarget(deployment.Targets);
+        var coolifyFullStack = DeploymentTargetResolution.IsCoolifyFullStack(deployment.Targets);
 
         var websiteDeployTarget = ResolveWebsiteDeployTarget(deployment, websiteTarget);
         var serverDeployTarget = ResolveServerDeployTarget(deployment, serverTarget);
@@ -100,7 +99,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         {
             if (websiteTarget is null)
             {
-                checks.Add(Skipped("website.missing", "website", "Website target", "No Vercel target on this deployment."));
+                checks.Add(Skipped("website.missing", "website", "Website target", "No website target on this deployment."));
             }
             else if (websiteTarget.Status != DeploymentStatuses.Success)
             {
@@ -126,7 +125,13 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
                         cancellationToken) ?? websiteUrl;
                 }
 
-                await RunWebsiteChecksAsync(checks, websiteUrl, websiteConfig?.Framework, serverConfig?.Framework, cancellationToken);
+                await RunWebsiteChecksAsync(
+                    checks,
+                    websiteUrl,
+                    websiteConfig?.Framework,
+                    serverConfig?.Framework,
+                    coolifyFullStack,
+                    cancellationToken);
             }
         }
 
@@ -134,7 +139,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         {
             if (serverTarget is null)
             {
-                checks.Add(Skipped("server.missing", "server", "Server target", "No Railway target on this deployment."));
+                checks.Add(Skipped("server.missing", "server", "Server target", "No server target on this deployment."));
             }
             else if (serverTarget.Status != DeploymentStatuses.Success)
             {
@@ -157,6 +162,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
                     websiteConfig?.Framework,
                     serverConfig?.Framework,
                     websiteUrl,
+                    coolifyFullStack,
                     cancellationToken);
             }
         }
@@ -205,6 +211,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
                     apiUrl,
                     websiteConfig?.Framework,
                     serverConfig?.Framework,
+                    coolifyFullStack,
                     cancellationToken);
             }
         }
@@ -223,13 +230,14 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         string websiteUrl,
         string? websiteFramework,
         string? serverFramework,
+        bool coolifyFullStack,
         CancellationToken cancellationToken)
     {
         var client = CreateClient();
         var homepageUrl = $"{websiteUrl.TrimEnd('/')}/";
 
         var homepage = await DeploymentEndpointProbes.CheckWebsiteHomepageAsync(client, websiteUrl, cancellationToken);
-        checks.Add(ToCheck("website.reachable", "website", "Website homepage", homepageUrl, homepage));
+        checks.Add(ToCheck("website.reachable", "website", "Website homepage", homepageUrl, homepage, coolifyFullStack));
 
         if (homepage.Status == ProbeCheckStatus.Passed)
         {
@@ -237,7 +245,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             {
                 var html = await client.GetStringAsync(homepageUrl, cancellationToken);
                 var shell = DeploymentEndpointProbes.CheckSpaShell(html);
-                checks.Add(ToCheck("website.spa_shell", "website", "SPA shell", homepageUrl, shell));
+                checks.Add(ToCheck("website.spa_shell", "website", "SPA shell", homepageUrl, shell, coolifyFullStack));
             }
             catch (Exception ex)
             {
@@ -247,7 +255,8 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
                     "SPA shell",
                     homepageUrl,
                     $"Could not read homepage HTML: {ex.Message}",
-                    "redeploy_website"));
+                    "redeploy_website",
+                    coolifyFullStack));
             }
         }
 
@@ -257,7 +266,13 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             var wiring = await DeploymentEndpointProbes.CheckSplitOriginSpaWiringAsync(client, websiteUrl, cancellationToken);
             if (wiring is not null)
             {
-                checks.Add(ToCheck("website.split_origin_wiring", "website", "Split-origin bundle wiring", homepageUrl, wiring));
+                checks.Add(ToCheck(
+                    "website.split_origin_wiring",
+                    "website",
+                    "Split-origin bundle wiring",
+                    homepageUrl,
+                    wiring,
+                    coolifyFullStack));
             }
         }
     }
@@ -268,31 +283,32 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         string? websiteFramework,
         string? serverFramework,
         string? websiteUrl,
+        bool coolifyFullStack,
         CancellationToken cancellationToken)
     {
         var client = CreateClient();
         var rootUrl = $"{apiUrl.TrimEnd('/')}/";
 
         var reachable = await DeploymentEndpointProbes.CheckReachableAsync(client, rootUrl, cancellationToken);
-        checks.Add(ToCheck("server.reachable", "server", "API reachable", rootUrl, reachable));
+        checks.Add(ToCheck("server.reachable", "server", "API reachable", rootUrl, reachable, coolifyFullStack));
 
         if (CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteFramework, serverFramework))
         {
             var healthUrl = $"{apiUrl.TrimEnd('/')}/api/v1/health";
             var health = await DeploymentEndpointProbes.CheckSplitOriginApiHealthAsync(client, healthUrl, cancellationToken);
-            checks.Add(ToCheck("server.health", "server", "API health", healthUrl, health));
+            checks.Add(ToCheck("server.health", "server", "API health", healthUrl, health, coolifyFullStack));
         }
         else if (CrossProviderUrlWiring.UsesRelativeApiPaths(websiteFramework) && !string.IsNullOrWhiteSpace(websiteUrl))
         {
             var healthUrl = $"{websiteUrl.TrimEnd('/')}/api/health";
             var health = await DeploymentEndpointProbes.CheckProxiedApiHealthAsync(client, healthUrl, cancellationToken);
-            checks.Add(ToCheck("server.health", "server", "API health (via website proxy)", healthUrl, health));
+            checks.Add(ToCheck("server.health", "server", "API health (via website proxy)", healthUrl, health, coolifyFullStack));
         }
         else
         {
             var healthUrl = $"{apiUrl.TrimEnd('/')}/api/health";
             var health = await DeploymentEndpointProbes.CheckProxiedApiHealthAsync(client, healthUrl, cancellationToken);
-            checks.Add(ToCheck("server.health", "server", "API health", healthUrl, health));
+            checks.Add(ToCheck("server.health", "server", "API health", healthUrl, health, coolifyFullStack));
         }
     }
 
@@ -302,6 +318,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         string apiUrl,
         string? websiteFramework,
         string? serverFramework,
+        bool coolifyFullStack,
         CancellationToken cancellationToken)
     {
         var client = CreateClient();
@@ -310,7 +327,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         {
             var healthUrl = $"{apiUrl.TrimEnd('/')}/api/v1/health";
             var health = await DeploymentEndpointProbes.CheckSplitOriginApiHealthAsync(client, healthUrl, cancellationToken);
-            checks.Add(ToCheck("connection.api_health", "connection", "API health (split-origin)", healthUrl, health));
+            checks.Add(ToCheck("connection.api_health", "connection", "API health (split-origin)", healthUrl, health, coolifyFullStack));
         }
         else if (CrossProviderUrlWiring.UsesRelativeApiPaths(websiteFramework))
         {
@@ -320,11 +337,12 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
                 "connection",
                 "Website API proxy",
                 $"{websiteUrl.TrimEnd('/')}/api/v1/auth/login",
-                proxy));
+                proxy,
+                coolifyFullStack));
         }
 
         var cors = await DeploymentEndpointProbes.CheckCorsHeaderAsync(client, apiUrl, websiteUrl, cancellationToken);
-        checks.Add(ToCheck("connection.cors", "connection", "CORS", apiUrl, cors));
+        checks.Add(ToCheck("connection.cors", "connection", "CORS", apiUrl, cors, coolifyFullStack));
     }
 
     private HttpClient CreateClient()
@@ -500,7 +518,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         new(
             false,
             scope.ToString().ToLowerInvariant(),
-            [Failed("deployment.missing", "connection", "Deployment", null, message, null)],
+            [Failed("deployment.missing", "connection", "Deployment", null, message, null, coolifyFullStack: false)],
             DateTimeOffset.UtcNow);
 
     private static string MapStatus(ProbeCheckStatus status) =>
@@ -517,7 +535,8 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         string target,
         string label,
         string? url,
-        ProbeCheckResult result)
+        ProbeCheckResult result,
+        bool coolifyFullStack)
     {
         var status = MapStatus(result.Status);
         return new DeploymentVerificationCheck(
@@ -529,7 +548,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             url,
             result.SuggestedAction,
             DeploymentVerificationCheckMetadata.CanRequestClaudeFix(status, result.SuggestedAction),
-            DeploymentVerificationCheckMetadata.ResolveReferencedFiles(id, result.SuggestedAction));
+            DeploymentVerificationCheckMetadata.ResolveReferencedFiles(id, result.SuggestedAction, coolifyFullStack));
     }
 
     private static DeploymentVerificationCheck Skipped(
@@ -545,7 +564,8 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         string label,
         string? url,
         string message,
-        string? suggestedAction)
+        string? suggestedAction,
+        bool coolifyFullStack)
     {
         var status = "failed";
         return new DeploymentVerificationCheck(
@@ -557,6 +577,6 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             url,
             suggestedAction,
             DeploymentVerificationCheckMetadata.CanRequestClaudeFix(status, suggestedAction),
-            DeploymentVerificationCheckMetadata.ResolveReferencedFiles(id, suggestedAction));
+            DeploymentVerificationCheckMetadata.ResolveReferencedFiles(id, suggestedAction, coolifyFullStack));
     }
 }

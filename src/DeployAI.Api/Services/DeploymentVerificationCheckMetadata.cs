@@ -6,48 +6,77 @@ internal static class DeploymentVerificationCheckMetadata
         status is "failed" or "warning" &&
         suggestedAction is not "redeploy_website" and not "redeploy_server";
 
-    internal static IReadOnlyList<string> ResolveReferencedFiles(string checkId, string? suggestedAction)
+    internal static IReadOnlyList<string> ResolveReferencedFiles(
+        string checkId,
+        string? suggestedAction,
+        bool coolifyFullStack = false)
     {
         if (checkId.StartsWith("website.reachable", StringComparison.Ordinal) ||
             suggestedAction == "fix_output_directory")
         {
-            return ["vercel.json", "angular.json"];
+            return coolifyFullStack
+                ? ["angular.json", "scripts/write-api-env.mjs"]
+                : ["vercel.json", "angular.json"];
         }
 
         if (checkId == "website.spa_shell")
         {
-            return ["vercel.json", "angular.json", "index.html"];
+            return coolifyFullStack
+                ? ["angular.json", "index.html", "scripts/write-api-env.mjs"]
+                : ["vercel.json", "angular.json", "index.html"];
         }
 
         if (checkId == "website.split_origin_wiring")
         {
-            return
-            [
-                "vercel.json",
-                "angular.json",
-                "src/app/app.config.ts",
-                "src/environments/environment.production.ts",
-                "src/environments/environment.ts"
-            ];
+            return coolifyFullStack
+                ?
+                [
+                    "angular.json",
+                    "scripts/write-api-env.mjs",
+                    "src/app/app.config.ts",
+                    "src/environments/environment.production.ts",
+                    "src/environments/environment.ts"
+                ]
+                :
+                [
+                    "vercel.json",
+                    "angular.json",
+                    "src/app/app.config.ts",
+                    "src/environments/environment.production.ts",
+                    "src/environments/environment.ts"
+                ];
         }
 
         if (checkId.StartsWith("connection.", StringComparison.Ordinal))
         {
-            return
-            [
-                "vercel.json",
-                "src/app/app.config.ts",
-                "src/environments/environment.production.ts",
-                "appsettings.json",
-                "Program.cs"
-            ];
+            return coolifyFullStack
+                ?
+                [
+                    "scripts/write-api-env.mjs",
+                    "src/app/app.config.ts",
+                    "src/environments/environment.production.ts",
+                    "appsettings.json",
+                    "Program.cs"
+                ]
+                :
+                [
+                    "vercel.json",
+                    "src/app/app.config.ts",
+                    "src/environments/environment.production.ts",
+                    "appsettings.json",
+                    "Program.cs"
+                ];
         }
 
         if (checkId.StartsWith("server.", StringComparison.Ordinal))
         {
-            return ["Program.cs", "appsettings.json", "railway.toml"];
+            return coolifyFullStack
+                ? ["Program.cs", "appsettings.json"]
+                : ["Program.cs", "appsettings.json", "railway.toml"];
         }
 
-        return ["vercel.json"];
+        return coolifyFullStack
+            ? ["angular.json", "scripts/write-api-env.mjs"]
+            : ["vercel.json"];
     }
 }

@@ -1,5 +1,6 @@
 using DeployAI.Api.Services;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 using DeployAI.Data;
 using DeployAI.Data.Entities;
 using DeployAI.Infrastructure.GitHub;
@@ -37,6 +38,77 @@ public class DeploymentVerificationCheckMetadataTests
         Assert.Contains("src/environments/environment.ts", files);
         Assert.Contains("vercel.json", files);
         Assert.Contains("angular.json", files);
+    }
+
+    [Fact]
+    public void ResolveReferencedFiles_CoolifySplitOriginWiring_OmitsVercelJson()
+    {
+        var files = DeploymentVerificationCheckMetadata.ResolveReferencedFiles(
+            "website.split_origin_wiring",
+            "reconnect",
+            coolifyFullStack: true);
+
+        Assert.Contains("scripts/write-api-env.mjs", files);
+        Assert.Contains("src/app/app.config.ts", files);
+        Assert.DoesNotContain(files, file => file.Equals("vercel.json", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(files, file => file.Equals("railway.toml", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildFixPrompt_IncludesCoolifySplitOriginGuidance_ForCoolifyProvider()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Build failed",
+            "Missing apiBaseUrl in production bundle",
+            ["client/src/app/app.config.ts"],
+            true);
+
+        var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
+            "owner",
+            "repo",
+            "main",
+            ProviderNameValues.Coolify,
+            "Angular",
+            analysis);
+
+        Assert.Contains("Coolify full-stack", prompt);
+        Assert.Contains("Do not add `vercel.json` or `railway.toml`", prompt);
+        Assert.DoesNotContain("*.vercel.app/api/*", prompt);
+    }
+
+    [Fact]
+    public void BuildVerificationFixPrompt_IncludesCoolifyHints_ForCoolifyProvider()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Split-origin wiring failed",
+            "Health check failed",
+            ["client/src/app/app.config.ts"],
+            true);
+
+        var verificationContext = new DeploymentVerificationFixContext(
+            "website.reachable",
+            "website",
+            "Website homepage",
+            "Website returned 404",
+            "https://app.example.com/",
+            "https://app.example.com/",
+            "https://api.example.com/");
+
+        var prompt = ClaudeDeploymentPrompts.BuildVerificationFixPrompt(
+            "owner",
+            "repo",
+            "main",
+            ProviderNameValues.Coolify,
+            "angular",
+            analysis,
+            verificationContext,
+            new DeployTargetConfig { Role = "website", Framework = "angular", RootDirectory = "client" });
+
+        Assert.Contains("Coolify website app", prompt);
+        Assert.Contains("write-api-env.mjs", prompt);
+        Assert.DoesNotContain("Set `vercel.json` `outputDirectory`", prompt);
     }
 
     [Theory]

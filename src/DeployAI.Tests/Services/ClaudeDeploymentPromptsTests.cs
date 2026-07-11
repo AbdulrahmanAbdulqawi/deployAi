@@ -1,6 +1,7 @@
 using DeployAI.Api.Services;
 using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 
 namespace DeployAI.Tests.Services;
 
@@ -195,6 +196,37 @@ public class ClaudeDeploymentPromptsTests
         Assert.Contains("Coolify: set DEPLOYAI_API_URL", prompt);
         Assert.Contains("no vercel.json or railway.toml", prompt);
         Assert.Contains("## Reference Templates", prompt);
+        Assert.DoesNotContain("client/vercel.json", prompt);
+    }
+
+    [Fact]
+    public void BuildFixPrompt_IncludesCoolifyReferenceTemplates_WhenProvided()
+    {
+        var analysis = new DeploymentFailureAnalysis(
+            DeploymentFailureCategory.CodeBuild,
+            "Build failed",
+            "write-api-env missing",
+            ["client/scripts/write-api-env.mjs"],
+            true);
+        var parts = DeploymentFixPlanBuilder.BuildSyntheticSplitOriginParts(
+            ProviderNameValues.Coolify,
+            "angular",
+            new DeployTargetConfig { Role = "website", RootDirectory = "client", Framework = "angular" });
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var references = resolver.ResolveForSplitOriginFix(parts, analysis.ReferencedFiles);
+
+        var prompt = ClaudeDeploymentPrompts.BuildFixPrompt(
+            "owner",
+            "repo",
+            "abc123",
+            ProviderNameValues.Coolify,
+            "Angular",
+            analysis,
+            referenceTemplates: references);
+
+        Assert.Contains("## Reference Templates", prompt);
+        Assert.Contains("write-api-env", prompt);
         Assert.DoesNotContain("client/vercel.json", prompt);
     }
 
