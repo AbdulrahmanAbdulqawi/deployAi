@@ -331,16 +331,78 @@
                   }
                 </select>
               </label>
-              @if (loadingCoolifyProjects()) {
-                <p class="wizard__muted">Loading…</p>
+              <div class="wizard__mode-toggle">
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyHostingMode() === 'existing'" (click)="setCoolifyHostingMode('existing')">Use existing</button>
+                <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyHostingMode() === 'create'" (click)="setCoolifyHostingMode('create')">Create new</button>
+              </div>
+              @if (coolifyHostingMode() === 'existing') {
+                @if (loadingCoolifyProjects()) {
+                  <p class="wizard__muted">Loading…</p>
+                } @else {
+                  <div class="wizard__options">
+                    @for (project of coolifyProjects(); track project.id) {
+                      <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedCoolifyProjectId() === project.id" (click)="selectedCoolifyProjectId.set(project.id)">
+                        {{ project.name }}
+                      </button>
+                    }
+                  </div>
+                }
               } @else {
-                <div class="wizard__options">
-                  @for (project of coolifyProjects(); track project.id) {
-                    <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedCoolifyProjectId() === project.id" (click)="selectedCoolifyProjectId.set(project.id)">
-                      {{ project.name }}
-                    </button>
+                <label class="wizard__field">
+                  <span class="u-label-caps">New application name</span>
+                  <input type="text" [(ngModel)]="newCoolifyProjectName" placeholder="my-app" />
+                </label>
+                @if (loadingCoolifyInfrastructure()) {
+                  <p class="wizard__muted">Loading Coolify servers…</p>
+                } @else if (coolifyInfrastructure()) {
+                  @if (coolifyInfrastructure()!.projects.length > 1) {
+                    <label class="wizard__field">
+                      <span class="u-label-caps">Coolify project</span>
+                      <select [(ngModel)]="selectedCoolifyProjectUuid">
+                        @for (project of coolifyInfrastructure()!.projects; track project.id) {
+                          <option [value]="project.id">{{ project.name }}</option>
+                        }
+                      </select>
+                    </label>
                   }
-                </div>
+                  @if (coolifyInfrastructure()!.servers.length > 1) {
+                    <label class="wizard__field">
+                      <span class="u-label-caps">Server</span>
+                      <select [(ngModel)]="selectedCoolifyServerUuid">
+                        @for (server of coolifyInfrastructure()!.servers; track server.id) {
+                          <option [value]="server.id">{{ server.name }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                  @if (selectedRepo()?.private) {
+                    @if (coolifyInfrastructure()!.githubApps.length === 0) {
+                      <p class="wizard__muted">Private repos need a GitHub App configured in Coolify.</p>
+                    } @else {
+                      <label class="wizard__field">
+                        <span class="u-label-caps">GitHub App</span>
+                        <select [(ngModel)]="selectedCoolifyGithubAppId">
+                          <option value="">Choose…</option>
+                          @for (app of coolifyInfrastructure()!.githubApps; track app.id) {
+                            <option [value]="app.id">{{ app.name }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                  }
+                }
+                @if (coolifyCreateBlockedReason(); as blockedReason) {
+                  <p class="wizard__hint">{{ blockedReason }}</p>
+                } @else {
+                  <app-ui-button
+                    variant="secondary"
+                    icon="plus"
+                    [disabled]="!newCoolifyProjectName || creatingCoolifyProject()"
+                    [loading]="creatingCoolifyProject()"
+                    (click)="createCoolifyProject()">
+                    Create
+                  </app-ui-button>
+                }
               }
             }
           </section>

@@ -106,6 +106,25 @@ export interface ProviderProject {
   gitBranch?: string;
 }
 
+export interface CoolifyInfrastructureResource {
+  id: string;
+  name: string;
+}
+
+export interface CoolifyInfrastructure {
+  projects: CoolifyInfrastructureResource[];
+  servers: CoolifyInfrastructureResource[];
+  githubApps: CoolifyInfrastructureResource[];
+}
+
+export enum CoolifyBuildPack {
+  Nixpacks = 'nixpacks',
+  Static = 'static',
+  Dockerfile = 'dockerfile',
+  DockerCompose = 'dockercompose',
+  Railpack = 'railpack',
+}
+
 export interface ProviderEnvVar {
   id: string;
   key: string;

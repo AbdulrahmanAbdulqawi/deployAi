@@ -14,6 +14,7 @@ export interface TargetConfig {
   linkedServiceName?: string;
   railwayProjectId?: string;
   coolifyGitBranch?: string;
+  coolifyBuildPack?: string;
   includePostgres?: boolean;
   includeRedis?: boolean;
 }

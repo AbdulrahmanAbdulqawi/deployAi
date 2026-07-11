@@ -7,7 +7,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed class CoolifyProvider : IDeploymentProvider
+public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderManagement
 {
     private readonly HttpClient _httpClient;
 

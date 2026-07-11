@@ -15,7 +15,9 @@ import {
   GitHubBranch,
   GitHubRepo,
   ProviderProject,
-  ProviderName
+  ProviderName,
+  CoolifyInfrastructure,
+  CoolifyBuildPack
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
@@ -54,6 +56,10 @@ export class ProjectWizardComponent implements OnInit {
   readonly selectedVercelProjectId = signal<string | null>(null);
   readonly selectedRailwayProjectId = signal<string | null>(null);
   readonly loadingCoolifyProjects = signal(false);
+  readonly coolifyHostingMode = signal<'existing' | 'create'>('existing');
+  readonly creatingCoolifyProject = signal(false);
+  readonly loadingCoolifyInfrastructure = signal(false);
+  readonly coolifyInfrastructure = signal<CoolifyInfrastructure | null>(null);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly loadingCredentials = signal(true);
@@ -163,7 +169,12 @@ export class ProjectWizardComponent implements OnInit {
   readonly selectedLogoKey = signal<string | null>(null);
   newVercelProjectName = '';
   newRailwayProjectName = '';
+  newCoolifyProjectName = '';
   selectedCoolifyCredentialId = '';
+  selectedCoolifyGithubAppId = '';
+  selectedCoolifyProjectUuid = '';
+  selectedCoolifyServerUuid = '';
+  selectedCoolifyEnvironmentName = '';
   selectedVercelCredentialId = '';
   selectedRailwayCredentialId = '';
   deploymentMode: DeploymentMode | null = null;
@@ -304,6 +315,7 @@ export class ProjectWizardComponent implements OnInit {
     this.projectName = repoName;
     this.newVercelProjectName = this.sanitizeName(repoName);
     this.newRailwayProjectName = `${this.sanitizeName(repoName)}-api`;
+    this.newCoolifyProjectName = this.sanitizeName(repoName);
   }
 
   private sanitizeName(name: string): string {
@@ -479,6 +491,9 @@ export class ProjectWizardComponent implements OnInit {
     if (this.publishServer && !this.selectedRailwayProjectId()) {
       tasks.push(this.createRailwayProjectRequest());
     }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      tasks.push(this.createCoolifyProjectRequest());
+    }
 
     if (tasks.length === 0) {
       return of(undefined);
@@ -637,6 +652,27 @@ export class ProjectWizardComponent implements OnInit {
     );
   }
 
+  private createCoolifyProjectRequest(): Observable<{ project: ProviderProject }> {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch || !this.selectedCoolifyCredentialId || !this.newCoolifyProjectName) {
+      return throwError(() => new Error('Missing Coolify connection.'));
+    }
+
+    return this.api.createCoolifyProject(
+      this.selectedCoolifyCredentialId,
+      this.newCoolifyProjectName,
+      repo.fullName,
+      branch,
+      this.buildCoolifyCreateOptions(repo.private)
+    ).pipe(
+      map(response => {
+        this.selectedCoolifyProjectId.set(response.project.id);
+        return response;
+      })
+    );
+  }
+
   private applyPlanParts(parts: DeploymentPlanPart[]): void {
     const websitePart = parts.find(part => part.role === 'website');
     const serverPart = parts.find(part => part.role === 'server');
@@ -750,7 +786,7 @@ export class ProjectWizardComponent implements OnInit {
       return 'Select or create a Railway service to continue.';
     }
     if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
-      return 'Select a Coolify application to continue.';
+      return 'Select or create a Coolify application to continue.';
     }
     return 'Finish hosting setup to continue.';
   }
@@ -778,6 +814,19 @@ export class ProjectWizardComponent implements OnInit {
     }
     if (this.publishCoolify && this.coolifyCredentials().length > 0) {
       this.loadCoolifyProjects();
+      if (this.coolifyHostingMode() === 'create') {
+        this.loadCoolifyInfrastructure();
+      }
+    }
+  }
+
+  setCoolifyHostingMode(mode: 'existing' | 'create'): void {
+    this.coolifyHostingMode.set(mode);
+    this.selectedCoolifyProjectId.set(null);
+    if (mode === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
     }
   }
 
@@ -813,7 +862,12 @@ export class ProjectWizardComponent implements OnInit {
 
   onCoolifyCredentialChange(): void {
     this.selectedCoolifyProjectId.set(null);
-    this.loadCoolifyProjects();
+    this.selectedCoolifyGithubAppId = '';
+    if (this.coolifyHostingMode() === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
+    }
   }
 
   detectedDatabaseSummary(): string {
@@ -932,6 +986,100 @@ export class ProjectWizardComponent implements OnInit {
     });
   }
 
+  createCoolifyProject(): void {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch || !this.selectedCoolifyCredentialId || !this.newCoolifyProjectName) return;
+
+    this.creatingCoolifyProject.set(true);
+    this.error.set(null);
+    this.api.createCoolifyProject(
+      this.selectedCoolifyCredentialId,
+      this.newCoolifyProjectName,
+      repo.fullName,
+      branch,
+      this.buildCoolifyCreateOptions(repo.private)
+    ).subscribe({
+      next: (response) => {
+        this.selectedCoolifyProjectId.set(response.project.id);
+        this.coolifyProjects.update(projects => [...projects, response.project]);
+        this.coolifyHostingMode.set('existing');
+        this.creatingCoolifyProject.set(false);
+        this.error.set(null);
+      },
+      error: (err) => {
+        this.creatingCoolifyProject.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not create that Coolify application.');
+        this.loadCoolifyProjects();
+      }
+    });
+  }
+
+  loadCoolifyInfrastructure(): void {
+    if (!this.selectedCoolifyCredentialId) return;
+    this.loadingCoolifyInfrastructure.set(true);
+    this.api.listCoolifyInfrastructure(this.selectedCoolifyCredentialId).subscribe({
+      next: (response) => {
+        this.coolifyInfrastructure.set(response);
+        if (!this.selectedCoolifyProjectUuid && response.projects.length > 0) {
+          this.selectedCoolifyProjectUuid = response.projects[0].id;
+        }
+        if (!this.selectedCoolifyServerUuid && response.servers.length > 0) {
+          this.selectedCoolifyServerUuid = response.servers[0].id;
+        }
+        if (!this.selectedCoolifyGithubAppId && response.githubApps.length === 1) {
+          this.selectedCoolifyGithubAppId = response.githubApps[0].id;
+        }
+        this.loadingCoolifyInfrastructure.set(false);
+      },
+      error: (err) => {
+        this.loadingCoolifyInfrastructure.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify infrastructure.');
+      }
+    });
+  }
+
+  coolifyCreateBlockedReason(): string | null {
+    const repo = this.selectedRepo();
+    if (repo?.private && !this.selectedCoolifyGithubAppId) {
+      const apps = this.coolifyInfrastructure()?.githubApps ?? [];
+      if (apps.length === 0) {
+        return 'Connect a GitHub App in Coolify to deploy private repositories.';
+      }
+      return 'Choose the Coolify GitHub App for this private repository.';
+    }
+    return null;
+  }
+
+  private buildCoolifyCreateOptions(isPrivateRepository: boolean) {
+    const serverProfile = this.serverBuildProfile();
+    const websiteProfile = this.websiteBuildProfile();
+    const profile = serverProfile ?? websiteProfile ?? undefined;
+    const dockerfilePath = serverProfile?.dockerfilePath;
+    const outputDirectory = websiteProfile?.outputDirectory;
+
+    return {
+      isPrivateRepository,
+      coolifyProjectUuid: this.selectedCoolifyProjectUuid || undefined,
+      coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
+      coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
+      coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
+      buildPack: dockerfilePath || profile?.framework === 'docker'
+        ? CoolifyBuildPack.Dockerfile
+        : outputDirectory
+          ? CoolifyBuildPack.Static
+          : CoolifyBuildPack.Nixpacks,
+      rootDirectory: profile?.rootDirectory,
+      outputDirectory,
+      buildCommand: profile?.buildCommand,
+      installCommand: profile?.installCommand,
+      startCommand: serverProfile?.startCommand,
+      framework: profile?.framework,
+      dockerfilePath,
+      serviceDirectory: serverProfile?.serviceDirectory
+    };
+  }
+
   selectedCoolifyProjectName(): string | null {
     const projectId = this.selectedCoolifyProjectId();
     if (!projectId) {
@@ -941,10 +1089,11 @@ export class ProjectWizardComponent implements OnInit {
     return this.coolifyProjects().find(project => project.id === projectId)?.name ?? projectId;
   }
 
-  private buildCoolifyTargetConfig(gitBranch?: string): string {
+  private buildCoolifyTargetConfig(gitBranch?: string, buildPack?: CoolifyBuildPack): string {
     return JSON.stringify({
       role: 'server',
-      coolifyGitBranch: gitBranch ?? undefined
+      coolifyGitBranch: gitBranch ?? undefined,
+      coolifyBuildPack: buildPack ?? undefined
     });
   }
 

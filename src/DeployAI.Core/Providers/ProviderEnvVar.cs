@@ -18,7 +18,14 @@ public sealed record CreateProviderProjectRequest(
     string? InstallCommand = null,
     string? DockerfilePath = null,
     string? ServiceDirectory = null,
-    string? StartCommand = null);
+    string? StartCommand = null,
+    string? GitBranch = null,
+    bool IsPrivateRepository = false,
+    string? CoolifyProjectUuid = null,
+    string? CoolifyServerUuid = null,
+    string? CoolifyEnvironmentName = null,
+    string? CoolifyGithubAppUuid = null,
+    string? CoolifyBuildPack = null);
 
 public sealed record UpsertProviderEnvVarRequest(
     string Key,

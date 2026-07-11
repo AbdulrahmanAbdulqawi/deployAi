@@ -33,6 +33,8 @@ import {
   ProviderInfo,
   ProviderProject,
   ProviderEnvVar,
+  CoolifyInfrastructure,
+  CoolifyBuildPack,
   TriggerDeploymentResponse,
   UseBranchDeployResult
 } from '../models/api.models';
@@ -600,6 +602,54 @@ export class ApiService {
       dockerfilePath: profile?.dockerfilePath,
       serviceDirectory: profile?.serviceDirectory,
       startCommand: profile?.startCommand
+    });
+  }
+
+  listCoolifyInfrastructure(credentialId: string) {
+    return this.http.get<CoolifyInfrastructure>(`/api/credentials/${credentialId}/coolify/infrastructure`);
+  }
+
+  createCoolifyProject(
+    credentialId: string,
+    name: string,
+    githubRepoFullName: string,
+    gitBranch: string,
+    options?: {
+      isPrivateRepository?: boolean;
+      coolifyProjectUuid?: string;
+      coolifyServerUuid?: string;
+      coolifyEnvironmentName?: string;
+      coolifyGithubAppUuid?: string;
+      buildPack?: CoolifyBuildPack;
+      rootDirectory?: string;
+      outputDirectory?: string;
+      buildCommand?: string;
+      installCommand?: string;
+      startCommand?: string;
+      framework?: string;
+      dockerfilePath?: string;
+      serviceDirectory?: string;
+    }
+  ) {
+    return this.http.post<{ project: ProviderProject }>('/api/credentials/coolify/projects', {
+      credentialId,
+      name,
+      githubRepoFullName,
+      gitBranch,
+      isPrivateRepository: options?.isPrivateRepository ?? false,
+      coolifyProjectUuid: options?.coolifyProjectUuid,
+      coolifyServerUuid: options?.coolifyServerUuid,
+      coolifyEnvironmentName: options?.coolifyEnvironmentName,
+      coolifyGithubAppUuid: options?.coolifyGithubAppUuid,
+      buildPack: options?.buildPack,
+      rootDirectory: options?.rootDirectory,
+      outputDirectory: options?.outputDirectory,
+      buildCommand: options?.buildCommand,
+      installCommand: options?.installCommand,
+      startCommand: options?.startCommand,
+      framework: options?.framework,
+      dockerfilePath: options?.dockerfilePath,
+      serviceDirectory: options?.serviceDirectory
     });
   }
 
