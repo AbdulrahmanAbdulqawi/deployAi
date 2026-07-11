@@ -427,7 +427,7 @@
                 @if (coolifyInfrastructure()!.projects.length > 1) {
                   <label class="wizard__field">
                     <span class="u-label-caps">Coolify project</span>
-                    <select [(ngModel)]="selectedCoolifyProjectUuid">
+                    <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
                       @for (project of coolifyInfrastructure()!.projects; track project.id) {
                         <option [value]="project.id">{{ project.name }}</option>
                       }
@@ -440,6 +440,18 @@
                     <select [(ngModel)]="selectedCoolifyServerUuid">
                       @for (server of coolifyInfrastructure()!.servers; track server.id) {
                         <option [value]="server.id">{{ server.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (loadingCoolifyEnvironments()) {
+                  <p class="wizard__muted">Loading environments…</p>
+                } @else if (coolifyEnvironments().length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Environment</span>
+                    <select [(ngModel)]="selectedCoolifyEnvironmentName">
+                      @for (env of coolifyEnvironments(); track env.id) {
+                        <option [value]="env.name">{{ env.name }}</option>
                       }
                     </select>
                   </label>
@@ -499,7 +511,7 @@
                 @if (coolifyInfrastructure()!.projects.length > 1) {
                   <label class="wizard__field">
                     <span class="u-label-caps">Coolify project</span>
-                    <select [(ngModel)]="selectedCoolifyProjectUuid">
+                    <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
                       @for (project of coolifyInfrastructure()!.projects; track project.id) {
                         <option [value]="project.id">{{ project.name }}</option>
                       }
@@ -512,6 +524,18 @@
                     <select [(ngModel)]="selectedCoolifyServerUuid">
                       @for (server of coolifyInfrastructure()!.servers; track server.id) {
                         <option [value]="server.id">{{ server.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (loadingCoolifyEnvironments()) {
+                  <p class="wizard__muted">Loading environments…</p>
+                } @else if (coolifyEnvironments().length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Environment</span>
+                    <select [(ngModel)]="selectedCoolifyEnvironmentName">
+                      @for (env of coolifyEnvironments(); track env.id) {
+                        <option [value]="env.name">{{ env.name }}</option>
                       }
                     </select>
                   </label>
@@ -594,7 +618,7 @@
                   @if (coolifyInfrastructure()!.projects.length > 1) {
                     <label class="wizard__field">
                       <span class="u-label-caps">Coolify project</span>
-                      <select [(ngModel)]="selectedCoolifyProjectUuid">
+                      <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
                         @for (project of coolifyInfrastructure()!.projects; track project.id) {
                           <option [value]="project.id">{{ project.name }}</option>
                         }
@@ -607,6 +631,18 @@
                       <select [(ngModel)]="selectedCoolifyServerUuid">
                         @for (server of coolifyInfrastructure()!.servers; track server.id) {
                           <option [value]="server.id">{{ server.name }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                  @if (loadingCoolifyEnvironments()) {
+                    <p class="wizard__muted">Loading environments…</p>
+                  } @else if (coolifyEnvironments().length > 1) {
+                    <label class="wizard__field">
+                      <span class="u-label-caps">Environment</span>
+                      <select [(ngModel)]="selectedCoolifyEnvironmentName">
+                        @for (env of coolifyEnvironments(); track env.id) {
+                          <option [value]="env.name">{{ env.name }}</option>
                         }
                       </select>
                     </label>

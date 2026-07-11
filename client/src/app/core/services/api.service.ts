@@ -34,6 +34,7 @@ import {
   ProviderProject,
   ProviderEnvVar,
   CoolifyInfrastructure,
+  CoolifyInfrastructureResource,
   CoolifyBuildPack,
   TriggerDeploymentResponse,
   UseBranchDeployResult
@@ -607,6 +608,12 @@ export class ApiService {
 
   listCoolifyInfrastructure(credentialId: string) {
     return this.http.get<CoolifyInfrastructure>(`/api/credentials/${credentialId}/coolify/infrastructure`);
+  }
+
+  listCoolifyProjectEnvironments(credentialId: string, projectUuid: string) {
+    return this.http.get<{ environments: CoolifyInfrastructureResource[] }>(
+      `/api/credentials/${credentialId}/coolify/projects/${projectUuid}/environments`
+    );
   }
 
   createCoolifyProject(

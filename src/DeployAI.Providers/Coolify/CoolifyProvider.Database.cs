@@ -71,8 +71,85 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
     public Task<ProvisionedDatabaseService?> EnsureRedisAsync(
         ProviderCredentials credentials,
         string appProviderProjectId,
-        CancellationToken cancellationToken) =>
-        Task.FromResult<ProvisionedDatabaseService?>(null);
+        CancellationToken cancellationToken)
+    {
+        return EnsureRedisInternalAsync(credentials, appProviderProjectId, cancellationToken);
+    }
+
+    public async Task DeleteDatabaseAsync(
+        ProviderCredentials credentials,
+        string databaseProviderProjectId,
+        CancellationToken cancellationToken)
+    {
+        var databaseUuid = ParseDatabaseUuid(databaseProviderProjectId);
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        using var request = CreateRequest(HttpMethod.Delete, session, $"databases/{databaseUuid}");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not delete Coolify database ({(int)response.StatusCode}).");
+        }
+    }
+
+    private async Task<ProvisionedDatabaseService?> EnsureRedisInternalAsync(
+        ProviderCredentials credentials,
+        string appProviderProjectId,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var application = await GetApplicationContextAsync(session, appProviderProjectId, cancellationToken);
+        if (application is null)
+        {
+            return null;
+        }
+
+        var existing = await FindExistingRedisAsync(session, application, cancellationToken);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var databaseName = $"{SanitizeResourceName(application.Name)}-redis";
+        var body = new Dictionary<string, object?>
+        {
+            ["server_uuid"] = application.ServerUuid,
+            ["project_uuid"] = application.ProjectUuid,
+            ["environment_name"] = application.EnvironmentName,
+            ["environment_uuid"] = application.EnvironmentUuid,
+            ["name"] = databaseName,
+            ["instant_deploy"] = true
+        };
+
+        using var createRequest = CreateRequest(HttpMethod.Post, session, "databases/redis");
+        createRequest.Content = JsonContent.Create(body);
+        var response = await _httpClient.SendAsync(createRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not create Redis on Coolify ({(int)response.StatusCode}).");
+        }
+
+        var created = await response.Content.ReadFromJsonAsync<CoolifyUuidResponse>(cancellationToken);
+        if (string.IsNullOrWhiteSpace(created?.Uuid))
+        {
+            throw new DeployAIException("coolify_api_error", "Coolify did not return a database id.");
+        }
+
+        return new ProvisionedDatabaseService(
+            created.Uuid,
+            databaseName,
+            application.ProjectUuid,
+            application.EnvironmentUuid);
+    }
 
     public async Task LinkDatabaseVariablesAsync(
         ProviderCredentials credentials,
@@ -89,7 +166,8 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         foreach (var link in links)
         {
             var database = await GetDatabaseAsync(session, link.ReferenceValue, cancellationToken);
-            var connectionString = ResolvePostgresConnectionString(database);
+            var connectionString = ResolvePostgresConnectionString(database)
+                ?? ResolveRedisConnectionString(database);
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 continue;
@@ -110,6 +188,36 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
                     cancellationToken);
             }
         }
+    }
+
+    private static string ParseDatabaseUuid(string databaseProviderProjectId)
+    {
+        var separatorIndex = databaseProviderProjectId.IndexOf('|', StringComparison.Ordinal);
+        return separatorIndex < 0
+            ? databaseProviderProjectId
+            : databaseProviderProjectId[..separatorIndex];
+    }
+
+    private static string? ResolveRedisConnectionString(CoolifyDatabaseDetails? database)
+    {
+        if (database is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(database.InternalDbUrl))
+        {
+            return database.InternalDbUrl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(database.RedisPassword) &&
+            !string.IsNullOrWhiteSpace(database.RedisHost))
+        {
+            var port = database.RedisPort ?? 6379;
+            return $"redis://:{database.RedisPassword}@{database.RedisHost}:{port}";
+        }
+
+        return null;
     }
 
     private static string? ResolvePostgresConnectionString(CoolifyDatabaseDetails? database)
@@ -171,6 +279,31 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
 
         var match = databases.FirstOrDefault(database =>
             string.Equals(database.Type, "postgresql", StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(database.Name, desiredName, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(database.Uuid, desiredName, StringComparison.OrdinalIgnoreCase)));
+
+        return match?.Uuid is { Length: > 0 } uuid
+            ? new ProvisionedDatabaseService(uuid, match.Name ?? desiredName, application.ProjectUuid, application.EnvironmentUuid)
+            : null;
+    }
+
+    private async Task<ProvisionedDatabaseService?> FindExistingRedisAsync(
+        CoolifyApiSupport.CoolifySession session,
+        CoolifyApplicationContext application,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, session, "databases");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var databases = await response.Content.ReadFromJsonAsync<List<CoolifyDatabaseSummary>>(cancellationToken) ?? [];
+        var desiredName = $"{SanitizeResourceName(application.Name)}-redis";
+
+        var match = databases.FirstOrDefault(database =>
+            string.Equals(database.Type, "redis", StringComparison.OrdinalIgnoreCase) &&
             (string.Equals(database.Name, desiredName, StringComparison.OrdinalIgnoreCase) ||
              string.Equals(database.Uuid, desiredName, StringComparison.OrdinalIgnoreCase)));
 
@@ -292,5 +425,14 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
 
         [JsonPropertyName("postgres_port")]
         public int? PostgresPort { get; set; }
+
+        [JsonPropertyName("redis_password")]
+        public string? RedisPassword { get; set; }
+
+        [JsonPropertyName("redis_host")]
+        public string? RedisHost { get; set; }
+
+        [JsonPropertyName("redis_port")]
+        public int? RedisPort { get; set; }
     }
 }

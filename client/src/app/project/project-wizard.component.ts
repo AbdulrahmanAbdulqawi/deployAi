@@ -18,6 +18,7 @@ import {
   ProviderProject,
   ProviderName,
   CoolifyInfrastructure,
+  CoolifyInfrastructureResource,
   CoolifyBuildPack
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
@@ -66,6 +67,8 @@ export class ProjectWizardComponent implements OnInit {
   readonly creatingCoolifyProject = signal(false);
   readonly loadingCoolifyInfrastructure = signal(false);
   readonly coolifyInfrastructure = signal<CoolifyInfrastructure | null>(null);
+  readonly loadingCoolifyEnvironments = signal(false);
+  readonly coolifyEnvironments = signal<CoolifyInfrastructureResource[]>([]);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly loadingCredentials = signal(true);
@@ -1206,10 +1209,42 @@ export class ProjectWizardComponent implements OnInit {
           this.selectedCoolifyGithubAppId = response.githubApps[0].id;
         }
         this.loadingCoolifyInfrastructure.set(false);
+        this.loadCoolifyEnvironments();
       },
       error: (err) => {
         this.loadingCoolifyInfrastructure.set(false);
+        this.coolifyEnvironments.set([]);
         this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify infrastructure.');
+      }
+    });
+  }
+
+  onCoolifyProjectUuidChange(): void {
+    this.selectedCoolifyEnvironmentName = '';
+    this.loadCoolifyEnvironments();
+  }
+
+  loadCoolifyEnvironments(): void {
+    if (!this.selectedCoolifyCredentialId || !this.selectedCoolifyProjectUuid) {
+      this.coolifyEnvironments.set([]);
+      return;
+    }
+
+    this.loadingCoolifyEnvironments.set(true);
+    this.api.listCoolifyProjectEnvironments(
+      this.selectedCoolifyCredentialId,
+      this.selectedCoolifyProjectUuid
+    ).subscribe({
+      next: (response) => {
+        this.coolifyEnvironments.set(response.environments);
+        if (!this.selectedCoolifyEnvironmentName && response.environments.length > 0) {
+          this.selectedCoolifyEnvironmentName = response.environments[0].name;
+        }
+        this.loadingCoolifyEnvironments.set(false);
+      },
+      error: () => {
+        this.coolifyEnvironments.set([]);
+        this.loadingCoolifyEnvironments.set(false);
       }
     });
   }

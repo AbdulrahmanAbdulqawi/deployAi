@@ -165,6 +165,53 @@ public sealed class ProjectTeardownService : IProjectTeardownService
                         cancellationToken);
                 });
         }
+
+        var coolifyDatabaseTargets = project.DeployTargets
+            .Where(t =>
+                string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget)
+            .ToList();
+
+        foreach (var databaseTarget in coolifyDatabaseTargets)
+        {
+            await TryProviderStepAsync(
+                $"Coolify database {databaseTarget.ProviderProjectId}",
+                () => _railwayDatabaseProvisioning.TeardownDatabaseServiceOnProviderAsync(
+                    project,
+                    databaseTarget,
+                    cancellationToken));
+        }
+
+        var coolifyAppTargets = project.DeployTargets
+            .Where(t =>
+                string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget)
+            .ToList();
+
+        foreach (var appTarget in coolifyAppTargets)
+        {
+            if (string.IsNullOrWhiteSpace(appTarget.ProviderProjectId))
+            {
+                continue;
+            }
+
+            await TryProviderStepAsync(
+                $"Coolify application {appTarget.ProviderProjectId}",
+                async () =>
+                {
+                    var credentials = await GetCredentialsAsync(appTarget, cancellationToken);
+                    var serviceOperations = _serviceOperationsFactory.GetServiceOperations(ProviderNameValues.Coolify);
+                    if (serviceOperations is null)
+                    {
+                        return;
+                    }
+
+                    await serviceOperations.DeleteServiceAsync(
+                        credentials,
+                        appTarget.ProviderProjectId,
+                        cancellationToken);
+                });
+        }
     }
 
     private static string? ResolveRailwayProjectId(

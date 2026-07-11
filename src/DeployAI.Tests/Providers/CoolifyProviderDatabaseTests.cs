@@ -93,4 +93,76 @@ public class CoolifyProviderDatabaseTests
 
         Assert.Null(exception);
     }
+
+    [Fact]
+    public async Task EnsureRedisAsync_CreatesDatabase_WhenNoneExists()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "uuid": "app-api",
+              "name": "my-api",
+              "project_uuid": "proj-1",
+              "server_uuid": "server-1",
+              "environment_name": "production",
+              "environment_uuid": "env-1"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/databases/redis")
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "redis-new" }""");
+
+        var provider = CreateProvider(handler);
+        var result = await provider.EnsureRedisAsync(
+            Credentials,
+            "app-api",
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("redis-new", result!.ServiceId);
+        Assert.Equal("my-api-redis", result.ServiceName);
+    }
+
+    [Fact]
+    public async Task DeleteDatabaseAsync_DeletesByUuid()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Delete, $"{InstanceUrl}/api/v1/databases/db-1")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "message": "Database deleted." }""");
+
+        var provider = CreateProvider(handler);
+        await provider.DeleteDatabaseAsync(
+            Credentials,
+            "db-1|env-1",
+            CancellationToken.None);
+
+        handler.VerifyNoOutstandingExpectation();
+    }
+
+    [Fact]
+    public async Task LinkDatabaseVariablesAsync_UpsertsRedisConnectionString()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases/db-redis")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "internal_db_url": "redis://:secret@redis:6379"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "env-1", "key": "ConnectionStrings__Redis" }""");
+
+        var provider = CreateProvider(handler);
+        var exception = await Record.ExceptionAsync(() => provider.LinkDatabaseVariablesAsync(
+            Credentials,
+            "app-api",
+            [new DatabaseVariableLink("ConnectionStrings__Redis", "db-redis")],
+            CancellationToken.None));
+
+        Assert.Null(exception);
+    }
 }

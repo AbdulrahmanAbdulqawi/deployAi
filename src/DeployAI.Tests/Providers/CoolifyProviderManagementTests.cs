@@ -135,4 +135,27 @@ public class CoolifyProviderManagementTests
         Assert.Single(infrastructure.Servers);
         Assert.Single(infrastructure.GithubApps);
     }
+
+    [Fact]
+    public async Task ListProjectEnvironmentsAsync_ReturnsEnvironments()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [
+              { "uuid": "env-1", "name": "production" },
+              { "uuid": "env-2", "name": "staging" }
+            ]
+            """);
+
+        var provider = CreateProvider(handler);
+        var environments = await provider.ListProjectEnvironmentsAsync(
+            Credentials,
+            "proj-1",
+            CancellationToken.None);
+
+        Assert.Equal(2, environments.Count);
+        Assert.Equal("production", environments[0].Name);
+        Assert.Equal("staging", environments[1].Name);
+    }
 }

@@ -1,4 +1,5 @@
 using DeployAI.Api.Services;
+using DeployAI.Core.Providers;
 
 namespace DeployAI.Tests.Services;
 
@@ -31,5 +32,18 @@ public class RailwayDatabaseProvisioningServiceTests
         Assert.Equal(5, links.Count);
         Assert.Equal("ConnectionStrings__Default", links[0].Key);
         Assert.Contains("Postgres.RAILWAY_PRIVATE_DOMAIN", links[0].ReferenceValue, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCoolifyVariableLinks_IncludesPostgresAndRedisDatabaseIds()
+    {
+        var links = RailwayDatabaseProvisioningService.BuildCoolifyVariableLinks(
+            new ProvisionedDatabaseService("db-pg", "my-api-postgres", "proj-1", "env-1"),
+            new ProvisionedDatabaseService("db-redis", "my-api-redis", "proj-1", "env-1"));
+
+        Assert.Equal(5, links.Count);
+        Assert.Contains(links, link => link.Key == "DATABASE_URL" && link.ReferenceValue == "db-pg");
+        Assert.Contains(links, link => link.Key == "ConnectionStrings__Redis" && link.ReferenceValue == "db-redis");
+        Assert.Contains(links, link => link.Key == "REDIS_URL" && link.ReferenceValue == "db-redis");
     }
 }

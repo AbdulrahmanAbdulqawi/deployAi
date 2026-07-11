@@ -264,6 +264,18 @@ public sealed partial class CoolifyProvider
             githubApps.Select(MapInfrastructureResource).ToList());
     }
 
+    public async Task<IReadOnlyList<CoolifyInfrastructureResource>> ListProjectEnvironmentsAsync(
+        ProviderCredentials credentials,
+        string projectUuid,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var environments = await ListCoolifyEnvironmentsAsync(session, projectUuid, cancellationToken);
+        return environments
+            .Select(env => new CoolifyInfrastructureResource(env.Uuid, env.Name))
+            .ToList();
+    }
+
     private async Task<string> ResolveProjectUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,

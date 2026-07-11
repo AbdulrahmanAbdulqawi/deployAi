@@ -208,14 +208,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 cancellationToken);
         }
 
-        if (request.IncludeRedis &&
-            !string.Equals(serverTarget.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase))
-        {
-            request = request with { IncludeRedis = false };
-        }
-
         var links = string.Equals(serverTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
-            ? BuildCoolifyVariableLinks(postgres)
+            ? BuildCoolifyVariableLinks(postgres, redis)
             : BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
         if (links.Count > 0)
         {
@@ -256,19 +250,24 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
     }
 
     internal static IReadOnlyList<DatabaseVariableLink> BuildCoolifyVariableLinks(
-        ProvisionedDatabaseService? postgres)
+        ProvisionedDatabaseService? postgres,
+        ProvisionedDatabaseService? redis)
     {
-        if (postgres is null || string.IsNullOrWhiteSpace(postgres.ServiceId))
+        var links = new List<DatabaseVariableLink>();
+        if (postgres is not null && !string.IsNullOrWhiteSpace(postgres.ServiceId))
         {
-            return [];
+            links.Add(new DatabaseVariableLink("DATABASE_URL", postgres.ServiceId));
+            links.Add(new DatabaseVariableLink("ConnectionStrings__Default", postgres.ServiceId));
+            links.Add(new DatabaseVariableLink("ConnectionStrings__DefaultConnection", postgres.ServiceId));
         }
 
-        return
-        [
-            new DatabaseVariableLink("DATABASE_URL", postgres.ServiceId),
-            new DatabaseVariableLink("ConnectionStrings__Default", postgres.ServiceId),
-            new DatabaseVariableLink("ConnectionStrings__DefaultConnection", postgres.ServiceId)
-        ];
+        if (redis is not null && !string.IsNullOrWhiteSpace(redis.ServiceId))
+        {
+            links.Add(new DatabaseVariableLink("ConnectionStrings__Redis", redis.ServiceId));
+            links.Add(new DatabaseVariableLink("REDIS_URL", redis.ServiceId));
+        }
+
+        return links;
     }
 
     internal static IReadOnlyList<DatabaseVariableLink> BuildVariableLinks(
@@ -443,21 +442,33 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         }
 
         var serverTarget = project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
+            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget &&
+            (string.Equals(t.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)));
 
-        var serviceOperations = _serviceOperationsFactory.GetServiceOperations(databaseTarget.ProviderName);
-
+        var provisioning = _provisioningFactory.GetProvisioning(databaseTarget.ProviderName);
         var token = await _tokens.GetTokenAsync(databaseTarget.Credential, cancellationToken);
         var credentials = new ProviderCredentials(token);
 
-        if (serviceOperations is not null &&
+        if (provisioning is not null &&
             !string.IsNullOrWhiteSpace(databaseTarget.ProviderProjectId))
         {
-            await serviceOperations.DeleteServiceAsync(
+            await provisioning.DeleteDatabaseAsync(
                 credentials,
                 databaseTarget.ProviderProjectId,
                 cancellationToken);
+        }
+        else
+        {
+            var serviceOperations = _serviceOperationsFactory.GetServiceOperations(databaseTarget.ProviderName);
+            if (serviceOperations is not null &&
+                !string.IsNullOrWhiteSpace(databaseTarget.ProviderProjectId))
+            {
+                await serviceOperations.DeleteServiceAsync(
+                    credentials,
+                    databaseTarget.ProviderProjectId,
+                    cancellationToken);
+            }
         }
 
         if (serverTarget is not null)
@@ -484,6 +495,22 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 catch (DeployAI.Core.Exceptions.DeployAIException)
                 {
                     // Variable may already be gone.
+                }
+
+                if (string.Equals(config.DatabaseEngine, "redis", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        await management.DeleteEnvVarAsync(
+                            credentials,
+                            serverTarget.ProviderProjectId,
+                            "REDIS_URL",
+                            cancellationToken);
+                    }
+                    catch (DeployAI.Core.Exceptions.DeployAIException)
+                    {
+                        // Variable may already be gone.
+                    }
                 }
             }
 

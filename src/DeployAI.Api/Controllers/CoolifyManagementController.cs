@@ -52,6 +52,22 @@ public sealed class CoolifyManagementController : ControllerBase
         });
     }
 
+    [HttpGet("{credentialId:guid}/coolify/projects/{projectUuid}/environments")]
+    public async Task<IActionResult> ListProjectEnvironments(
+        Guid credentialId,
+        string projectUuid,
+        CancellationToken cancellationToken)
+    {
+        var credential = await GetCoolifyCredentialAsync(credentialId, cancellationToken);
+        var token = _encryption.Decrypt(credential.TokenEncrypted);
+        var environments = await _coolifyProvider.ListProjectEnvironmentsAsync(
+            new ProviderCredentials(token),
+            projectUuid,
+            cancellationToken);
+
+        return Ok(new { environments });
+    }
+
     [HttpPost("coolify/projects")]
     public async Task<IActionResult> CreateCoolifyProject(
         [FromBody] CreateCoolifyProjectRequest request,
