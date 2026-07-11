@@ -1,0 +1,54 @@
+.drift-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--status-warning-border);
+  background: var(--status-warning-bg);
+}
+
+.drift-banner__icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.drift-banner__copy {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+
+.drift-banner__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.drift-banner__desc {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.drift-banner__details {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.drift-banner__meta {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 640px) {
+  .drift-banner app-ui-button {
+    width: 100%;
+  }
+}

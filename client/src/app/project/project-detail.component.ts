@@ -24,6 +24,8 @@ import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent, IconName } from '../shared/ui/icon/icon.component';
 import { DropdownMenuComponent, DropdownMenuItem } from '../shared/ui/dropdown/dropdown-menu.component';
 import { DeploymentStatusStripComponent } from '../shared/deployment-status-strip/deployment-status-strip.component';
+import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
+import { EnvironmentDriftBannerComponent } from '../shared/environment-drift-banner/environment-drift-banner.component';
 import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
 import { ConfirmService } from '../shared/ui/confirm/confirm.service';
 import { ToastService } from '../shared/ui/toast/toast.service';
@@ -42,6 +44,8 @@ interface LiveUrl {
     IconComponent,
     DropdownMenuComponent,
     DeploymentStatusStripComponent,
+    ReadinessScorecardComponent,
+    EnvironmentDriftBannerComponent,
     StatusBadgeComponent
   ],
   templateUrl: './project-detail.component.html',
@@ -582,6 +586,10 @@ export class ProjectDetailComponent implements OnInit {
       default:
         break;
     }
+  }
+
+  hasSplitOrigin(): boolean {
+    return this.deploymentReadiness()?.usesSplitOrigin ?? false;
   }
 
   private loadProject(): void {

@@ -19,6 +19,7 @@ import {
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
+import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
 import { AppLogoPickerComponent } from '../shared/app-logo-picker/app-logo-picker.component';
@@ -34,7 +35,7 @@ type DeploymentMode = 'website' | 'server' | 'both';
 @Component({
   selector: 'app-project-wizard',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ButtonComponent, IconComponent, AppLogoPickerComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ReadinessScorecardComponent, ButtonComponent, IconComponent, AppLogoPickerComponent],
   templateUrl: './project-wizard.component.html',
   styleUrl: './project-wizard.component.scss'
 })

@@ -96,6 +96,16 @@
                   </div>
                 </div>
                 <div class="history__row-end">
+                  @if (canRestore(item)) {
+                    <app-ui-button
+                      variant="secondary"
+                      icon="refresh"
+                      [disabled]="isRestoring(item.id)"
+                      [loading]="isRestoring(item.id)"
+                      (click)="restoreDeployment(item, $event)">
+                      {{ isRestoring(item.id) ? 'Restoring…' : 'Restore' }}
+                    </app-ui-button>
+                  }
                   <app-status-badge
                     [status]="item.status"
                     kind="deployment"

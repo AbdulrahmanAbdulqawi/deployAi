@@ -1,0 +1,146 @@
+.readiness-scorecard {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.readiness-scorecard--compact {
+  margin-bottom: var(--space-4);
+}
+
+.readiness-scorecard__loading {
+  margin: 0;
+}
+
+.readiness-scorecard__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.readiness-scorecard__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  flex: 1;
+}
+
+.readiness-scorecard__ring {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 999px;
+  border: 2px solid var(--status-warning-border);
+  background: var(--status-warning-bg);
+  flex-shrink: 0;
+}
+
+.readiness-scorecard__ring--ready {
+  border-color: var(--status-success-border);
+  background: var(--status-success-bg);
+}
+
+.readiness-scorecard__percent {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.readiness-scorecard__copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.readiness-scorecard__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.readiness-scorecard__meta {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.readiness-scorecard__action {
+  color: var(--text-link);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--brand-indigo);
+    text-decoration: underline;
+  }
+}
+
+.readiness-scorecard__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.readiness-scorecard__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-interactive);
+}
+
+.readiness-scorecard__item--failed {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+}
+
+.readiness-scorecard__item--warning {
+  border-color: var(--status-warning-border);
+  background: var(--status-warning-bg);
+}
+
+.readiness-scorecard__item-icon {
+  display: flex;
+  margin-top: 0.1rem;
+}
+
+.readiness-scorecard__item-body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.readiness-scorecard__item-label {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.readiness-scorecard__item-detail {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+
+.readiness-scorecard__badge {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .readiness-scorecard__action {
+    width: 100%;
+  }
+}

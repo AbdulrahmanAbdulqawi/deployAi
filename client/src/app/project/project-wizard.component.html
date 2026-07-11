@@ -131,6 +131,12 @@
           </div>
 
           @if (deploymentReadiness(); as readiness) {
+            @if (showDeploymentSetupPanel(readiness)) {
+              <app-readiness-scorecard
+                [readiness]="readiness"
+                [compact]="true" />
+            }
+
             @if (showDeploymentSetupPanel(readiness) && repoOwner() && repoName() && selectedBranch()) {
               <app-deployment-setup-panel
                 [owner]="repoOwner()!"

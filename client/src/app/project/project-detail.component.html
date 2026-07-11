@@ -86,11 +86,22 @@
       }
     </header>
 
-    <app-deployment-status-strip
+    <app-environment-drift-banner
       [projectId]="projectId"
-      [readiness]="deploymentReadiness()"
-      [aiSetupEnabled]="aiSetup.enabled()"
-      [loading]="loadingDeploymentReadiness()" />
+      [hasSplitOrigin]="hasSplitOrigin()" />
+
+    @if (aiSetup.enabled()) {
+      <app-readiness-scorecard
+        [projectId]="projectId"
+        [readiness]="deploymentReadiness()"
+        [loading]="loadingDeploymentReadiness()" />
+    } @else {
+      <app-deployment-status-strip
+        [projectId]="projectId"
+        [readiness]="deploymentReadiness()"
+        [aiSetupEnabled]="aiSetup.enabled()"
+        [loading]="loadingDeploymentReadiness()" />
+    }
 
     @if (services(); as svc) {
       <section class="resources u-glass-panel">

@@ -1,0 +1,31 @@
+@if (visible) {
+  <section class="drift-banner u-glass-panel" role="status">
+    <div class="drift-banner__icon" aria-hidden="true">
+      <app-ui-icon name="alert" size="sm" statusClass="warning" />
+    </div>
+    <div class="drift-banner__copy">
+      <h2 class="drift-banner__title">Your site and app need to be reconnected</h2>
+      <p class="drift-banner__desc u-text-secondary">
+        The website and API addresses are out of sync. Sign-in, data requests, or live updates may fail until you reconnect them.
+      </p>
+      @if (environmentSync()?.driftDetails?.length) {
+        <ul class="drift-banner__details">
+          @for (detail of environmentSync()!.driftDetails; track detail) {
+            <li>{{ detail }}</li>
+          }
+        </ul>
+      }
+      @if (environmentSync()?.lastSyncedAt) {
+        <p class="drift-banner__meta u-text-muted">Last checked {{ environmentSync()!.lastSyncedAt | date: 'short' }}</p>
+      }
+    </div>
+    <app-ui-button
+      variant="secondary"
+      icon="refresh"
+      [disabled]="syncing()"
+      [loading]="syncing()"
+      (click)="reconnect()">
+      {{ syncing() ? 'Reconnecting…' : 'Reconnect' }}
+    </app-ui-button>
+  </section>
+}
