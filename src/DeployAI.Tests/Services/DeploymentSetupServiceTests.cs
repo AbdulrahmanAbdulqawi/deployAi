@@ -119,6 +119,105 @@ public class DeploymentSetupServiceTests
     }
 
     [Fact]
+    public async Task GenerateSetupBranchAsync_UsesCoolifyPullRequestMessaging_ForCoolifyFullStack()
+    {
+        await using var db = CreateDb();
+        var userId = Guid.NewGuid();
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            GitHubTokenEncrypted = [1]
+        });
+        await db.SaveChangesAsync();
+
+        var readiness = new Mock<IDeploymentReadinessService>();
+        readiness
+            .Setup(service => service.ScanRepositoryAsync(
+                It.IsAny<string>(),
+                "owner",
+                "repo",
+                "main",
+                It.IsAny<IReadOnlyList<DeploymentPlanPart>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentReadinessResult(
+                false,
+                "sha123",
+                true,
+                [new MissingDeploymentFile("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking)],
+                []));
+
+        var generator = new Mock<IDeploymentFileGenerator>();
+        generator
+            .Setup(g => g.GenerateMissingFilesAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<IReadOnlyList<DeploymentPlanPart>>(),
+                It.IsAny<IReadOnlyList<MissingDeploymentFile>>(),
+                It.IsAny<Func<string, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new GeneratedDeploymentFile("client/scripts/write-api-env.mjs", "// coolify")]);
+
+        string? capturedCommitMessage = null;
+        string? capturedPrTitle = null;
+        string? capturedPrBody = null;
+
+        var gitHub = new Mock<IGitHubService>();
+        gitHub.Setup(service => service.CreateBranchAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("sha123");
+        gitHub.Setup(service => service.CommitFilesAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<(string, string)>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, string, string, IReadOnlyList<(string, string)>, CancellationToken>(
+                (_, _, _, _, message, _, _) => capturedCommitMessage = message)
+            .ReturnsAsync("commit456");
+        gitHub.Setup(service => service.GetRepositoryAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubRepo("owner/repo", "main", false));
+        gitHub.Setup(service => service.CreatePullRequestAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, string, string, string, string, CancellationToken>(
+                (_, _, _, title, _, _, body, _) =>
+                {
+                    capturedPrTitle = title;
+                    capturedPrBody = body;
+                })
+            .ReturnsAsync(new GitHubPullRequestResponse(9, "https://example.com/pr/9"));
+
+        var encryption = new Mock<IEncryptionService>();
+        encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("token");
+
+        var service = new DeploymentSetupService(
+            db,
+            gitHub.Object,
+            readiness.Object,
+            SelectorReturning(generator.Object),
+            new Mock<IFrontendEnvironmentWiringService>().Object,
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
+
+        var parts = new[]
+        {
+            new DeploymentPlanPart("website", "coolify", "client", null, null, null, null, null, "angular", null, null),
+            new DeploymentPlanPart("server", "coolify", "src/Api", "src/Api", null, null, null, null, "dotnet", null, null)
+        };
+
+        await service.GenerateSetupBranchAsync(
+            userId,
+            "owner",
+            "repo",
+            new DeploymentSetupRequest("main", parts),
+            null,
+            CancellationToken.None);
+
+        Assert.Equal("DeployAI: add Coolify full-stack deployment files", capturedCommitMessage);
+        Assert.Equal("DeployAI: Coolify full-stack deployment setup", capturedPrTitle);
+        Assert.Contains("FRONTEND_URL", capturedPrBody);
+        Assert.DoesNotContain("vercel.json", capturedPrBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task GenerateSetupBranchAsync_IncludesRecommendedMissingFiles()
     {
         await using var db = CreateDb();

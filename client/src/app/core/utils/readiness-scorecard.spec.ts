@@ -74,7 +74,7 @@ describe('buildReadinessScorecard', () => {
     )).toBe(true);
   });
 
-  it('hides Vercel/Railway scaffold for Coolify full-stack readiness', () => {
+  it('shows setup scaffold for Coolify full-stack readiness', () => {
     expect(usesCoolifySetupScaffold({
       isReady: false,
       usesSplitOrigin: true,
@@ -82,7 +82,7 @@ describe('buildReadinessScorecard', () => {
       serverProviderName: 'coolify',
       missingFiles: [],
       warnings: []
-    })).toBe(false);
+    })).toBe(true);
 
     expect(usesCoolifySetupScaffold({
       isReady: false,
@@ -92,5 +92,12 @@ describe('buildReadinessScorecard', () => {
       missingFiles: [],
       warnings: []
     })).toBe(true);
+
+    expect(usesCoolifySetupScaffold({
+      isReady: true,
+      usesSplitOrigin: false,
+      missingFiles: [],
+      warnings: []
+    })).toBe(false);
   });
 });

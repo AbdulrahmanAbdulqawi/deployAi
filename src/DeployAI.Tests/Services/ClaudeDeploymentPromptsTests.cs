@@ -168,6 +168,37 @@ public class ClaudeDeploymentPromptsTests
     }
 
     [Fact]
+    public void BuildMissingFilesPrompt_DescribesCoolifyArchitecture_ForCoolifyFullStack()
+    {
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "coolify", RootDirectory: "client", Framework: "Angular"),
+            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore")
+        };
+        var missing = new List<MissingDeploymentFile>
+        {
+            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking)
+        };
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var referenceTemplates = resolver.ResolveForGaps(parts, missing);
+
+        var prompt = ClaudeDeploymentPrompts.BuildMissingFilesPrompt(
+            "owner",
+            "repo",
+            "main",
+            parts,
+            missing,
+            referenceTemplates,
+            []);
+
+        Assert.Contains("Coolify: set DEPLOYAI_API_URL", prompt);
+        Assert.Contains("no vercel.json or railway.toml", prompt);
+        Assert.Contains("## Reference Templates", prompt);
+        Assert.DoesNotContain("client/vercel.json", prompt);
+    }
+
+    [Fact]
     public void BuildFixPrompt_IncludesReferenceTemplates_WhenProvided()
     {
         var analysis = new DeploymentFailureAnalysis(

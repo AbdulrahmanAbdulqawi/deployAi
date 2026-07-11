@@ -829,9 +829,21 @@ internal static class ClaudeDeploymentPrompts
 
         if (SplitOriginDetection.PlanUsesSplitOrigin(parts))
         {
+            var coolifyStack = SplitOriginDetection.IsCoolifyFullStack(website?.ProviderName, server?.ProviderName);
+
             builder.AppendLine("- Architecture: split-origin (browser talks to API host directly, not through the frontend host)");
             builder.AppendLine("- Angular apps must register apiBaseInterceptor and bake apiBaseUrl via write-api-env + fileReplacements");
             builder.AppendLine("- Relative /api/* service paths are OK when the interceptor is registered");
+
+            if (coolifyStack)
+            {
+                builder.AppendLine("- Coolify: set DEPLOYAI_API_URL (or API_BASE_URL) on the website app and AllowedOrigins__0 / App__FrontendUrl on the API app");
+                builder.AppendLine("- Coolify: no vercel.json or railway.toml — each app is deployed separately on your instance");
+            }
+            else
+            {
+                builder.AppendLine("- Vercel + Railway: vercel.json is SPA-only; railway.toml points at the API Dockerfile");
+            }
         }
         else if (parts.Count > 1)
         {

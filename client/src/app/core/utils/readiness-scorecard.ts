@@ -116,7 +116,7 @@ function isCoolifyFullStackReadiness(readiness: DeploymentReadinessResult): bool
 }
 
 export function usesCoolifySetupScaffold(readiness: DeploymentReadinessResult | null | undefined): boolean {
-  return !!readiness?.usesSplitOrigin && !isCoolifyFullStackReadiness(readiness);
+  return !!readiness?.usesSplitOrigin;
 }
 
 function splitOriginDetail(readiness: DeploymentReadinessResult): string {

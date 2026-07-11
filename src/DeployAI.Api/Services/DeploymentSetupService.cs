@@ -120,12 +120,13 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         }
 
         await ReportActivityAsync(reportActivity, $"Committing {generated.Count} file(s) to {branchName}…");
+        var setupMessaging = BuildSetupMessaging(request.Parts);
         var commitSha = await _gitHubService.CommitFilesAsync(
             token,
             owner,
             repo,
             branchName,
-            "DeployAI: add split-origin deployment files for Vercel + Railway",
+            setupMessaging.CommitMessage,
             generated.Select(file => (file.Path, file.Content)).ToArray(),
             cancellationToken);
 
@@ -140,10 +141,10 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             token,
             owner,
             repo,
-            "DeployAI: split-origin deployment setup",
+            setupMessaging.PullRequestTitle,
             branchName,
             defaultBranch,
-            "Adds SPA-only vercel.json, write-api-env.mjs, api-base interceptor, railway.toml, CORS, and health endpoint for Vercel + Railway split-origin deployment.",
+            setupMessaging.PullRequestBody,
             cancellationToken);
 
         if (pullRequest is null)
@@ -160,6 +161,29 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
 
     private static Task ReportActivityAsync(Func<string, Task>? reportActivity, string message) =>
         reportActivity is null ? Task.CompletedTask : reportActivity(message);
+
+    private static SetupPullRequestMessaging BuildSetupMessaging(IReadOnlyList<DeploymentPlanPart> parts)
+    {
+        var website = SplitOriginDetection.FindWebsitePart(parts);
+        var server = SplitOriginDetection.FindServerPart(parts);
+        if (SplitOriginDetection.IsCoolifyFullStack(website?.ProviderName, server?.ProviderName))
+        {
+            return new SetupPullRequestMessaging(
+                "DeployAI: add Coolify full-stack deployment files",
+                "DeployAI: Coolify full-stack deployment setup",
+                "Adds write-api-env.mjs, api-base interceptor, CORS (FRONTEND_URL / AllowedOrigins), health endpoint, and deployment docs for Coolify website + API apps.");
+        }
+
+        return new SetupPullRequestMessaging(
+            "DeployAI: add split-origin deployment files for Vercel + Railway",
+            "DeployAI: split-origin deployment setup",
+            "Adds SPA-only vercel.json, write-api-env.mjs, api-base interceptor, railway.toml, CORS, and health endpoint for Vercel + Railway split-origin deployment.");
+    }
+
+    private sealed record SetupPullRequestMessaging(
+        string CommitMessage,
+        string PullRequestTitle,
+        string PullRequestBody);
 
     public async Task<DeploymentSetupMergeResult> MergeSetupPullRequestAsync(
         Guid userId,
