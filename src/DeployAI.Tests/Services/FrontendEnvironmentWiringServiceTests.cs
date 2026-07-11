@@ -652,6 +652,175 @@ public class FrontendEnvironmentWiringServiceTests
             detail.Contains("missing split-origin bundle wiring", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_AppliesCoolifyEnvVars_AndRedeploysWebsiteWhenStaleSpa()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedCoolifyDualTargetProjectAsync(db);
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new ProviderEnvVar("env_1", "API_URL", "https://api.example.com", "plain", [], false)
+            ]);
+
+        var coolifyOperations = new Mock<IProviderServiceOperations>();
+        coolifyOperations.SetupGet(o => o.ProviderName).Returns("coolify");
+        coolifyOperations.Setup(o => o.RedeployServiceAsync(
+                It.IsAny<ProviderCredentials>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var urlResolver = new Mock<IProviderApplicationUrlResolver>();
+        urlResolver.SetupGet(r => r.ProviderName).Returns("coolify");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_api",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://api.example.com");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://web.example.com");
+
+        var resolverFactory = new Mock<IProviderApplicationUrlResolverFactory>();
+        resolverFactory.Setup(f => f.GetResolver("coolify")).Returns(urlResolver.Object);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        serviceOperationsFactory.Setup(f => f.GetServiceOperations("coolify")).Returns(coolifyOperations.Object);
+
+        var readiness = new Mock<IDeploymentReadinessService>();
+        readiness.Setup(r => r.ScanProjectAsync(projectId, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DeploymentReadinessResult(true, "sha", true, [], []));
+
+        var http = new StubHttpMessageHandler();
+        http.SetResponse(
+            "https://web.example.com/",
+            """<html><head><script src="main-abc123.js" type="module"></script></head><body></body></html>""",
+            "text/html");
+        http.SetResponse(
+            "https://web.example.com/main-abc123.js",
+            "console.log('no api url baked in');",
+            "application/javascript");
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(
+            db,
+            factory,
+            serviceOperationsFactory,
+            tokens,
+            applicationUrlResolverFactory: resolverFactory,
+            deploymentReadiness: readiness,
+            httpClientFactory: new StubHttpClientFactory(http));
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                RedeployRailwayAfterUpdate: false,
+                RunVerification: true,
+                Source: "manual"),
+            CancellationToken.None);
+
+        coolifyOperations.Verify(o => o.RedeployServiceAsync(
+            It.IsAny<ProviderCredentials>(),
+            "app_web",
+            It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal("https://web.example.com", result.ResolvedWebsiteUrl);
+        Assert.Equal("https://api.example.com", result.ResolvedApiUrl);
+        Assert.Contains(result.VerificationMessages, message =>
+            message.Contains("Coolify website redeploy triggered", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_DetectsCoolifyDriftBeforeApply()
+    {
+        await using var db = CreateDb();
+        var projectId = await SeedCoolifyDualTargetProjectAsync(db);
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_1", "API_URL", "https://wrong.example.com", "plain", [], false)
+            ]);
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_api",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_2", "App__FrontendUrl", "https://wrong-web.example.com", "plain", [], false)
+            ]);
+
+        var coolifyOperations = new Mock<IProviderServiceOperations>();
+        coolifyOperations.SetupGet(o => o.ProviderName).Returns("coolify");
+        coolifyOperations.Setup(o => o.RedeployServiceAsync(
+                It.IsAny<ProviderCredentials>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var urlResolver = new Mock<IProviderApplicationUrlResolver>();
+        urlResolver.SetupGet(r => r.ProviderName).Returns("coolify");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_api",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://api.example.com");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://web.example.com");
+
+        var resolverFactory = new Mock<IProviderApplicationUrlResolverFactory>();
+        resolverFactory.Setup(f => f.GetResolver("coolify")).Returns(urlResolver.Object);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        serviceOperationsFactory.Setup(f => f.GetServiceOperations("coolify")).Returns(coolifyOperations.Object);
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(
+            db,
+            factory,
+            serviceOperationsFactory,
+            tokens,
+            applicationUrlResolverFactory: resolverFactory);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                DetectDriftOnly: true,
+                RunVerification: false,
+                Source: "scheduled"),
+            CancellationToken.None);
+
+        Assert.True(result.DriftDetected);
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Coolify API_URL mismatch", StringComparison.Ordinal));
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Coolify App__FrontendUrl mismatch", StringComparison.Ordinal));
+    }
+
     private sealed record SplitOriginSyncMocks(
         Mock<IProviderManagementFactory> Factory,
         Mock<IProviderServiceOperationsFactory> ServiceOperationsFactory,
@@ -860,6 +1029,101 @@ public class FrontendEnvironmentWiringServiceTests
                     ProviderProjectId = "svc_api|env_1",
                     ConfigJson = """{"role":"server","framework":"dotnet"}""",
                     CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+        return projectId;
+    }
+
+    private static async Task<Guid> SeedCoolifyDualTargetProjectAsync(DeployAIDbContext db)
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var coolifyCredentialId = Guid.NewGuid();
+        var websiteTargetId = Guid.NewGuid();
+        var serverTargetId = Guid.NewGuid();
+        var deploymentId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = coolifyCredentialId,
+            UserId = userId,
+            ProviderName = "coolify",
+            Label = "Coolify",
+            TokenEncrypted = [1, 2, 3],
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Coolify stack",
+            GitHubRepoFullName = "tester/stack",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = websiteTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = serverTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        db.Deployments.Add(new Deployment
+        {
+            Id = deploymentId,
+            ProjectId = projectId,
+            Branch = "main",
+            TriggeredBy = "user",
+            Status = DeploymentStatuses.Success,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = serverTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://api.example.com",
+                    CompletedAt = DateTimeOffset.UtcNow
+                },
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = websiteTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://web.example.com",
+                    CompletedAt = DateTimeOffset.UtcNow
                 }
             ]
         });
@@ -1079,7 +1343,8 @@ public class FrontendEnvironmentWiringServiceTests
         Mock<IGitHubService>? gitHubService = null,
         Mock<IEncryptionService>? encryption = null,
         Mock<IDeploymentReadinessService>? deploymentReadiness = null,
-        IHttpClientFactory? httpClientFactory = null)
+        IHttpClientFactory? httpClientFactory = null,
+        Mock<IProviderApplicationUrlResolverFactory>? applicationUrlResolverFactory = null)
     {
         gitHubService ??= new Mock<IGitHubService>();
         gitHubService.Setup(g => g.GetFileMetadataAsync(
@@ -1111,7 +1376,7 @@ public class FrontendEnvironmentWiringServiceTests
             managementFactory.Object,
             serviceOperationsFactory.Object,
             (providerFactory ?? new Mock<IProviderFactory>()).Object,
-            new Mock<IProviderApplicationUrlResolverFactory>().Object,
+            (applicationUrlResolverFactory ?? new Mock<IProviderApplicationUrlResolverFactory>()).Object,
             tokens.Object,
             gitHubService.Object,
             (encryption ?? CreateEncryptionMock()).Object,

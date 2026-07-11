@@ -249,6 +249,9 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
 
         [JsonPropertyName("git_branch")]
         public string? GitBranch { get; set; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; set; }
     }
 
     private sealed class CoolifyDeployResponse

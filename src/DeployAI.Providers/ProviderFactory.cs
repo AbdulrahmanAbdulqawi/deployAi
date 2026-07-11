@@ -126,6 +126,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolverFactory, ProviderApplicationUrlResolverFactory>();
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
