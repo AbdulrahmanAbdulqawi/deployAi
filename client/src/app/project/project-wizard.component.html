@@ -151,7 +151,7 @@
           }
 
           @if (deploymentReadiness(); as readiness) {
-            @if (showDeploymentSetupPanel(readiness)) {
+            @if (showReadinessScorecard(readiness)) {
               <app-readiness-scorecard
                 [readiness]="readiness"
                 [compact]="true" />

@@ -219,6 +219,8 @@ public sealed class DeploymentSetupController : ControllerBase
         isReady = result.IsReady,
         commitSha = result.CommitSha,
         usesSplitOrigin = result.UsesSplitOrigin,
+        websiteProviderName = result.WebsiteProviderName,
+        serverProviderName = result.ServerProviderName,
         missingFiles = result.MissingFiles.Select(file => new
         {
             path = file.Path,

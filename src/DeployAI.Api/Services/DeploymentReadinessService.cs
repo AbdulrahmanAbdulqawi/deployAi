@@ -69,7 +69,8 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
         var warnings = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(website.Framework) &&
-            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework))
+            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&
+            !SplitOriginDetection.IsCoolifyFullStack(website.ProviderName, server.ProviderName))
         {
             var proxy405 = await ProbeVercelApiPostReturns405Async(null, cancellationToken);
             if (proxy405 == true)
@@ -83,7 +84,9 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
             CommitSha: commitSha,
             UsesSplitOrigin: true,
             MissingFiles: missing,
-            Warnings: warnings);
+            Warnings: warnings,
+            WebsiteProviderName: website.ProviderName,
+            ServerProviderName: server.ProviderName);
     }
 
     public async Task<DeploymentReadinessResult> ScanProjectAsync(
@@ -155,7 +158,8 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
         var warnings = new List<string>();
 
         if (!string.IsNullOrWhiteSpace(website.Framework) &&
-            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework))
+            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&
+            !SplitOriginDetection.IsCoolifyFullStack(website.ProviderName, server.ProviderName))
         {
             var vercelUrl = await ResolveVercelWebsiteUrlAsync(project, cancellationToken);
             var proxy405 = await ProbeVercelApiPostReturns405Async(vercelUrl, cancellationToken);
@@ -170,7 +174,9 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
             CommitSha: commitSha,
             UsesSplitOrigin: true,
             MissingFiles: missing,
-            Warnings: warnings);
+            Warnings: warnings,
+            WebsiteProviderName: website.ProviderName,
+            ServerProviderName: server.ProviderName);
     }
 
     private async Task<string?> ResolveGitRefAsync(

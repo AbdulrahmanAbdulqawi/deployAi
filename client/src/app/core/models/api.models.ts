@@ -389,6 +389,8 @@ export interface DeploymentReadinessResult {
   isReady: boolean;
   commitSha?: string;
   usesSplitOrigin: boolean;
+  websiteProviderName?: string;
+  serverProviderName?: string;
   missingFiles: MissingDeploymentFile[];
   warnings: string[];
 }

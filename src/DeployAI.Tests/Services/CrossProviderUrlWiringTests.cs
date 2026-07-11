@@ -101,4 +101,29 @@ public class SplitOriginDetectionTests
 
         Assert.True(SplitOriginDetection.PlanUsesSplitOrigin(parts));
     }
+
+    [Fact]
+    public void PlanUsesSplitOrigin_WhenAngularCoolifyFullStack()
+    {
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "coolify", "client", null, null, null, null, null, "angular", null, null),
+            new("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null)
+        };
+
+        Assert.True(SplitOriginDetection.PlanUsesSplitOrigin(parts));
+    }
+
+    [Fact]
+    public void BuildReadinessFilePaths_OmitsVercelAndRailwayFiles_ForCoolifyFullStack()
+    {
+        var website = new DeploymentPlanPart("website", "coolify", "client", null, null, null, null, null, "angular", null, null);
+        var server = new DeploymentPlanPart("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null);
+
+        var paths = SplitOriginDetection.BuildReadinessFilePaths(website, server);
+
+        Assert.DoesNotContain(paths, path => path.Equals("railway.toml", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, path => path.Equals("client/vercel.json", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path => path.Contains("api-base.interceptor.ts", StringComparison.OrdinalIgnoreCase));
+    }
 }

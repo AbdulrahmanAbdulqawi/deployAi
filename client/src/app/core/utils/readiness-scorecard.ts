@@ -1,4 +1,5 @@
 import { DeploymentReadinessResult, MissingDeploymentFile } from '../models/api.models';
+import { isCoolifyProvider } from './provider-branding';
 
 export enum ReadinessCheckStatus {
   Passed = 'passed',
@@ -36,7 +37,7 @@ export function buildReadinessScorecard(
     {
       id: 'split-origin-detected',
       label: 'Frontend and API detected',
-      detail: 'This project uses a split-origin setup (website + server).',
+      detail: splitOriginDetail(readiness),
       status: ReadinessCheckStatus.Passed,
       severity: 'info'
     }
@@ -59,7 +60,9 @@ export function buildReadinessScorecard(
     items.push({
       id: 'deployment-ready',
       label: 'Repository setup looks complete',
-      detail: 'Required split-origin files are in place.',
+      detail: isCoolifyFullStackReadiness(readiness)
+        ? 'Required Coolify full-stack files are in place.'
+        : 'Required split-origin files are in place.',
       status: ReadinessCheckStatus.Passed,
       severity: 'info'
     });
@@ -105,4 +108,21 @@ function emptyScorecard(): ReadinessScorecardSummary {
     blockingCount: 0,
     items: []
   };
+}
+
+function isCoolifyFullStackReadiness(readiness: DeploymentReadinessResult): boolean {
+  return isCoolifyProvider(readiness.websiteProviderName ?? '') &&
+    isCoolifyProvider(readiness.serverProviderName ?? '');
+}
+
+export function usesCoolifySetupScaffold(readiness: DeploymentReadinessResult | null | undefined): boolean {
+  return !!readiness?.usesSplitOrigin && !isCoolifyFullStackReadiness(readiness);
+}
+
+function splitOriginDetail(readiness: DeploymentReadinessResult): string {
+  if (isCoolifyFullStackReadiness(readiness)) {
+    return 'This project uses a Coolify full-stack setup (website + API on your server).';
+  }
+
+  return 'This project uses a split-origin setup (website on Vercel, API on Railway).';
 }

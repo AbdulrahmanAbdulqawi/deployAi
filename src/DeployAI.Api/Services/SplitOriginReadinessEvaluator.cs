@@ -50,6 +50,8 @@ internal static class SplitOriginReadinessEvaluator
         IReadOnlyDictionary<string, string?> fileContentsByPath)
     {
         var missing = new List<MissingDeploymentFile>();
+        var coolifyStack = SplitOriginDetection.IsCoolifyFullStack(websitePart.ProviderName, serverPart.ProviderName);
+        var stackLabel = coolifyStack ? "Coolify full-stack" : "Angular + Railway split-origin";
         var clientRoot = NormalizeRoot(websitePart.RootDirectory);
         var clientPrefix = string.IsNullOrEmpty(clientRoot) ? string.Empty : $"{clientRoot}/";
         var serverRoot = NormalizeRoot(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
@@ -74,7 +76,7 @@ internal static class SplitOriginReadinessEvaluator
             {
                 missing.Add(new MissingDeploymentFile(
                     path,
-                    "Required for Angular + Railway split-origin deployment.",
+                    $"Required for {stackLabel} deployment.",
                     DeploymentFileSeverity.Blocking));
             }
         }
@@ -118,7 +120,8 @@ internal static class SplitOriginReadinessEvaluator
                 DeploymentFileSeverity.Blocking));
         }
 
-        if (fileContentsByPath.TryGetValue(vercelPath, out var vercelJson) &&
+        if (!coolifyStack &&
+            fileContentsByPath.TryGetValue(vercelPath, out var vercelJson) &&
             !string.IsNullOrWhiteSpace(vercelJson) &&
             VercelJsonRewrites.HasApiProxyAntiPattern(vercelJson))
         {
@@ -148,11 +151,13 @@ internal static class SplitOriginReadinessEvaluator
                 DeploymentFileSeverity.Recommended));
         }
         else if (!IsMissing(fileContentsByPath, programPath) &&
-                 !HasSplitOriginCorsSetup(fileContentsByPath[programPath]))
+                 !HasSplitOriginCorsSetup(fileContentsByPath[programPath], coolifyStack))
         {
             missing.Add(new MissingDeploymentFile(
                 programPath,
-                "Program.cs should configure AllowedOrigins and allow Vercel preview domains (*.vercel.app).",
+                coolifyStack
+                    ? "Program.cs should configure AllowedOrigins and allow the Coolify website URL (FRONTEND_URL / App__FrontendUrl)."
+                    : "Program.cs should configure AllowedOrigins and allow Vercel preview domains (*.vercel.app).",
                 DeploymentFileSeverity.Recommended));
         }
         else if (IsMissing(fileContentsByPath, programPath))
@@ -208,7 +213,9 @@ internal static class SplitOriginReadinessEvaluator
         {
             missing.Add(new MissingDeploymentFile(
                 "docs/DEPLOYMENT.md",
-                "Document split-origin env var wiring for Vercel and Railway.",
+                coolifyStack
+                    ? "Document Coolify full-stack env var wiring for website and API apps."
+                    : "Document split-origin env var wiring for Vercel and Railway.",
                 DeploymentFileSeverity.Recommended));
         }
 
@@ -261,11 +268,19 @@ internal static class SplitOriginReadinessEvaluator
                healthController.Contains("[Route(\"api/v1/health\")]", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool HasSplitOriginCorsSetup(string? programCs)
+    private static bool HasSplitOriginCorsSetup(string? programCs, bool coolifyStack = false)
     {
         if (string.IsNullOrWhiteSpace(programCs))
         {
             return false;
+        }
+
+        if (coolifyStack)
+        {
+            return programCs.Contains("AllowedOrigins", StringComparison.OrdinalIgnoreCase) ||
+                   programCs.Contains("FRONTEND_URL", StringComparison.OrdinalIgnoreCase) ||
+                   programCs.Contains("App__FrontendUrl", StringComparison.OrdinalIgnoreCase) ||
+                   programCs.Contains("App__BaseUrl", StringComparison.OrdinalIgnoreCase);
         }
 
         return programCs.Contains("AllowedOrigins", StringComparison.OrdinalIgnoreCase) &&

@@ -1,4 +1,5 @@
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 
 namespace DeployAI.Api.Services;
 
@@ -10,8 +11,7 @@ internal static class SplitOriginDetection
         string? websiteProvider,
         string? serverProvider)
     {
-        if (!string.Equals(websiteProvider, "vercel", StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(serverProvider, "railway", StringComparison.OrdinalIgnoreCase))
+        if (!IsSupportedSplitOriginProviderPair(websiteProvider, serverProvider))
         {
             return false;
         }
@@ -19,6 +19,15 @@ internal static class SplitOriginDetection
         return CrossProviderUrlWiring.ResolveWiringMode(websiteFramework, serverFramework) ==
                CrossProviderWiringMode.SplitOrigin;
     }
+
+    internal static bool IsCoolifyFullStack(string? websiteProvider, string? serverProvider) =>
+        string.Equals(websiteProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(serverProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSupportedSplitOriginProviderPair(string? websiteProvider, string? serverProvider) =>
+        (string.Equals(websiteProvider, "vercel", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(serverProvider, "railway", StringComparison.OrdinalIgnoreCase)) ||
+        IsCoolifyFullStack(websiteProvider, serverProvider);
 
     internal static bool IsSplitOriginPlanPart(DeploymentPlanPart part) =>
         string.Equals(part.Role, "website", StringComparison.OrdinalIgnoreCase) &&
@@ -48,15 +57,22 @@ internal static class SplitOriginDetection
         var clientRoot = NormalizeRoot(websitePart.RootDirectory);
         var serverRoot = NormalizeRoot(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
         var clientPrefix = string.IsNullOrEmpty(clientRoot) ? string.Empty : $"{clientRoot}/";
+        var coolifyStack = IsCoolifyFullStack(websitePart.ProviderName, serverPart.ProviderName);
 
-        return
-        [
-            "railway.toml",
-            $"{clientPrefix}vercel.json",
+        var paths = new List<string>
+        {
             $"{clientPrefix}scripts/write-api-env.mjs",
             $"{clientPrefix}src/app/core/interceptors/api-base.interceptor.ts",
             $"{serverRoot}/Controllers/HealthController.cs"
-        ];
+        };
+
+        if (!coolifyStack)
+        {
+            paths.Insert(0, "railway.toml");
+            paths.Insert(1, $"{clientPrefix}vercel.json");
+        }
+
+        return paths;
     }
 
     internal static IReadOnlyList<MissingDeploymentFile> EvaluateRepositoryFiles(

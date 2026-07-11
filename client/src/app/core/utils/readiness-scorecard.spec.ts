@@ -1,6 +1,7 @@
 import {
   buildReadinessScorecard,
-  ReadinessCheckStatus
+  ReadinessCheckStatus,
+  usesCoolifySetupScaffold
 } from './readiness-scorecard';
 import { DeploymentReadinessResult } from '../models/api.models';
 
@@ -53,5 +54,43 @@ describe('buildReadinessScorecard', () => {
     expect(result.isReady).toBe(true);
     expect(result.scorePercent).toBe(100);
     expect(result.items.some(item => item.id === 'deployment-ready')).toBe(true);
+  });
+
+  it('describes Coolify full-stack hosting in the scorecard', () => {
+    const result = buildReadinessScorecard({
+      isReady: true,
+      usesSplitOrigin: true,
+      websiteProviderName: 'coolify',
+      serverProviderName: 'coolify',
+      missingFiles: [],
+      warnings: []
+    });
+
+    expect(result.items.some(item =>
+      item.detail?.includes('Coolify full-stack setup')
+    )).toBe(true);
+    expect(result.items.some(item =>
+      item.detail?.includes('Coolify full-stack files')
+    )).toBe(true);
+  });
+
+  it('hides Vercel/Railway scaffold for Coolify full-stack readiness', () => {
+    expect(usesCoolifySetupScaffold({
+      isReady: false,
+      usesSplitOrigin: true,
+      websiteProviderName: 'coolify',
+      serverProviderName: 'coolify',
+      missingFiles: [],
+      warnings: []
+    })).toBe(false);
+
+    expect(usesCoolifySetupScaffold({
+      isReady: false,
+      usesSplitOrigin: true,
+      websiteProviderName: 'vercel',
+      serverProviderName: 'railway',
+      missingFiles: [],
+      warnings: []
+    })).toBe(true);
   });
 });

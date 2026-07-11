@@ -17,7 +17,9 @@ public sealed record DeploymentReadinessResult(
     string? CommitSha,
     bool UsesSplitOrigin,
     IReadOnlyList<MissingDeploymentFile> MissingFiles,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    string? WebsiteProviderName = null,
+    string? ServerProviderName = null);
 
 public sealed record DeploymentSetupResult(
     string BranchName,

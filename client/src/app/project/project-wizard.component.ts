@@ -24,6 +24,7 @@ import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-fol
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
+import { usesCoolifySetupScaffold } from '../core/utils/readiness-scorecard';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
 import { AppLogoPickerComponent } from '../shared/app-logo-picker/app-logo-picker.component';
@@ -470,8 +471,12 @@ export class ProjectWizardComponent implements OnInit {
     this.loadDeploymentReadiness();
   }
 
-  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+  showReadinessScorecard(readiness: DeploymentReadinessResult): boolean {
     return readiness.usesSplitOrigin;
+  }
+
+  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+    return usesCoolifySetupScaffold(readiness);
   }
 
   deployFromPlan(): void {
