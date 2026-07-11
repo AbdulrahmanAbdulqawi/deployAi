@@ -83,7 +83,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         string branch,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(serverTarget.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        if (_provisioningFactory.GetProvisioning(serverTarget.ProviderName) is null)
         {
             return;
         }
@@ -173,13 +173,11 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             return;
         }
 
-        if (!string.Equals(serverTarget.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        var provisioning = _provisioningFactory.GetProvisioning(serverTarget.ProviderName);
+        if (provisioning is null)
         {
             return;
         }
-
-        var provisioning = _provisioningFactory.GetProvisioning(serverTarget.ProviderName)
-            ?? throw new InvalidOperationException("Railway database provisioning is not available.");
 
         var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
         if (serverConfig.IsDatabaseTarget)
@@ -210,7 +208,15 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 cancellationToken);
         }
 
-        var links = BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
+        if (request.IncludeRedis &&
+            !string.Equals(serverTarget.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase))
+        {
+            request = request with { IncludeRedis = false };
+        }
+
+        var links = string.Equals(serverTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
+            ? BuildCoolifyVariableLinks(postgres)
+            : BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
         if (links.Count > 0)
         {
             await provisioning.LinkDatabaseVariablesAsync(
@@ -247,6 +253,22 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         await UpsertDatabaseDeployTargetAsync(project, serverTarget, redis, "redis", cancellationToken);
 
         DetachAllDeployTargetChanges();
+    }
+
+    internal static IReadOnlyList<DatabaseVariableLink> BuildCoolifyVariableLinks(
+        ProvisionedDatabaseService? postgres)
+    {
+        if (postgres is null || string.IsNullOrWhiteSpace(postgres.ServiceId))
+        {
+            return [];
+        }
+
+        return
+        [
+            new DatabaseVariableLink("DATABASE_URL", postgres.ServiceId),
+            new DatabaseVariableLink("ConnectionStrings__Default", postgres.ServiceId),
+            new DatabaseVariableLink("ConnectionStrings__DefaultConnection", postgres.ServiceId)
+        ];
     }
 
     internal static IReadOnlyList<DatabaseVariableLink> BuildVariableLinks(

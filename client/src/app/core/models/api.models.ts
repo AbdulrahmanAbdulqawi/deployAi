@@ -91,7 +91,14 @@ export interface DeploymentPlan {
   parts: DeploymentPlanPart[];
   confidence: 'high' | 'low';
   plainSummary: string;
+  planKind?: DeploymentPlanKind;
   clarifyingQuestion?: ClarifyingQuestion;
+}
+
+export enum DeploymentPlanKind {
+  Default = 'default',
+  CoolifyFullStack = 'coolify-fullstack',
+  CoolifySingle = 'coolify-single',
 }
 
 export interface GitHubContentDirectory {

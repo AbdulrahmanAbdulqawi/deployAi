@@ -263,6 +263,16 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
 
         if (string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
         {
+            if (string.Equals(config.Role, "website", StringComparison.OrdinalIgnoreCase))
+            {
+                return 2;
+            }
+
+            if (string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
             return 1;
         }
 
@@ -379,11 +389,38 @@ public sealed class DeploymentJobRunner
                 }
             }
 
+            var coolifyConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+            if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(coolifyConfig.Role, "website", StringComparison.OrdinalIgnoreCase))
+            {
+                await _frontendEnvironmentWiring.WireWebsiteTargetBeforeDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+            }
+
             var provider = _providerFactory.GetProvider(target.ProviderName);
             var token = await _tokens.GetTokenAsync(deployTarget.Credential, cancellationToken);
             var credentials = new ProviderCredentials(token);
 
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+            {
+                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                    project,
+                    deployTarget,
+                    deployment.Branch,
+                    cancellationToken);
+                DetachDeployTargetChanges();
+                targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+
+                await _frontendEnvironmentWiring.WireServerTargetBeforeRailwayDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+            }
+
+            if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(targetConfig.Role, "server", StringComparison.OrdinalIgnoreCase))
             {
                 await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
@@ -471,10 +508,13 @@ public sealed class DeploymentJobRunner
                 await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, status.ErrorMessage!, cancellationToken);
             }
 
-            if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+            if ((string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) ||
+                 (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                  string.Equals(DeployTargetConfig.Parse(deployTarget.ConfigJson).Role, "website", StringComparison.OrdinalIgnoreCase))) &&
                 target.Status == DeploymentStatuses.Success)
             {
-                if (provider is IWebsiteApiProxySupport websiteProxy)
+                if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+                    provider is IWebsiteApiProxySupport websiteProxy)
                 {
                     try
                     {

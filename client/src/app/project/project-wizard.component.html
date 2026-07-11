@@ -132,9 +132,19 @@
               <strong>Coolify</strong>
               <span>Existing app on your server</span>
             </button>
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'coolify-fullstack'" (click)="setDeploymentMode('coolify-fullstack')">
+              <strong>Coolify full-stack</strong>
+              <span>Website + API on your server</span>
+            </button>
           </div>
 
-          @if (publishCoolify) {
+          @if (isCoolifyFullStack()) {
+            <p class="wizard__hint">
+              DeployAI will create two Coolify applications (website and API), wire environment variables, and provision PostgreSQL when needed.
+            </p>
+          }
+
+          @if (publishCoolify && !isCoolifyFullStack()) {
             <p class="wizard__hint">
               Publish tells Coolify to rebuild from the Git branch already configured in your Coolify application.
             </p>
@@ -158,7 +168,7 @@
             }
           }
 
-          @if (publishWebsite) {
+          @if (publishWebsite && !isCoolifyFullStack()) {
             <div class="wizard__folder">
               <p class="u-label-caps">Website folder</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
@@ -173,9 +183,63 @@
             </div>
           }
 
-          @if (publishServer) {
+          @if (publishServer && !isCoolifyFullStack()) {
             <div class="wizard__folder">
               <p class="u-label-caps">Server folder</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="serverRootPath"
+                  [confirmedSelection]="serverFolderSelected ? serverRootPath : null"
+                  (pathSelected)="onServerFolderSelected($event)" />
+              }
+            </div>
+          }
+
+          @if (isCoolifyFullStack()) {
+            <div class="wizard__folder">
+              <p class="u-label-caps">Website folder</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="websiteRootPath"
+                  [confirmedSelection]="websiteFolderSelected ? websiteRootPath : null"
+                  (pathSelected)="onWebsiteFolderSelected($event)" />
+              }
+            </div>
+            <div class="wizard__folder">
+              <p class="u-label-caps">API folder</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="serverRootPath"
+                  [confirmedSelection]="serverFolderSelected ? serverRootPath : null"
+                  (pathSelected)="onServerFolderSelected($event)" />
+              }
+            </div>
+          }
+
+          @if (isCoolifyFullStack()) {
+            <div class="wizard__folder">
+              <p class="u-label-caps">Website folder</p>
+              @if (repoOwner() && repoName() && selectedBranch()) {
+                <app-repo-folder-picker
+                  [owner]="repoOwner()!"
+                  [repo]="repoName()!"
+                  [gitRef]="selectedBranch()!"
+                  [initialPath]="websiteRootPath"
+                  [confirmedSelection]="websiteFolderSelected ? websiteRootPath : null"
+                  (pathSelected)="onWebsiteFolderSelected($event)" />
+              }
+            </div>
+            <div class="wizard__folder">
+              <p class="u-label-caps">API folder</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"
@@ -207,7 +271,7 @@
           <h2>Hosting setup</h2>
         </div>
 
-        @if (publishWebsite) {
+        @if (publishWebsite && !isCoolifyFullStack()) {
           <section class="wizard__host-block">
             <h3 class="wizard__host-title">Your site</h3>
             @if (loadingCredentials()) {
@@ -257,7 +321,7 @@
           </section>
         }
 
-        @if (publishServer) {
+        @if (publishServer && !isCoolifyFullStack()) {
           <section class="wizard__host-block">
             <h3 class="wizard__host-title">Your API</h3>
             @if (loadingCredentials()) {
@@ -309,6 +373,178 @@
               } @else if (detectedDatabaseSummary()) {
                 <p class="wizard__detected">{{ detectedDatabaseSummary() }}</p>
               }
+            }
+          </section>
+        }
+
+        @if (isCoolifyFullStack()) {
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Coolify connection</h3>
+            @if (loadingCredentials()) {
+              <p class="wizard__muted">Loading…</p>
+            } @else if (coolifyCredentials().length === 0) {
+              <div class="wizard__callout">
+                <app-ui-button variant="quiet" icon="settings" (click)="goToConnections()">Connect Coolify in Settings</app-ui-button>
+              </div>
+            } @else {
+              <label class="wizard__field">
+                <span class="u-label-caps">Connection</span>
+                <select [(ngModel)]="selectedCoolifyCredentialId" (ngModelChange)="onCoolifyCredentialChange()">
+                  @for (cred of coolifyCredentials(); track cred.id) {
+                    <option [value]="cred.id">{{ cred.label }}</option>
+                  }
+                </select>
+              </label>
+            }
+          </section>
+
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Your site on Coolify</h3>
+            <div class="wizard__mode-toggle">
+              <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyWebsiteHostingMode() === 'existing'" (click)="setCoolifyWebsiteHostingMode('existing')">Use existing</button>
+              <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyWebsiteHostingMode() === 'create'" (click)="setCoolifyWebsiteHostingMode('create')">Create new</button>
+            </div>
+            @if (coolifyWebsiteHostingMode() === 'existing') {
+              @if (loadingCoolifyProjects()) {
+                <p class="wizard__muted">Loading…</p>
+              } @else {
+                <div class="wizard__options">
+                  @for (project of coolifyProjects(); track project.id) {
+                    <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedCoolifyWebsiteProjectId() === project.id" (click)="selectedCoolifyWebsiteProjectId.set(project.id)">
+                      {{ project.name }}
+                    </button>
+                  }
+                </div>
+              }
+            } @else {
+              <label class="wizard__field">
+                <span class="u-label-caps">New website app name</span>
+                <input type="text" [(ngModel)]="newCoolifyWebsiteProjectName" placeholder="my-app" />
+              </label>
+              @if (loadingCoolifyInfrastructure()) {
+                <p class="wizard__muted">Loading Coolify servers…</p>
+              } @else if (coolifyInfrastructure()) {
+                @if (coolifyInfrastructure()!.projects.length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Coolify project</span>
+                    <select [(ngModel)]="selectedCoolifyProjectUuid">
+                      @for (project of coolifyInfrastructure()!.projects; track project.id) {
+                        <option [value]="project.id">{{ project.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (coolifyInfrastructure()!.servers.length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Server</span>
+                    <select [(ngModel)]="selectedCoolifyServerUuid">
+                      @for (server of coolifyInfrastructure()!.servers; track server.id) {
+                        <option [value]="server.id">{{ server.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (selectedRepo()?.private) {
+                  @if (coolifyInfrastructure()!.githubApps.length === 0) {
+                    <p class="wizard__muted">Private repos need a GitHub App configured in Coolify.</p>
+                  } @else {
+                    <label class="wizard__field">
+                      <span class="u-label-caps">GitHub App</span>
+                      <select [(ngModel)]="selectedCoolifyGithubAppId">
+                        <option value="">Choose…</option>
+                        @for (app of coolifyInfrastructure()!.githubApps; track app.id) {
+                          <option [value]="app.id">{{ app.name }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                }
+              }
+              @if (coolifyCreateBlockedReason(); as blockedReason) {
+                <p class="wizard__hint">{{ blockedReason }}</p>
+              } @else {
+                <app-ui-button variant="secondary" icon="plus" [disabled]="!newCoolifyWebsiteProjectName || creatingCoolifyProject()" [loading]="creatingCoolifyProject()" (click)="createCoolifyWebsiteProject()">
+                  Create website app
+                </app-ui-button>
+              }
+            }
+          </section>
+
+          <section class="wizard__host-block">
+            <h3 class="wizard__host-title">Your API on Coolify</h3>
+            <div class="wizard__mode-toggle">
+              <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyServerHostingMode() === 'existing'" (click)="setCoolifyServerHostingMode('existing')">Use existing</button>
+              <button type="button" class="wizard__toggle" [class.wizard__toggle--active]="coolifyServerHostingMode() === 'create'" (click)="setCoolifyServerHostingMode('create')">Create new</button>
+            </div>
+            @if (coolifyServerHostingMode() === 'existing') {
+              @if (loadingCoolifyProjects()) {
+                <p class="wizard__muted">Loading…</p>
+              } @else {
+                <div class="wizard__options">
+                  @for (project of coolifyProjects(); track project.id) {
+                    <button type="button" class="wizard__option" [class.wizard__option--selected]="selectedCoolifyServerProjectId() === project.id" (click)="selectedCoolifyServerProjectId.set(project.id)">
+                      {{ project.name }}
+                    </button>
+                  }
+                </div>
+              }
+            } @else {
+              <label class="wizard__field">
+                <span class="u-label-caps">New API app name</span>
+                <input type="text" [(ngModel)]="newCoolifyServerProjectName" placeholder="my-api" />
+              </label>
+              @if (loadingCoolifyInfrastructure()) {
+                <p class="wizard__muted">Loading Coolify servers…</p>
+              } @else if (coolifyInfrastructure()) {
+                @if (coolifyInfrastructure()!.projects.length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Coolify project</span>
+                    <select [(ngModel)]="selectedCoolifyProjectUuid">
+                      @for (project of coolifyInfrastructure()!.projects; track project.id) {
+                        <option [value]="project.id">{{ project.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (coolifyInfrastructure()!.servers.length > 1) {
+                  <label class="wizard__field">
+                    <span class="u-label-caps">Server</span>
+                    <select [(ngModel)]="selectedCoolifyServerUuid">
+                      @for (server of coolifyInfrastructure()!.servers; track server.id) {
+                        <option [value]="server.id">{{ server.name }}</option>
+                      }
+                    </select>
+                  </label>
+                }
+                @if (selectedRepo()?.private) {
+                  @if (coolifyInfrastructure()!.githubApps.length === 0) {
+                    <p class="wizard__muted">Private repos need a GitHub App configured in Coolify.</p>
+                  } @else {
+                    <label class="wizard__field">
+                      <span class="u-label-caps">GitHub App</span>
+                      <select [(ngModel)]="selectedCoolifyGithubAppId">
+                        <option value="">Choose…</option>
+                        @for (app of coolifyInfrastructure()!.githubApps; track app.id) {
+                          <option [value]="app.id">{{ app.name }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                }
+              }
+              @if (coolifyCreateBlockedReason(); as blockedReason) {
+                <p class="wizard__hint">{{ blockedReason }}</p>
+              } @else {
+                <app-ui-button variant="secondary" icon="plus" [disabled]="!newCoolifyServerProjectName || creatingCoolifyProject()" [loading]="creatingCoolifyProject()" (click)="createCoolifyServerProject()">
+                  Create API app
+                </app-ui-button>
+              }
+            }
+
+            @if (detectingDatabaseRequirements()) {
+              <p class="wizard__muted">Checking DB…</p>
+            } @else if (detectedDatabaseSummary()) {
+              <p class="wizard__detected">{{ detectedDatabaseSummary() }}</p>
             }
           </section>
         }
@@ -435,13 +671,13 @@
         <ul class="wizard__summary">
           <li><span class="u-label-caps">App</span><span class="u-code-md">{{ selectedRepo()?.fullName }}</span></li>
           <li><span class="u-label-caps">Version</span><span class="u-code-md">{{ selectedBranch() }}</span></li>
-          @if (publishWebsite) {
+          @if (publishWebsite && !isCoolifyFullStack()) {
             <li><span class="u-label-caps">Site</span><span class="u-code-md">{{ websiteRootPath || 'app root' }}</span></li>
             @if (websiteBuildProfile()) {
               <li><span class="u-label-caps">Build output</span><span class="u-code-md">{{ websiteBuildProfile()!.outputDirectory }}</span></li>
             }
           }
-          @if (publishServer) {
+          @if (publishServer && !isCoolifyFullStack()) {
             <li><span class="u-label-caps">API</span><span class="u-code-md">{{ serverRootPath || 'app root' }}</span></li>
             @if (detectedDatabaseSummary()) {
               <li><span class="u-label-caps">Database</span><span>{{ detectedDatabaseSummary() }}</span></li>
@@ -450,12 +686,19 @@
               <li><span class="u-label-caps">Start command</span><span class="u-code-md">{{ serverBuildProfile()!.startCommand }}</span></li>
             }
           }
+          @if (isCoolifyFullStack()) {
+            <li><span class="u-label-caps">Site</span><span class="u-code-md">{{ selectedCoolifyWebsiteProjectName() }}</span></li>
+            <li><span class="u-label-caps">API</span><span class="u-code-md">{{ selectedCoolifyServerProjectName() }}</span></li>
+            @if (detectedDatabaseSummary()) {
+              <li><span class="u-label-caps">Database</span><span>{{ detectedDatabaseSummary() }}</span></li>
+            }
+          }
           @if (publishCoolify) {
             <li><span class="u-label-caps">Coolify</span><span class="u-code-md">{{ selectedCoolifyProjectName() }}</span></li>
           }
         </ul>
 
-        @if (publishWebsite) {
+        @if (publishWebsite && !isCoolifyFullStack()) {
           <button type="button" class="wizard__link" (click)="showAdvancedEnv.set(!showAdvancedEnv())">
             {{ showAdvancedEnv() ? 'Hide env vars' : 'Env vars' }}
           </button>

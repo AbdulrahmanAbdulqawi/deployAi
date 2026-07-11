@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DeployPlanComponent } from './deploy-plan.component';
-import { DeploymentPlan } from '../../core/models/api.models';
+import { DeploymentPlan, DeploymentPlanKind } from '../../core/models/api.models';
 
 describe('DeployPlanComponent', () => {
   let fixture: ComponentFixture<DeployPlanComponent>;
@@ -24,5 +24,24 @@ describe('DeployPlanComponent', () => {
 
   it('shows the plain-language summary', () => {
     expect(fixture.nativeElement.textContent).toContain(plan.plainSummary);
+  });
+
+  it('shows Coolify full-stack branding when planKind is coolify-fullstack', () => {
+    const fullStackPlan: DeploymentPlan = {
+      parts: [
+        { role: 'website', providerName: 'coolify' },
+        { role: 'server', providerName: 'coolify' }
+      ],
+      confidence: 'high',
+      plainSummary: 'Deploy everything to Coolify.',
+      planKind: DeploymentPlanKind.CoolifyFullStack
+    };
+
+    fixture.componentRef.setInput('plan', fullStackPlan);
+    fixture.componentRef.setInput('activeParts', fullStackPlan.parts);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Coolify full-stack setup');
+    expect(fixture.nativeElement.textContent).toContain('Coolify · Static site on Coolify');
   });
 });

@@ -1,5 +1,6 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { DeploymentPlan, DeploymentPlanPart } from '../../core/models/api.models';
+import { DeploymentPlan, DeploymentPlanKind, DeploymentPlanPart, ProviderName } from '../../core/models/api.models';
+import { isCoolifyProvider } from '../../core/utils/provider-branding';
 import { ButtonComponent } from '../ui/button/button.component';
 import { IconComponent } from '../ui/icon/icon.component';
 
@@ -45,14 +46,43 @@ export class DeployPlanComponent {
   roleDescription(role: string): string {
     switch (role) {
       case 'website':
-        return 'Fast global hosting';
+        return this.isCoolifyFullStackPlan() ? 'Static site on Coolify' : 'Fast global hosting';
       case 'server':
-        return 'Always-on server';
+        return this.isCoolifyFullStackPlan() ? 'API on Coolify' : 'Always-on server';
       case 'database':
-        return 'Managed database';
+        return this.isCoolifyFullStackPlan() ? 'PostgreSQL on Coolify' : 'Managed database';
       default:
         return '';
     }
+  }
+
+  isCoolifyFullStackPlan(): boolean {
+    return this.plan?.planKind === DeploymentPlanKind.CoolifyFullStack ||
+      (this.activeParts.some(part => part.role === 'website' && isCoolifyProvider(part.providerName)) &&
+        this.activeParts.some(part => part.role === 'server' && isCoolifyProvider(part.providerName)));
+  }
+
+  destinationProviderLabel(part: DeploymentPlanPart): string {
+    if (isCoolifyProvider(part.providerName)) {
+      return 'Coolify';
+    }
+    if (part.providerName === ProviderName.Vercel) {
+      return 'Vercel';
+    }
+    if (part.providerName === ProviderName.Railway) {
+      return 'Railway';
+    }
+    return part.providerName;
+  }
+
+  planTitle(): string {
+    return this.isCoolifyFullStackPlan() ? 'Coolify full-stack setup' : 'AI Recommended Setup';
+  }
+
+  planSubtitle(): string {
+    return this.isCoolifyFullStackPlan()
+      ? 'Website, API, and database on your Coolify server'
+      : 'Based on source code analysis';
   }
 
   websitePart(): DeploymentPlanPart | undefined {

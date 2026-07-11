@@ -1,0 +1,296 @@
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+using DeployAI.Core.Exceptions;
+using DeployAI.Core.Providers;
+
+namespace DeployAI.Providers.Coolify;
+
+public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IProviderApplicationUrlResolver
+{
+    public async Task<ProvisionedDatabaseService?> EnsurePostgresAsync(
+        ProviderCredentials credentials,
+        string appProviderProjectId,
+        string? postgresDatabaseName,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var application = await GetApplicationContextAsync(session, appProviderProjectId, cancellationToken);
+        if (application is null)
+        {
+            return null;
+        }
+
+        var existing = await FindExistingPostgresAsync(session, application, postgresDatabaseName, cancellationToken);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var databaseName = string.IsNullOrWhiteSpace(postgresDatabaseName)
+            ? $"{SanitizeResourceName(application.Name)}-postgres"
+            : SanitizeResourceName(postgresDatabaseName);
+
+        var body = new Dictionary<string, object?>
+        {
+            ["server_uuid"] = application.ServerUuid,
+            ["project_uuid"] = application.ProjectUuid,
+            ["environment_name"] = application.EnvironmentName,
+            ["environment_uuid"] = application.EnvironmentUuid,
+            ["name"] = databaseName,
+            ["postgres_db"] = databaseName.Replace('-', '_'),
+            ["postgres_user"] = databaseName.Replace('-', '_'),
+            ["instant_deploy"] = true
+        };
+
+        using var request = CreateRequest(HttpMethod.Post, session, "databases/postgresql");
+        request.Content = JsonContent.Create(body);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not create PostgreSQL on Coolify ({(int)response.StatusCode}).");
+        }
+
+        var created = await response.Content.ReadFromJsonAsync<CoolifyUuidResponse>(cancellationToken);
+        if (string.IsNullOrWhiteSpace(created?.Uuid))
+        {
+            throw new DeployAIException("coolify_api_error", "Coolify did not return a database id.");
+        }
+
+        return new ProvisionedDatabaseService(
+            created.Uuid,
+            databaseName,
+            application.ProjectUuid,
+            application.EnvironmentUuid);
+    }
+
+    public Task<ProvisionedDatabaseService?> EnsureRedisAsync(
+        ProviderCredentials credentials,
+        string appProviderProjectId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<ProvisionedDatabaseService?>(null);
+
+    public async Task LinkDatabaseVariablesAsync(
+        ProviderCredentials credentials,
+        string appProviderProjectId,
+        IReadOnlyList<DatabaseVariableLink> links,
+        CancellationToken cancellationToken)
+    {
+        if (links.Count == 0)
+        {
+            return;
+        }
+
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        foreach (var link in links)
+        {
+            var database = await GetDatabaseAsync(session, link.ReferenceValue, cancellationToken);
+            var connectionString = ResolvePostgresConnectionString(database);
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                continue;
+            }
+
+            await UpsertEnvVarAsync(
+                credentials,
+                appProviderProjectId,
+                new UpsertProviderEnvVarRequest(link.Key, connectionString, "plain", []),
+                cancellationToken);
+
+            if (string.Equals(link.Key, "DATABASE_URL", StringComparison.OrdinalIgnoreCase))
+            {
+                await UpsertEnvVarAsync(
+                    credentials,
+                    appProviderProjectId,
+                    new UpsertProviderEnvVarRequest("POSTGRES_URL", connectionString, "plain", []),
+                    cancellationToken);
+            }
+        }
+    }
+
+    private static string? ResolvePostgresConnectionString(CoolifyDatabaseDetails? database)
+    {
+        if (database is null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(database.PostgresConnectionString))
+        {
+            return database.PostgresConnectionString;
+        }
+
+        if (!string.IsNullOrWhiteSpace(database.InternalDbUrl))
+        {
+            return database.InternalDbUrl;
+        }
+
+        if (string.IsNullOrWhiteSpace(database.PostgresUser) ||
+            string.IsNullOrWhiteSpace(database.PostgresPassword) ||
+            string.IsNullOrWhiteSpace(database.PostgresHost) ||
+            string.IsNullOrWhiteSpace(database.PostgresDb))
+        {
+            return null;
+        }
+
+        var port = database.PostgresPort ?? 5432;
+        return $"postgres://{database.PostgresUser}:{database.PostgresPassword}@{database.PostgresHost}:{port}/{database.PostgresDb}";
+    }
+
+    public async Task<string?> ResolveApplicationUrlAsync(
+        ProviderCredentials credentials,
+        string applicationUuid,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var application = await TryGetApplicationAsync(session, applicationUuid, cancellationToken);
+        return NormalizeUrl(application?.Fqdn);
+    }
+
+    private async Task<ProvisionedDatabaseService?> FindExistingPostgresAsync(
+        CoolifyApiSupport.CoolifySession session,
+        CoolifyApplicationContext application,
+        string? postgresDatabaseName,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, session, "databases");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var databases = await response.Content.ReadFromJsonAsync<List<CoolifyDatabaseSummary>>(cancellationToken) ?? [];
+        var desiredName = string.IsNullOrWhiteSpace(postgresDatabaseName)
+            ? $"{SanitizeResourceName(application.Name)}-postgres"
+            : SanitizeResourceName(postgresDatabaseName);
+
+        var match = databases.FirstOrDefault(database =>
+            string.Equals(database.Type, "postgresql", StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(database.Name, desiredName, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(database.Uuid, desiredName, StringComparison.OrdinalIgnoreCase)));
+
+        return match?.Uuid is { Length: > 0 } uuid
+            ? new ProvisionedDatabaseService(uuid, match.Name ?? desiredName, application.ProjectUuid, application.EnvironmentUuid)
+            : null;
+    }
+
+    private async Task<CoolifyApplicationContext?> GetApplicationContextAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string applicationUuid,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, session, $"applications/{applicationUuid}");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var application = await response.Content.ReadFromJsonAsync<CoolifyApplicationContext>(cancellationToken);
+        if (application is null ||
+            string.IsNullOrWhiteSpace(application.Uuid) ||
+            string.IsNullOrWhiteSpace(application.ProjectUuid) ||
+            string.IsNullOrWhiteSpace(application.ServerUuid))
+        {
+            return null;
+        }
+
+        application.EnvironmentName ??= "production";
+        application.EnvironmentUuid ??= application.EnvironmentName;
+        return application;
+    }
+
+    private async Task<CoolifyDatabaseDetails?> GetDatabaseAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string databaseUuid,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, session, $"databases/{databaseUuid}");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<CoolifyDatabaseDetails>(cancellationToken);
+    }
+
+    private static string SanitizeResourceName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "app-postgres";
+        }
+
+        var sanitized = new string(value
+            .Trim()
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray())
+            .Trim('-');
+
+        return string.IsNullOrWhiteSpace(sanitized) ? "app-postgres" : sanitized;
+    }
+
+    private sealed class CoolifyApplicationContext
+    {
+        [JsonPropertyName("uuid")]
+        public string? Uuid { get; set; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("project_uuid")]
+        public string? ProjectUuid { get; set; }
+
+        [JsonPropertyName("server_uuid")]
+        public string? ServerUuid { get; set; }
+
+        [JsonPropertyName("environment_name")]
+        public string? EnvironmentName { get; set; }
+
+        [JsonPropertyName("environment_uuid")]
+        public string? EnvironmentUuid { get; set; }
+    }
+
+    private sealed class CoolifyDatabaseSummary
+    {
+        [JsonPropertyName("uuid")]
+        public string? Uuid { get; set; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("type")]
+        public string? Type { get; set; }
+    }
+
+    private sealed class CoolifyDatabaseDetails
+    {
+        [JsonPropertyName("postgres_connection_string")]
+        public string? PostgresConnectionString { get; set; }
+
+        [JsonPropertyName("internal_db_url")]
+        public string? InternalDbUrl { get; set; }
+
+        [JsonPropertyName("postgres_db")]
+        public string? PostgresDb { get; set; }
+
+        [JsonPropertyName("postgres_user")]
+        public string? PostgresUser { get; set; }
+
+        [JsonPropertyName("postgres_password")]
+        public string? PostgresPassword { get; set; }
+
+        [JsonPropertyName("postgres_host")]
+        public string? PostgresHost { get; set; }
+
+        [JsonPropertyName("postgres_port")]
+        public int? PostgresPort { get; set; }
+    }
+}

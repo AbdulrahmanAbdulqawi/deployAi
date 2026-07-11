@@ -189,8 +189,13 @@ public sealed class ProjectsController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         var serverTarget = project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
+        {
+            var config = DeployTargetConfig.Parse(t.ConfigJson);
+            return config.IsDeployableTarget &&
+                   string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase) &&
+                   (string.Equals(t.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
+        });
         if (serverTarget is not null)
         {
             await _railwayDatabaseProvisioning.EnsureFromRepoAsync(

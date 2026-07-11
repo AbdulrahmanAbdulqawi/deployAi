@@ -5,6 +5,7 @@ using DeployAI.Core.Security;
 using DeployAI.Data;
 using DeployAI.Data.Entities;
 using DeployAI.Infrastructure.GitHub;
+using DeployAI.Providers.Coolify;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 
@@ -12,6 +13,37 @@ namespace DeployAI.Tests.Services;
 
 public class FrontendEnvironmentWiringServiceTests
 {
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_UpsertsCoolifyApiEnvVars()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedCoolifyDualTargetDeploymentAsync(db);
+        var websiteTarget = await db.DeploymentTargets
+            .Include(t => t.DeployTarget)
+            .FirstAsync(t => t.ProviderName == "coolify" && t.DeployTarget!.ProviderProjectId == "app_web");
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(db, factory, serviceOperationsFactory, tokens);
+
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, websiteTarget, CancellationToken.None);
+
+        coolifyManagement.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "app_web",
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "API_URL" && r.Value == "https://api.example.com"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task WireWebsiteTargetBeforeDeployAsync_UpsertsSplitOriginEnvVars()
     {
@@ -946,6 +978,98 @@ public class FrontendEnvironmentWiringServiceTests
         return deploymentId;
     }
 
+    private static async Task<Guid> SeedCoolifyDualTargetDeploymentAsync(DeployAIDbContext db)
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var coolifyCredentialId = Guid.NewGuid();
+        var websiteTargetId = Guid.NewGuid();
+        var serverTargetId = Guid.NewGuid();
+        var deploymentId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = coolifyCredentialId,
+            UserId = userId,
+            ProviderName = "coolify",
+            Label = "Coolify",
+            TokenEncrypted = [1, 2, 3],
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Coolify stack",
+            GitHubRepoFullName = "tester/stack",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = websiteTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = serverTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        db.Deployments.Add(new Deployment
+        {
+            Id = deploymentId,
+            ProjectId = projectId,
+            Branch = "main",
+            TriggeredBy = "user",
+            Status = DeploymentStatuses.InProgress,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = serverTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://api.example.com"
+                },
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = websiteTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.InProgress
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+        return deploymentId;
+    }
+
     private static FrontendEnvironmentWiringService CreateService(
         DeployAIDbContext db,
         Mock<IProviderManagementFactory> managementFactory,
@@ -987,6 +1111,7 @@ public class FrontendEnvironmentWiringServiceTests
             managementFactory.Object,
             serviceOperationsFactory.Object,
             (providerFactory ?? new Mock<IProviderFactory>()).Object,
+            new Mock<IProviderApplicationUrlResolverFactory>().Object,
             tokens.Object,
             gitHubService.Object,
             (encryption ?? CreateEncryptionMock()).Object,
