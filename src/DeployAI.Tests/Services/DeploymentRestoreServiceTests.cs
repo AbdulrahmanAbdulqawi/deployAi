@@ -223,16 +223,7 @@ public class DeploymentRestoreServiceTests
                     ProviderName = providerName,
                     CredentialId = resolvedCredentialId,
                     ProviderProjectId = "svc_1",
-                    CreatedAt = DateTimeOffset.UtcNow,
-                    Credential = new ProviderCredential
-                    {
-                        Id = resolvedCredentialId,
-                        UserId = userId,
-                        ProviderName = providerName,
-                        Label = "Default",
-                        TokenEncrypted = [1, 2, 3],
-                        CreatedAt = DateTimeOffset.UtcNow
-                    }
+                    CreatedAt = DateTimeOffset.UtcNow
                 }
             ]
         });
