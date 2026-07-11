@@ -21,8 +21,8 @@
         <app-ui-icon name="rocket" size="sm" statusClass="accent" />
       </div>
       <div>
-        <h2 class="plan-card__title">AI Recommended Setup</h2>
-        <p class="plan-card__subtitle">Based on source code analysis</p>
+        <h2 class="plan-card__title">{{ planTitle() }}</h2>
+        <p class="plan-card__subtitle">{{ planSubtitle() }}</p>
       </div>
     </div>
 
@@ -52,7 +52,7 @@
         @for (part of activeParts; track part.role + part.providerName) {
           <li>
             <strong>{{ roleLabel(part.role) }}</strong>
-            <span>{{ roleDescription(part.role) }}</span>
+            <span>{{ destinationProviderLabel(part) }} · {{ roleDescription(part.role) }}</span>
           </li>
         }
       </ul>

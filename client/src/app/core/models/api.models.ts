@@ -11,12 +11,19 @@ export interface ProviderInfo {
   apiStyle: string;
 }
 
+export enum ProviderName {
+  Vercel = 'vercel',
+  Railway = 'railway',
+  Coolify = 'coolify',
+}
+
 export interface CredentialSummary {
   id: string;
   providerName: string;
   label: string;
   isValid: boolean;
   lastValidatedAt?: string;
+  instanceUrl?: string;
 }
 
 export interface GitHubRepo {
@@ -84,7 +91,14 @@ export interface DeploymentPlan {
   parts: DeploymentPlanPart[];
   confidence: 'high' | 'low';
   plainSummary: string;
+  planKind?: DeploymentPlanKind;
   clarifyingQuestion?: ClarifyingQuestion;
+}
+
+export enum DeploymentPlanKind {
+  Default = 'default',
+  CoolifyFullStack = 'coolify-fullstack',
+  CoolifySingle = 'coolify-single',
 }
 
 export interface GitHubContentDirectory {
@@ -96,6 +110,26 @@ export interface ProviderProject {
   id: string;
   name: string;
   url?: string;
+  gitBranch?: string;
+}
+
+export interface CoolifyInfrastructureResource {
+  id: string;
+  name: string;
+}
+
+export interface CoolifyInfrastructure {
+  projects: CoolifyInfrastructureResource[];
+  servers: CoolifyInfrastructureResource[];
+  githubApps: CoolifyInfrastructureResource[];
+}
+
+export enum CoolifyBuildPack {
+  Nixpacks = 'nixpacks',
+  Static = 'static',
+  Dockerfile = 'dockerfile',
+  DockerCompose = 'dockercompose',
+  Railpack = 'railpack',
 }
 
 export interface ProviderEnvVar {
@@ -133,7 +167,31 @@ export interface ProjectSummary {
 
 export interface ProjectDetail extends Omit<ProjectSummary, 'latestDeployment' | 'targets'> {
   targets: ProjectTarget[];
+  autoDeployEnabled?: boolean;
+  health?: ProjectHealthState | null;
   environmentSync?: EnvironmentSyncState | null;
+}
+
+export enum ProjectHealthStatus {
+  Healthy = 'healthy',
+  Degraded = 'degraded',
+  Down = 'down',
+  Unknown = 'unknown'
+}
+
+export interface ProjectHealthState {
+  lastCheckedAt: string;
+  status: ProjectHealthStatus;
+  passedChecks: number;
+  totalChecks: number;
+  summary?: string;
+  deploymentId?: string;
+}
+
+export interface NotificationPreferencesResponse {
+  emailOnSuccess: boolean;
+  emailOnFailure: boolean;
+  emailOnComplete: boolean;
 }
 
 export interface EnvironmentSyncState {
@@ -224,6 +282,7 @@ export interface DeploymentSummary {
   gitCommitSha?: string;
   gitCommitMessage?: string;
   status: string;
+  triggeredBy?: string;
   durationSeconds?: number;
   startedAt?: string;
   completedAt?: string;
@@ -264,6 +323,7 @@ export interface DeploymentDetail {
   gitCommitSha?: string;
   gitCommitMessage?: string;
   status: string;
+  triggeredBy?: string;
   startedAt?: string;
   completedAt?: string;
   durationSeconds?: number;
@@ -329,6 +389,8 @@ export interface DeploymentReadinessResult {
   isReady: boolean;
   commitSha?: string;
   usesSplitOrigin: boolean;
+  websiteProviderName?: string;
+  serverProviderName?: string;
   missingFiles: MissingDeploymentFile[];
   warnings: string[];
 }

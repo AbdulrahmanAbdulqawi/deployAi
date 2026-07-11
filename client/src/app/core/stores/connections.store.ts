@@ -51,7 +51,7 @@ export class ConnectionsStore {
     return this.api.deleteCredential(id);
   }
 
-  addCredential(providerName: string, token: string, label?: string) {
-    return this.api.addCredential(providerName, token, label);
+  addCredential(providerName: string, token: string, label?: string, instanceUrl?: string) {
+    return this.api.addCredential(providerName, token, label, instanceUrl);
   }
 }

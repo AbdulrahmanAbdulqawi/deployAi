@@ -2,8 +2,9 @@ import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/services/api.service';
-import { GitHubBranch, FrontendBuildProfile, ServerBuildProfile, ProjectDetail, ProjectTarget } from '../core/models/api.models';
+import { GitHubBranch, FrontendBuildProfile, ServerBuildProfile, ProjectDetail, ProjectTarget, ProviderName } from '../core/models/api.models';
 import { parseTargetConfig, providerLabel } from '../core/utils/target-config';
+import { isCoolifyProvider } from '../core/utils/provider-branding';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { ConfirmService } from '../shared/ui/confirm/confirm.service';
 import { ButtonComponent } from '../shared/ui/button/button.component';
@@ -35,6 +36,7 @@ export class ProjectEditComponent implements OnInit {
 
   name = '';
   defaultBranch = '';
+  autoDeployEnabled = false;
   private projectId = '';
 
   constructor(
@@ -54,6 +56,7 @@ export class ProjectEditComponent implements OnInit {
         this.project.set(project);
         this.name = project.name;
         this.defaultBranch = project.defaultBranch;
+        this.autoDeployEnabled = project.autoDeployEnabled ?? false;
         this.editableTargets.set(
           project.targets
             .filter(target => parseTargetConfig(target.config).role !== 'database')
@@ -107,20 +110,39 @@ export class ProjectEditComponent implements OnInit {
   }
 
   targetSectionTitle(target: TargetConfig): string {
-    if (target.providerName === 'vercel') return 'Website';
-    if (target.providerName === 'railway') return 'API';
+    if (target.providerName === ProviderName.Vercel) return 'Website';
+    if (target.providerName === ProviderName.Railway) return 'API';
+    if (target.providerName === ProviderName.Coolify) return 'Coolify app';
     return this.targetLabel(target);
   }
 
   targetSectionSubtitle(target: TargetConfig): string {
-    if (target.providerName === 'vercel') return 'Vercel Deployment';
-    if (target.providerName === 'railway') return 'Railway Infrastructure';
+    if (target.providerName === ProviderName.Vercel) return 'Vercel Deployment';
+    if (target.providerName === ProviderName.Railway) return 'Railway Infrastructure';
+    if (target.providerName === ProviderName.Coolify) return 'Self-hosted on Coolify';
     return providerLabel(target.providerName);
   }
 
   hasTargetPath(target: TargetConfig): boolean {
+    if (isCoolifyProvider(target.providerName)) {
+      return true;
+    }
+
     const path = target.serviceDirectory ?? target.rootDirectory;
     return path !== undefined && path !== null;
+  }
+
+  coolifyBranchMismatch(target: TargetConfig): string | null {
+    if (!isCoolifyProvider(target.providerName)) {
+      return null;
+    }
+
+    const coolifyBranch = target.coolifyGitBranch;
+    if (coolifyBranch && this.defaultBranch && coolifyBranch !== this.defaultBranch) {
+      return `Coolify rebuilds from "${coolifyBranch}". This app publishes from "${this.defaultBranch}".`;
+    }
+
+    return null;
   }
 
   targetFolderPath(target: TargetConfig): string | null {
@@ -135,7 +157,10 @@ export class ProjectEditComponent implements OnInit {
     startCommand?: string;
   }[] {
     return this.editableTargets()
-      .filter(target => target.providerName === 'vercel' || target.providerName === 'railway')
+      .filter(target =>
+        target.providerName === ProviderName.Vercel ||
+        target.providerName === ProviderName.Railway ||
+        target.providerName === ProviderName.Coolify)
       .map(target => ({
         component: this.targetSectionTitle(target),
         framework: target.framework,
@@ -160,13 +185,13 @@ export class ProjectEditComponent implements OnInit {
       )
     );
 
-    if (providerName === 'vercel' || providerName === 'railway') {
+    if (providerName === ProviderName.Vercel || providerName === ProviderName.Railway) {
       this.detectBuildProfile(path, providerName, false);
     }
   }
 
   redetectBuildSettings(target: TargetConfig): void {
-    if (target.providerName !== 'vercel' && target.providerName !== 'railway') {
+    if (target.providerName !== ProviderName.Vercel && target.providerName !== ProviderName.Railway) {
       return;
     }
 
@@ -324,6 +349,7 @@ export class ProjectEditComponent implements OnInit {
     this.api.updateProject(this.projectId, {
       name: this.name,
       defaultBranch: this.defaultBranch,
+      autoDeployEnabled: this.autoDeployEnabled,
       targets: this.editableTargets().map(target => ({
         providerName: target.providerName,
         credentialId: target.credentialId,

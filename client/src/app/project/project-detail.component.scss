@@ -314,6 +314,22 @@
   color: var(--provider-railway);
 }
 
+.service-tile__logo--coolify {
+  background: #1a2e1a;
+  border: 1px solid var(--border-default);
+  color: #5cdb5c;
+  font-weight: 700;
+}
+
+.detail__notice {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--status-warning-border);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+
 .service-tile__brand-text {
   display: grid;
   gap: 2px;

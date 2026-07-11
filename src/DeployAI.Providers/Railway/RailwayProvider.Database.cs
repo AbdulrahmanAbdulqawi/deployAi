@@ -124,6 +124,12 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         }
     }
 
+    public Task DeleteDatabaseAsync(
+        ProviderCredentials credentials,
+        string databaseProviderProjectId,
+        CancellationToken cancellationToken) =>
+        DeleteServiceAsync(credentials, databaseProviderProjectId, cancellationToken);
+
     private async Task<ProvisionedDatabaseService?> EnsureTemplateDatabaseAsync(
         ProviderCredentials credentials,
         string appProviderProjectId,

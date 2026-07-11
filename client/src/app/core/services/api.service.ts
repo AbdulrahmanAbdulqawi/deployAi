@@ -25,6 +25,7 @@ import {
   EnvironmentSyncResult,
   EnvironmentSyncState,
   ProjectDetail,
+  NotificationPreferencesResponse,
   ProjectServicesResponse,
   ProjectServiceStatus,
   DataServiceInfo,
@@ -32,6 +33,9 @@ import {
   ProviderInfo,
   ProviderProject,
   ProviderEnvVar,
+  CoolifyInfrastructure,
+  CoolifyInfrastructureResource,
+  CoolifyBuildPack,
   TriggerDeploymentResponse,
   UseBranchDeployResult
 } from '../models/api.models';
@@ -53,8 +57,8 @@ export class ApiService {
     return this.http.get<{ credentials: CredentialSummary[] }>('/api/credentials');
   }
 
-  addCredential(providerName: string, token: string, label?: string) {
-    return this.http.post<CredentialSummary>('/api/credentials', { providerName, token, label });
+  addCredential(providerName: string, token: string, label?: string, instanceUrl?: string) {
+    return this.http.post<CredentialSummary>('/api/credentials', { providerName, token, label, instanceUrl });
   }
 
   deleteCredential(id: string) {
@@ -335,10 +339,19 @@ export class ApiService {
       name?: string;
       defaultBranch?: string;
       logoKey?: string | null;
+      autoDeployEnabled?: boolean;
       targets?: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[];
     }
   ) {
     return this.http.put<ProjectDetail>(`/api/projects/${id}`, payload);
+  }
+
+  getNotificationPreferences() {
+    return this.http.get<NotificationPreferencesResponse>('/api/notifications/preferences');
+  }
+
+  updateNotificationPreferences(payload: { emailOnSuccess: boolean; emailOnFailure: boolean }) {
+    return this.http.put<NotificationPreferencesResponse>('/api/notifications/preferences', payload);
   }
 
   deleteProject(id: string) {
@@ -590,6 +603,60 @@ export class ApiService {
       dockerfilePath: profile?.dockerfilePath,
       serviceDirectory: profile?.serviceDirectory,
       startCommand: profile?.startCommand
+    });
+  }
+
+  listCoolifyInfrastructure(credentialId: string) {
+    return this.http.get<CoolifyInfrastructure>(`/api/credentials/${credentialId}/coolify/infrastructure`);
+  }
+
+  listCoolifyProjectEnvironments(credentialId: string, projectUuid: string) {
+    return this.http.get<{ environments: CoolifyInfrastructureResource[] }>(
+      `/api/credentials/${credentialId}/coolify/projects/${projectUuid}/environments`
+    );
+  }
+
+  createCoolifyProject(
+    credentialId: string,
+    name: string,
+    githubRepoFullName: string,
+    gitBranch: string,
+    options?: {
+      isPrivateRepository?: boolean;
+      coolifyProjectUuid?: string;
+      coolifyServerUuid?: string;
+      coolifyEnvironmentName?: string;
+      coolifyGithubAppUuid?: string;
+      buildPack?: CoolifyBuildPack;
+      rootDirectory?: string;
+      outputDirectory?: string;
+      buildCommand?: string;
+      installCommand?: string;
+      startCommand?: string;
+      framework?: string;
+      dockerfilePath?: string;
+      serviceDirectory?: string;
+    }
+  ) {
+    return this.http.post<{ project: ProviderProject }>('/api/credentials/coolify/projects', {
+      credentialId,
+      name,
+      githubRepoFullName,
+      gitBranch,
+      isPrivateRepository: options?.isPrivateRepository ?? false,
+      coolifyProjectUuid: options?.coolifyProjectUuid,
+      coolifyServerUuid: options?.coolifyServerUuid,
+      coolifyEnvironmentName: options?.coolifyEnvironmentName,
+      coolifyGithubAppUuid: options?.coolifyGithubAppUuid,
+      buildPack: options?.buildPack,
+      rootDirectory: options?.rootDirectory,
+      outputDirectory: options?.outputDirectory,
+      buildCommand: options?.buildCommand,
+      installCommand: options?.installCommand,
+      startCommand: options?.startCommand,
+      framework: options?.framework,
+      dockerfilePath: options?.dockerfilePath,
+      serviceDirectory: options?.serviceDirectory
     });
   }
 

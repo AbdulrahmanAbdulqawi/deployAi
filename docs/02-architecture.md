@@ -7,7 +7,7 @@ DeployHub is a three-tier web application with a background worker tier for long
 ```
 Angular 18 SPA  ─HTTP/WS─►  .NET 8 API  ─►  PostgreSQL
                                 │
-                                ├─► Hangfire workers ─► Provider APIs (Vercel, Railway, …)
+                                ├─► Hangfire workers ─► Provider APIs (Vercel, Railway, Coolify, …)
                                 └─► SignalR hub ─────► live logs back to SPA
 ```
 
@@ -75,8 +75,9 @@ Shared types (`DeploymentResponse`, `DeploymentStatus`, `ProviderProject`, `Prov
 
 - **Vercel** is a REST API. Its provider implementation uses `HttpClient` and maps JSON responses to the shared types.
 - **Railway** is a GraphQL API. Its implementation uses a GraphQL client and maps query results to the same shared types.
+- **Coolify** is a self-hosted REST API. Its implementation manages applications, environment variables, and PostgreSQL databases on the user's Coolify instance. Full-stack projects can place both the website and API on Coolify; DeployAI wires cross-app env vars and provisions Postgres when needed.
 
-The orchestrator calling `provider.TriggerDeploymentAsync(...)` is identical in both cases. The differences are fully contained.
+The orchestrator calling `provider.TriggerDeploymentAsync(...)` is identical in all cases. The differences are fully contained.
 
 ### 3.3 Provider factory and registry
 
@@ -156,6 +157,7 @@ src/
 ├── DeployHub.Providers/      # IDeploymentProvider implementations
 │   ├── Vercel/
 │   ├── Railway/
+│   ├── Coolify/
 │   └── Render/               # added later
 ├── DeployHub.Data/           # EF Core DbContext, entities, migrations
 ├── DeployHub.Infrastructure/ # encryption, email, GitHub client

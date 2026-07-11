@@ -3,6 +3,7 @@ using System.Text.Json;
 
 using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 
 namespace DeployAI.Api.Services;
 
@@ -160,17 +161,9 @@ internal static class ClaudeDeploymentPrompts
         - For JSON: use the indentation and quote style from the existing file.
         - For package.json/requirements.txt/go.mod: resolve dependency version conflicts, do not remove entries.
 
-        ### Split-Origin Angular (Vercel + Railway) — 405 prevention
+        ### Split-Origin Angular — API routing
 
-        When the deployment plan uses split-origin (Angular on Vercel, API on Railway):
-
-        - Register `apiBaseInterceptor` in `app.config.ts` via `provideHttpClient(withInterceptors([apiBaseInterceptor, ...]))`.
-        - Services may keep relative API roots such as `/api/v1/auth`; the interceptor prefixes them with `environment.apiBaseUrl`.
-        - Never hardcode `/api/Auth` when the server route is `api/v1/auth`.
-        - `angular.json` production config must use fileReplacements swapping in `environment.production.ts`.
-        - `scripts/write-api-env.mjs` must fail the build when {{apiEnvKeys}} is missing on Vercel/CI.
-        - `vercel.json` must be SPA-only (no `/api` or `/hubs` proxy rewrites).
-        - POST to `*.vercel.app/api/*` returns 405 by design; the fix is interceptor wiring, not Vercel rewrites.
+        {{splitOriginFixGuidance}}
 
         ### Verification
 
@@ -418,7 +411,8 @@ internal static class ClaudeDeploymentPrompts
 
         return builder.ToString()
             .Replace("{{apiEnvKeys}}", apiEnvKeys, StringComparison.Ordinal)
-            .Replace("{{memoryToolLine}}", memoryToolLine, StringComparison.Ordinal);
+            .Replace("{{memoryToolLine}}", memoryToolLine, StringComparison.Ordinal)
+            .Replace("{{splitOriginFixGuidance}}", BuildSplitOriginFixGuidance(providerName), StringComparison.Ordinal);
     }
 
     internal static string BuildVerificationFixPrompt(
@@ -489,7 +483,7 @@ internal static class ClaudeDeploymentPrompts
         }
 
         builder.AppendLine();
-        builder.AppendLine(BuildVerificationFixHints(verificationContext.CheckId, framework, targetConfig));
+        builder.AppendLine(BuildVerificationFixHints(verificationContext.CheckId, framework, targetConfig, providerName));
 
         if (!string.IsNullOrWhiteSpace(repoContext))
         {
@@ -511,17 +505,29 @@ internal static class ClaudeDeploymentPrompts
     private static string BuildVerificationFixHints(
         string checkId,
         string? framework,
-        DeployTargetConfig targetConfig)
+        DeployTargetConfig targetConfig,
+        string? providerName)
     {
         var builder = new StringBuilder();
         builder.AppendLine("## Fix Guidance");
         builder.AppendLine();
 
+        var coolifyStack = string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
+
         if (checkId is "website.reachable" or "website.spa_shell" ||
             checkId.Contains("output", StringComparison.OrdinalIgnoreCase))
         {
             builder.AppendLine("- Read `angular.json` to find the browser output path for the production build.");
-            builder.AppendLine("- Set `vercel.json` `outputDirectory` to the Angular browser folder (often `dist/<project>/browser`).");
+            if (coolifyStack)
+            {
+                builder.AppendLine("- Verify the Coolify website app serves the Angular browser folder (often `dist/<project>/browser`).");
+                builder.AppendLine("- Ensure `scripts/write-api-env.mjs` runs before `ng build` and API URL env vars are set on the Coolify website app.");
+            }
+            else
+            {
+                builder.AppendLine("- Set `vercel.json` `outputDirectory` to the Angular browser folder (often `dist/<project>/browser`).");
+            }
+
             if (!string.IsNullOrWhiteSpace(targetConfig.OutputDirectory))
             {
                 builder.AppendLine($"- DeployAI expects outputDirectory near: `{targetConfig.OutputDirectory}`.");
@@ -533,11 +539,23 @@ internal static class ClaudeDeploymentPrompts
             builder.AppendLine("- Ensure `app.config.ts` registers `apiBaseInterceptor` via `provideHttpClient(withInterceptors([...]))`.");
             builder.AppendLine("- Ensure `environment.production.ts` defines `apiBaseUrl` and Angular `fileReplacements` are configured.");
             builder.AppendLine("- Services may keep relative `/api/*` paths; the interceptor prefixes them with `environment.apiBaseUrl`.");
+            if (coolifyStack)
+            {
+                builder.AppendLine("- Coolify: set `DEPLOYAI_API_URL` / `API_BASE_URL` on the website app — there is no `vercel.json` proxy.");
+            }
         }
 
         if (checkId.StartsWith("connection.", StringComparison.Ordinal))
         {
-            builder.AppendLine("- Fix cross-origin wiring: CORS allowed origins on the API, Vercel rewrites/proxy if used, and frontend API base URL.");
+            if (coolifyStack)
+            {
+                builder.AppendLine("- Fix cross-origin wiring: CORS on the API app (`AllowedOrigins__0`, `App__FrontendUrl`) and website API URL env vars.");
+            }
+            else
+            {
+                builder.AppendLine("- Fix cross-origin wiring: CORS allowed origins on the API, Vercel rewrites/proxy if used, and frontend API base URL.");
+            }
+
             builder.AppendLine($"- Frontend API env keys: {string.Join(", ", CrossProviderUrlWiring.ResolveApiEnvKeys(framework).Select(key => $"`{key}`"))}.");
         }
 
@@ -548,6 +566,37 @@ internal static class ClaudeDeploymentPrompts
         }
 
         return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildSplitOriginFixGuidance(string? providerName)
+    {
+        if (string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return """
+                When the deployment uses Coolify full-stack (Angular website app + .NET API app):
+
+                - Register `apiBaseInterceptor` in `app.config.ts` via `provideHttpClient(withInterceptors([apiBaseInterceptor, ...]))`.
+                - Services may keep relative API roots such as `/api/v1/auth`; the interceptor prefixes them with `environment.apiBaseUrl`.
+                - Never hardcode `/api/Auth` when the server route is `api/v1/auth`.
+                - `angular.json` production config must use fileReplacements swapping in `environment.production.ts`.
+                - `scripts/write-api-env.mjs` must fail the build when {{apiEnvKeys}} is missing in CI/production.
+                - Do not add `vercel.json` or `railway.toml` — Coolify deploys each app separately.
+                - POST to the website host `/api/*` fails when the interceptor is missing; prefix requests with `environment.apiBaseUrl`.
+                - API CORS must allow the Coolify website URL via `AllowedOrigins__0` / `App__FrontendUrl`.
+                """;
+        }
+
+        return """
+            When the deployment plan uses split-origin (Angular on Vercel, API on Railway):
+
+            - Register `apiBaseInterceptor` in `app.config.ts` via `provideHttpClient(withInterceptors([apiBaseInterceptor, ...]))`.
+            - Services may keep relative API roots such as `/api/v1/auth`; the interceptor prefixes them with `environment.apiBaseUrl`.
+            - Never hardcode `/api/Auth` when the server route is `api/v1/auth`.
+            - `angular.json` production config must use fileReplacements swapping in `environment.production.ts`.
+            - `scripts/write-api-env.mjs` must fail the build when {{apiEnvKeys}} is missing on Vercel/CI.
+            - `vercel.json` must be SPA-only (no `/api` or `/hubs` proxy rewrites).
+            - POST to `*.vercel.app/api/*` returns 405 by design; the fix is interceptor wiring, not Vercel rewrites.
+            """;
     }
 
     internal static string BuildMissingFilesPrompt(
@@ -829,9 +878,21 @@ internal static class ClaudeDeploymentPrompts
 
         if (SplitOriginDetection.PlanUsesSplitOrigin(parts))
         {
+            var coolifyStack = SplitOriginDetection.IsCoolifyFullStack(website?.ProviderName, server?.ProviderName);
+
             builder.AppendLine("- Architecture: split-origin (browser talks to API host directly, not through the frontend host)");
             builder.AppendLine("- Angular apps must register apiBaseInterceptor and bake apiBaseUrl via write-api-env + fileReplacements");
             builder.AppendLine("- Relative /api/* service paths are OK when the interceptor is registered");
+
+            if (coolifyStack)
+            {
+                builder.AppendLine("- Coolify: set DEPLOYAI_API_URL (or API_BASE_URL) on the website app and AllowedOrigins__0 / App__FrontendUrl on the API app");
+                builder.AppendLine("- Coolify: no vercel.json or railway.toml — each app is deployed separately on your instance");
+            }
+            else
+            {
+                builder.AppendLine("- Vercel + Railway: vercel.json is SPA-only; railway.toml points at the API Dockerfile");
+            }
         }
         else if (parts.Count > 1)
         {

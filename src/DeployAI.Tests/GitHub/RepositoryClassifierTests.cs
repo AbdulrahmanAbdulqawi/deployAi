@@ -1,3 +1,5 @@
+using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 using DeployAI.Infrastructure.GitHub;
 using Moq;
 
@@ -204,7 +206,7 @@ public class RepositoryClassifierTests
         Assert.Contains("database", summary, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync()
+    private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync(bool preferCoolify = false)
     {
         var websiteDiscovery = new WebsiteBuildProfileDiscovery(_gitHub.Object, _frontendDetector);
         var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector);
@@ -214,7 +216,58 @@ public class RepositoryClassifierTests
             serverDiscovery,
             _databaseDetector);
 
-        return await classifier.ClassifyAsync("token", "owner", "repo", "main", CancellationToken.None);
+        return await classifier.ClassifyAsync(
+            "token",
+            "owner",
+            "repo",
+            "main",
+            preferCoolify ? new RepositoryClassificationOptions(true) : null,
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_WithCoolifyConnected_RecommendsCoolifyFullStackForMonorepo()
+    {
+        SetupRootContents(["client", "My.Api"]);
+        SetupDirectoryContents("client", ["angular.json", "package.json"]);
+        SetupDirectoryContents("My.Api", ["My.Api.csproj"]);
+        SetupFile("client/angular.json", """
+            {
+              "projects": {
+                "client": {
+                  "architect": {
+                    "build": {
+                      "builder": "@angular-devkit/build-angular:application",
+                      "options": { "outputPath": "dist/client" }
+                    }
+                  }
+                }
+              }
+            }
+            """);
+        SetupFile("client/package.json", """{ "dependencies": { "@angular/core": "19.0.0" } }""");
+        SetupFile("My.Api/My.Api.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
+
+        var plan = await ClassifyAsync(preferCoolify: true);
+
+        Assert.Equal(DeploymentPlanKind.CoolifyFullStack, plan.PlanKind);
+        Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == ProviderNameValues.Coolify);
+        Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == ProviderNameValues.Coolify);
+        Assert.Contains("Coolify", plan.PlainSummary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_WithCoolifyConnected_RecommendsCoolifyForDockerServer()
+    {
+        SetupRootContents(["api"]);
+        SetupDirectoryContents("api", ["Dockerfile"]);
+        SetupFile("api/Dockerfile", "FROM node:20");
+
+        var plan = await ClassifyAsync(preferCoolify: true);
+
+        Assert.Equal(DeploymentPlanKind.CoolifySingle, plan.PlanKind);
+        Assert.Single(plan.Parts);
+        Assert.Equal(ProviderNameValues.Coolify, plan.Parts[0].ProviderName);
     }
 
     private void SetupRootContents(IReadOnlyList<string> entries)

@@ -72,6 +72,10 @@ builder.Services.AddRequestTimeouts(options =>
         TimeSpan.FromMinutes(Math.Max(5, anthropic.AgentRequestTimeoutMinutes)));
 });
 builder.Services.AddScoped<EnvironmentDriftCheckJob>();
+builder.Services.AddScoped<ProjectHealthMonitorJob>();
+builder.Services.AddScoped<IGitHubWebhookRegistrationService, GitHubWebhookRegistrationService>();
+builder.Services.AddScoped<IGitHubWebhookHandler, GitHubWebhookHandler>();
+builder.Services.AddScoped<IDeploymentNotificationService, DeploymentNotificationService>();
 builder.Services.AddScoped<IDeploymentRestoreService, DeploymentRestoreService>();
 builder.Services.AddSingleton<IProviderHealthService, ProviderHealthService>();
 builder.Services.AddHttpClient();
@@ -178,6 +182,10 @@ if (!app.Environment.IsEnvironment("Testing"))
         "environment-drift-check",
         job => job.RunAsync(CancellationToken.None),
         "0 */6 * * *");
+    RecurringJob.AddOrUpdate<ProjectHealthMonitorJob>(
+        "project-health-monitor",
+        job => job.RunAsync(CancellationToken.None),
+        "0 * * * *");
 }
 
 app.Run();

@@ -138,6 +138,45 @@ public class SplitOriginReadinessEvaluatorTests
         Assert.False(SplitOriginReadinessEvaluator.IsReady(issues));
     }
 
+    [Fact]
+    public void Evaluate_CoolifyFullStack_DoesNotRequireVercelOrRailwayFiles()
+    {
+        var website = new DeploymentPlanPart("website", "coolify", "client", null, null, null, null, null, "angular", null, null);
+        var server = new DeploymentPlanPart("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null);
+        var files = BuildCompleteFiles(website, server);
+        files.Remove("railway.toml");
+        files.Remove("client/vercel.json");
+
+        var issues = SplitOriginReadinessEvaluator.Evaluate(website, server, files);
+
+        Assert.DoesNotContain(issues, issue =>
+            issue.Path.Equals("railway.toml", StringComparison.OrdinalIgnoreCase) ||
+            issue.Path.Equals("client/vercel.json", StringComparison.OrdinalIgnoreCase));
+        Assert.True(SplitOriginReadinessEvaluator.IsReady(issues));
+    }
+
+    [Fact]
+    public void Evaluate_CoolifyFullStack_AcceptsFrontendUrlCorsSetup()
+    {
+        var website = new DeploymentPlanPart("website", "coolify", "client", null, null, null, null, null, "angular", null, null);
+        var server = new DeploymentPlanPart("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null);
+        var files = BuildCompleteFiles(website, server);
+        files["src/api/Program.cs"] = """
+            builder.Services.AddCors(options =>
+            {
+                options.AddPolicy("AllowedOrigins", policy =>
+                    policy.WithOrigins(Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "")
+                          .AllowCredentials());
+            });
+            """;
+
+        var issues = SplitOriginReadinessEvaluator.Evaluate(website, server, files);
+
+        Assert.DoesNotContain(issues, issue =>
+            issue.Path == "src/api/Program.cs" &&
+            issue.Reason.Contains("vercel.app", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static Dictionary<string, string?> BuildCompleteFiles(DeploymentPlanPart website, DeploymentPlanPart server)
     {
         var clientPrefix = $"{website.RootDirectory}/";

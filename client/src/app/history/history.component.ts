@@ -4,7 +4,9 @@ import { ApiService } from '../core/services/api.service';
 import { DeploymentSummary } from '../core/models/api.models';
 import { EmptyStateComponent } from '../shared/empty-state/empty-state.component';
 import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
+import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent, IconName, IconStatusClass } from '../shared/ui/icon/icon.component';
+import { ToastService } from '../shared/ui/toast/toast.service';
 import { roleLabelForProvider } from '../core/utils/target-config';
 import { formatDurationSeconds } from '../core/utils/duration';
 
@@ -14,6 +16,7 @@ import { formatDurationSeconds } from '../core/utils/duration';
   imports: [
     EmptyStateComponent,
     StatusBadgeComponent,
+    ButtonComponent,
     IconComponent
   ],
   templateUrl: './history.component.html',
@@ -24,13 +27,15 @@ export class HistoryComponent implements OnInit {
   readonly projectName = signal('');
   readonly searchQuery = signal('');
   readonly loading = signal(true);
+  readonly restoringDeploymentId = signal<string | null>(null);
 
   private projectId = '';
 
   constructor(
     private readonly route: ActivatedRoute,
     private readonly router: Router,
-    private readonly api: ApiService
+    private readonly api: ApiService,
+    private readonly toast: ToastService
   ) {}
 
   ngOnInit(): void {
@@ -107,6 +112,40 @@ export class HistoryComponent implements OnInit {
 
   open(deploymentId: string): void {
     void this.router.navigate(['/projects', this.projectId, 'deploy', deploymentId]);
+  }
+
+  canRestore(item: DeploymentSummary): boolean {
+    return item.status === 'failed' || item.status === 'partial';
+  }
+
+  isRestoring(deploymentId: string): boolean {
+    return this.restoringDeploymentId() === deploymentId;
+  }
+
+  restoreDeployment(item: DeploymentSummary, event: Event): void {
+    event.stopPropagation();
+    if (this.restoringDeploymentId()) {
+      return;
+    }
+
+    this.restoringDeploymentId.set(item.id);
+    this.api.restoreDeployment(item.id).subscribe({
+      next: (response) => {
+        this.restoringDeploymentId.set(null);
+        this.deployments.update(deployments =>
+          deployments.map(deployment =>
+            deployment.id === item.id
+              ? { ...deployment, status: response.status }
+              : deployment
+          )
+        );
+        this.toast.success('Previous version restored.');
+      },
+      error: (err) => {
+        this.restoringDeploymentId.set(null);
+        this.toast.error(err?.error?.error?.message ?? 'Could not restore the previous version.');
+      }
+    });
   }
 
   goToProject(): void {

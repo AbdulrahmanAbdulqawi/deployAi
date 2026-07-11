@@ -126,10 +126,8 @@ public sealed class DeploymentFixService : IDeploymentFixService
         }
 
         var target = ResolveVerificationFixTarget(deployment, check, deploymentTargetId);
-        var websiteTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase));
-        var serverTarget = deployment.Targets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase));
+        var websiteTarget = DeploymentTargetResolution.FindWebsiteTarget(deployment.Targets);
+        var serverTarget = DeploymentTargetResolution.FindServerTarget(deployment.Targets);
 
         var verificationContext = new DeploymentVerificationFixContext(
             check.Id,
@@ -181,11 +179,9 @@ public sealed class DeploymentFixService : IDeploymentFixService
 
         return check.Target switch
         {
-            "server" => deployment.Targets.FirstOrDefault(t =>
-                             string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+            "server" => DeploymentTargetResolution.FindServerTarget(deployment.Targets)
                          ?? throw new DeployAIException("not_found", "We couldn't find the server target for this fix."),
-            _ => deployment.Targets.FirstOrDefault(t =>
-                      string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+            _ => DeploymentTargetResolution.FindWebsiteTarget(deployment.Targets)
                   ?? deployment.Targets.First()
         };
     }

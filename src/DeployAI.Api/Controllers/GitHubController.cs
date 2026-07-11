@@ -1,6 +1,7 @@
 using DeployAI.Api.Services;
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
+using DeployAI.Core.Providers;
 using DeployAI.Core.Security;
 using DeployAI.Data;
 using DeployAI.Infrastructure.GitHub;
@@ -105,10 +106,21 @@ public sealed class GitHubController : ControllerBase
         CancellationToken cancellationToken)
     {
         var token = await GetGitHubTokenAsync(cancellationToken);
-        var plan = await _repositoryClassifier.ClassifyAsync(token, owner, repo, @ref, cancellationToken);
+        var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
+        var hasCoolify = await _db.ProviderCredentials.AnyAsync(
+            c => c.UserId == userId && c.ProviderName == ProviderNameValues.Coolify,
+            cancellationToken);
+        var plan = await _repositoryClassifier.ClassifyAsync(
+            token,
+            owner,
+            repo,
+            @ref,
+            new RepositoryClassificationOptions(hasCoolify),
+            cancellationToken);
 
         return Ok(new
         {
+            planKind = DeploymentPlanKindValues.ToApiValue(plan.PlanKind),
             parts = plan.Parts.Select(part => new
             {
                 role = part.Role,

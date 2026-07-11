@@ -7,6 +7,14 @@
       "websiteFramework": "angular",
       "backendFramework": "dotnet",
       "wiringMode": "split-origin"
+    },
+    {
+      "id": "split-origin.angular.coolify.dotnet.coolify",
+      "websiteProvider": "coolify",
+      "backendProvider": "coolify",
+      "websiteFramework": "angular",
+      "backendFramework": "dotnet",
+      "wiringMode": "split-origin"
     }
   ],
   "templates": [
@@ -165,6 +173,145 @@
     {
       "id": "split-origin.angular.vercel.railway.signalr-service",
       "scenarioId": "split-origin.angular.vercel.dotnet.railway",
+      "fileName": "signalr.service.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/signalr.service.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 3 },
+      "constraints": [
+        "Production SignalR hub URL must use absolute ${environment.apiBaseUrl}/hubs/..."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.write-api-env",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "write-api-env.mjs",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-coolify-dotnet-coolify/write-api-env.mjs.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Fail the build when API URL env vars are missing in CI/production.",
+        "Write apiBaseUrl into environment.production.ts at build time."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.api-base-interceptor",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "api-base.interceptor.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/api-base.interceptor.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Rewrite relative /api/* and /hubs/* requests to environment.apiBaseUrl.",
+        "Adjust import path to match the repo's environments folder layout."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.environment-ts",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "environment.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/environment.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Use apiBaseUrl (not apiUrl alone) for split-origin wiring."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.environment-production-ts",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "environment.production.ts",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/environment.production.ts.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Production apiBaseUrl is injected by write-api-env.mjs at build time."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.health-controller",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "HealthController.cs",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/HealthController.cs.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Route must be api/v1/health for Coolify health probes.",
+        "Match existing controller namespace conventions."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.deployment-md",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "DEPLOYMENT.md",
+      "kind": "full-file",
+      "resourcePath": "split-origin/angular-coolify-dotnet-coolify/DEPLOYMENT.md.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 3 },
+      "constraints": [
+        "Document Coolify website and API env vars using names from CrossProviderUrlWiring."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.angular-json",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "angular.json",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/angular.json.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Production configuration must include fileReplacements for environment.production.ts.",
+        "Read existing angular.json before editing; preserve unrelated keys."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.app-config",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "app.config.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/app.config.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Register apiBaseInterceptor via provideHttpClient(withInterceptors([...])).",
+        "Read existing app.config.ts before editing."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.program-cs",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "Program.cs",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-coolify-dotnet-coolify/patches/Program.cs.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Add CORS allowing App__FrontendUrl / FRONTEND_URL and AllowedOrigins configuration.",
+        "Insert CORS before var app = builder.Build(); preserve existing middleware order."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.auth-controller",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "AuthController.cs",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/AuthController.cs.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Refresh cookies must use SameSite=None; Secure in Production.",
+        "Route must be api/v1/auth (not api/Auth)."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.auth-service",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
+      "fileName": "auth.service.ts",
+      "kind": "patch",
+      "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/auth.service.ts.patch.md",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Auth client path must be /api/v1/auth with withCredentials: true on login/refresh/logout."
+      ]
+    },
+    {
+      "id": "split-origin.angular.coolify.coolify.signalr-service",
+      "scenarioId": "split-origin.angular.coolify.dotnet.coolify",
       "fileName": "signalr.service.ts",
       "kind": "patch",
       "resourcePath": "split-origin/angular-vercel-dotnet-railway/patches/signalr.service.ts.patch.md",

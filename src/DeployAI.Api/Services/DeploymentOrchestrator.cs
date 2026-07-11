@@ -34,7 +34,12 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         _encryption = encryption;
     }
 
-    public async Task<TriggerDeploymentResult> TriggerAsync(Guid projectId, Guid userId, string branch, CancellationToken cancellationToken)
+    public async Task<TriggerDeploymentResult> TriggerAsync(
+        Guid projectId,
+        Guid userId,
+        string branch,
+        CancellationToken cancellationToken,
+        DeploymentTriggeredBy triggeredBy = DeploymentTriggeredBy.User)
     {
         var project = await _db.Projects
             .Include(p => p.DeployTargets)
@@ -74,7 +79,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             Id = Guid.NewGuid(),
             ProjectId = project.Id,
             Branch = branch,
-            TriggeredBy = "user",
+            TriggeredBy = DeploymentTriggeredByValues.ToApiValue(triggeredBy),
             Status = DeploymentStatuses.Pending,
             CreatedAt = DateTimeOffset.UtcNow,
             GitCommitSha = commitSha,
@@ -256,6 +261,21 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             return 2;
         }
 
+        if (string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(config.Role, "website", StringComparison.OrdinalIgnoreCase))
+            {
+                return 2;
+            }
+
+            if (string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            return 1;
+        }
+
         return 1;
     }
 }
@@ -272,6 +292,7 @@ public sealed class DeploymentJobRunner
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
     private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
+    private readonly IDeploymentNotificationService _deploymentNotifications;
 
     public DeploymentJobRunner(
         DeployAIDbContext db,
@@ -283,7 +304,8 @@ public sealed class DeploymentJobRunner
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
-        Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions)
+        Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions,
+        IDeploymentNotificationService deploymentNotifications)
     {
         _db = db;
         _providerFactory = providerFactory;
@@ -295,6 +317,7 @@ public sealed class DeploymentJobRunner
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
         _anthropicOptions = anthropicOptions.Value;
+        _deploymentNotifications = deploymentNotifications;
     }
 
     public async Task RunAsync(Guid deploymentTargetId, CancellationToken cancellationToken)
@@ -366,11 +389,38 @@ public sealed class DeploymentJobRunner
                 }
             }
 
+            var coolifyConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+            if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(coolifyConfig.Role, "website", StringComparison.OrdinalIgnoreCase))
+            {
+                await _frontendEnvironmentWiring.WireWebsiteTargetBeforeDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+            }
+
             var provider = _providerFactory.GetProvider(target.ProviderName);
             var token = await _tokens.GetTokenAsync(deployTarget.Credential, cancellationToken);
             var credentials = new ProviderCredentials(token);
 
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+            {
+                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                    project,
+                    deployTarget,
+                    deployment.Branch,
+                    cancellationToken);
+                DetachDeployTargetChanges();
+                targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+
+                await _frontendEnvironmentWiring.WireServerTargetBeforeRailwayDeployAsync(
+                    deployment.Id,
+                    target,
+                    cancellationToken);
+            }
+
+            if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(targetConfig.Role, "server", StringComparison.OrdinalIgnoreCase))
             {
                 await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
@@ -458,10 +508,13 @@ public sealed class DeploymentJobRunner
                 await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, status.ErrorMessage!, cancellationToken);
             }
 
-            if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+            if ((string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) ||
+                 (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                  string.Equals(DeployTargetConfig.Parse(deployTarget.ConfigJson).Role, "website", StringComparison.OrdinalIgnoreCase))) &&
                 target.Status == DeploymentStatuses.Success)
             {
-                if (provider is IWebsiteApiProxySupport websiteProxy)
+                if (string.Equals(target.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+                    provider is IWebsiteApiProxySupport websiteProxy)
                 {
                     try
                     {
@@ -664,6 +717,8 @@ public sealed class DeploymentJobRunner
 
         await _hub.Clients.Group(deploymentId.ToString())
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
+
+        await _deploymentNotifications.NotifyDeploymentCompletedAsync(deploymentId, cancellationToken);
     }
 
     private async Task PersistAndBroadcastLogAsync(

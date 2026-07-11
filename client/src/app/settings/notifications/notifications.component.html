@@ -18,6 +18,7 @@
         <input
           type="checkbox"
           [checked]="prefs().emailOnComplete"
+          [disabled]="loading() || saving()"
           (change)="setPref('emailOnComplete', $any($event.target).checked)"
         />
       </label>
@@ -30,6 +31,7 @@
         <input
           type="checkbox"
           [checked]="prefs().emailOnFailure"
+          [disabled]="loading() || saving()"
           (change)="setPref('emailOnFailure', $any($event.target).checked)"
         />
       </label>

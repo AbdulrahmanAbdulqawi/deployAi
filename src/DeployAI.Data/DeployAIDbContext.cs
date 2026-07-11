@@ -18,6 +18,7 @@ public class DeployAIDbContext : DbContext
     public DbSet<DeploymentLog> DeploymentLogs => Set<DeploymentLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AgentMemoryFile> AgentMemoryFiles => Set<AgentMemoryFile>();
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -42,6 +43,7 @@ public class DeployAIDbContext : DbContext
             entity.ToTable("projects");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => new { e.GitHubRepoFullName, e.AutoDeployEnabled });
             entity.HasOne(e => e.User).WithMany(u => u.Projects).HasForeignKey(e => e.UserId);
         });
 
@@ -92,6 +94,13 @@ public class DeployAIDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.ProjectId, e.Path }).IsUnique();
             entity.HasOne(e => e.Project).WithMany().HasForeignKey(e => e.ProjectId);
+        });
+
+        modelBuilder.Entity<NotificationPreference>(entity =>
+        {
+            entity.ToTable("notification_preferences");
+            entity.HasKey(e => e.UserId);
+            entity.HasOne(e => e.User).WithOne().HasForeignKey<NotificationPreference>(e => e.UserId);
         });
     }
 }

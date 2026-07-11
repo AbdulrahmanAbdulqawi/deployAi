@@ -203,11 +203,6 @@ public sealed class ProjectServicesController : ControllerBase
 
     private IProviderServiceOperations GetServiceOperations(DeployTarget target)
     {
-        if (!string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new DeployAIException("unsupported_provider", "Service operations are only supported for Railway.");
-        }
-
         return _serviceOperationsFactory.GetServiceOperations(target.ProviderName)
             ?? throw new DeployAIException("unsupported_provider", "Service operations are not available for this provider.");
     }

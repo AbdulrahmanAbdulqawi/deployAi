@@ -1,5 +1,6 @@
 using System.Text.Json;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
 
 namespace DeployAI.Infrastructure.GitHub;
 
@@ -10,6 +11,7 @@ public interface IRepositoryClassifier
         string owner,
         string repo,
         string? gitRef,
+        RepositoryClassificationOptions? options,
         CancellationToken cancellationToken);
 }
 
@@ -37,8 +39,10 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         string owner,
         string repo,
         string? gitRef,
+        RepositoryClassificationOptions? options,
         CancellationToken cancellationToken)
     {
+        var preferCoolify = options?.PreferCoolify == true;
         var websiteProfile = await _websiteDiscovery.DiscoverAsync(
             accessToken, owner, repo, string.Empty, gitRef, cancellationToken);
         var serverProfile = await _serverDiscovery.DiscoverAsync(
@@ -72,18 +76,48 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
             ? await DetectDatabaseRequirementsAsync(accessToken, owner, repo, serverRoot, gitRef, cancellationToken)
             : new DatabaseRequirementProfile(false, false, []);
 
-        var parts = BuildParts(websiteProfile, serverProfile, databaseProfile, hasWebsite, hasServer);
-        var summary = BuildPlainSummary(websiteProfile, serverProfile, databaseProfile, hasWebsite, hasServer);
+        var parts = BuildParts(websiteProfile, serverProfile, databaseProfile, hasWebsite, hasServer, preferCoolify);
+        var summary = BuildPlainSummary(websiteProfile, serverProfile, databaseProfile, hasWebsite, hasServer, preferCoolify);
+        var planKind = ResolvePlanKind(parts, hasWebsite, hasServer, preferCoolify);
 
-        return new DeploymentPlan(parts, "high", summary);
+        return new DeploymentPlan(parts, "high", summary, PlanKind: planKind);
     }
+
+    private static DeploymentPlanKind ResolvePlanKind(
+        IReadOnlyList<DeploymentPlanPart> parts,
+        bool hasWebsite,
+        bool hasServer,
+        bool preferCoolify)
+    {
+        if (!preferCoolify)
+        {
+            return DeploymentPlanKind.Default;
+        }
+
+        if (hasWebsite && hasServer &&
+            parts.Any(part => part.Role == "website" && IsCoolifyProvider(part.ProviderName)) &&
+            parts.Any(part => part.Role == "server" && IsCoolifyProvider(part.ProviderName)))
+        {
+            return DeploymentPlanKind.CoolifyFullStack;
+        }
+
+        if (parts.Any(part => IsCoolifyProvider(part.ProviderName)))
+        {
+            return DeploymentPlanKind.CoolifySingle;
+        }
+
+        return DeploymentPlanKind.Default;
+    }
+
+    private static bool IsCoolifyProvider(string providerName) =>
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
 
     private static DeploymentPlan BuildSameRootAmbiguousPlan(
         FrontendBuildProfile websiteProfile,
         ServerBuildProfile serverProfile)
     {
-        var websitePart = ToWebsitePart(websiteProfile);
-        var serverPart = ToServerPart(serverProfile);
+        var websitePart = ToWebsitePart(websiteProfile, preferCoolify: false);
+        var serverPart = ToServerPart(serverProfile, preferCoolify: false);
 
         var question = new ClarifyingQuestion(
             "Does your app need to run code on a server, or is it just pages?",
@@ -112,47 +146,56 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         ServerBuildProfile serverProfile,
         DatabaseRequirementProfile databaseProfile,
         bool hasWebsite,
-        bool hasServer)
+        bool hasServer,
+        bool preferCoolify)
     {
         var parts = new List<DeploymentPlanPart>();
 
         if (hasWebsite && websiteProfile is not null)
         {
-            parts.Add(ToWebsitePart(websiteProfile));
+            parts.Add(ToWebsitePart(websiteProfile, preferCoolify));
         }
 
         if (hasServer)
         {
-            parts.Add(ToServerPart(serverProfile));
+            parts.Add(ToServerPart(serverProfile, preferCoolify));
         }
 
         if (databaseProfile.RequiresPostgres)
         {
-            parts.Add(new DeploymentPlanPart("database", "railway", DatabaseEngine: "postgres"));
+            parts.Add(new DeploymentPlanPart(
+                "database",
+                preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Railway,
+                DatabaseEngine: "postgres"));
         }
 
         if (databaseProfile.RequiresRedis)
         {
-            parts.Add(new DeploymentPlanPart("database", "railway", DatabaseEngine: "redis"));
+            parts.Add(new DeploymentPlanPart(
+                "database",
+                preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Railway,
+                DatabaseEngine: "redis"));
         }
 
         return parts;
     }
 
-    private static DeploymentPlanPart ToWebsitePart(FrontendBuildProfile profile) =>
+    private static DeploymentPlanPart ToWebsitePart(FrontendBuildProfile profile, bool preferCoolify) =>
         new(
             "website",
-            "vercel",
+            preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Vercel,
             RootDirectory: profile.RootDirectory,
             BuildCommand: profile.BuildCommand,
             InstallCommand: profile.InstallCommand,
             OutputDirectory: profile.OutputDirectory,
             Framework: profile.Framework);
 
-    private static DeploymentPlanPart ToServerPart(ServerBuildProfile profile) =>
+    private static DeploymentPlanPart ToServerPart(ServerBuildProfile profile, bool preferCoolify) =>
         new(
             "server",
-            "railway",
+            ShouldUseCoolifyForServer(profile, preferCoolify)
+                ? ProviderNameValues.Coolify
+                : ProviderNameValues.Railway,
             RootDirectory: profile.RootDirectory,
             ServiceDirectory: profile.ServiceDirectory ?? profile.RootDirectory,
             BuildCommand: profile.BuildCommand,
@@ -160,6 +203,11 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
             StartCommand: profile.StartCommand,
             Framework: profile.Framework,
             DockerfilePath: profile.DockerfilePath);
+
+    private static bool ShouldUseCoolifyForServer(ServerBuildProfile profile, bool preferCoolify) =>
+        preferCoolify ||
+        !string.IsNullOrWhiteSpace(profile.DockerfilePath) ||
+        string.Equals(profile.Framework, "docker", StringComparison.OrdinalIgnoreCase);
 
     private static DeploymentPlan BuildLowConfidencePlan()
     {
@@ -203,7 +251,7 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
 
     private static DeploymentPlan BuildAmbiguousFrontendPlan(FrontendBuildProfile websiteProfile)
     {
-        var websitePart = ToWebsitePart(websiteProfile);
+        var websitePart = ToWebsitePart(websiteProfile, preferCoolify: false);
         var serverPart = new DeploymentPlanPart(
             "server",
             "railway",
@@ -313,12 +361,25 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         ServerBuildProfile serverProfile,
         DatabaseRequirementProfile databaseProfile,
         bool hasWebsite,
-        bool hasServer)
+        bool hasServer,
+        bool preferCoolify = false)
     {
         var needsDatabase = databaseProfile.RequiresPostgres || databaseProfile.RequiresRedis;
         var databaseNote = needsDatabase
             ? " We also found it needs a database, so we'll set that up too."
             : string.Empty;
+
+        if (preferCoolify && hasWebsite && hasServer)
+        {
+            var site = DescribeFrontend(websiteProfile?.Framework);
+            var api = DescribeServer(serverProfile.Framework);
+            return $"Looks like an app with {site} and {api}. We'll deploy everything to your Coolify server.{databaseNote}";
+        }
+
+        if (preferCoolify && hasServer && ShouldUseCoolifyForServer(serverProfile, preferCoolify: true))
+        {
+            return $"Looks like {DescribeServer(serverProfile.Framework)}. We'll run it on your Coolify server.{databaseNote}";
+        }
 
         if (hasWebsite && hasServer)
         {

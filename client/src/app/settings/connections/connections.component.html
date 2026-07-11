@@ -1,5 +1,5 @@
 <section class="connections settings-page">
-  <p class="page-intro">DeployAI connects two types of hosting behind the scenes. Connect each once to deploy any app.</p>
+  <p class="page-intro">{{ introMessage() }}</p>
 
   @if (healthAlert(); as alert) {
     <div class="health-banner" role="status">
@@ -13,6 +13,7 @@
 
   @if (store.loading() && store.credentials().length === 0) {
     <div class="providers" aria-busy="true" aria-label="Loading connections">
+      <div class="provider-card u-glass-panel u-skeleton skeleton-card"></div>
       <div class="provider-card u-glass-panel u-skeleton skeleton-card"></div>
       <div class="provider-card u-glass-panel u-skeleton skeleton-card"></div>
     </div>
@@ -65,7 +66,7 @@
         </app-ui-button>
 
         <div class="provider-card__links">
-          <app-ui-button variant="quiet" (click)="toggleToken('vercel')">
+          <app-ui-button variant="quiet" (click)="toggleToken(ProviderName.Vercel)">
             {{ tokenToggleLabel(!!vercelCredential(), showAdvanced()) }}
           </app-ui-button>
 
@@ -146,7 +147,7 @@
         </app-ui-button>
 
         <div class="provider-card__links">
-          <app-ui-button variant="quiet" (click)="toggleToken('railway')">
+          <app-ui-button variant="quiet" (click)="toggleToken(ProviderName.Railway)">
             {{ tokenToggleLabel(!!railwayCredential(), showAdvancedRailway()) }}
           </app-ui-button>
 
@@ -178,6 +179,86 @@
             [loading]="savingRailway()"
             (click)="connectRailwayWithToken()">
             {{ tokenSaveLabel(!!railwayCredential()) }}
+          </app-ui-button>
+        </div>
+      }
+    </article>
+
+    <article class="provider-card u-glass-panel provider-card--coolify">
+      <header class="provider-card__header">
+        <div class="provider-card__brand">
+          <div class="provider-card__icon provider-card__icon--coolify" aria-hidden="true">C</div>
+          <div>
+            <h2>Coolify</h2>
+            <p class="provider-card__desc">Self-hosted apps on your own server</p>
+          </div>
+        </div>
+        @if (statusFor(coolifyCredentials()[0]); as badge) {
+          <app-status-badge [status]="badge.status" [labelOverride]="badge.label" />
+        }
+      </header>
+
+      @if (coolifyCredentials()[0]; as cred) {
+        <dl class="provider-card__meta">
+          <div>
+            <dt>Instance</dt>
+            <dd>{{ cred.label }}</dd>
+          </div>
+          @if (formatValidated(cred.lastValidatedAt); as validated) {
+            <div>
+              <dt>Last checked</dt>
+              <dd>{{ validated }}</dd>
+            </div>
+          }
+        </dl>
+        @if (!cred.isValid) {
+          <p class="provider-card__notice">Token expired or revoked. Update your connection.</p>
+        }
+      }
+
+      <div class="provider-card__actions">
+        <app-ui-button
+          class="provider-card__oauth"
+          variant="primary"
+          icon="link"
+          (click)="toggleToken(ProviderName.Coolify)">
+          {{ coolifyCredentials().length > 0 ? 'Update connection' : 'Connect Coolify' }}
+        </app-ui-button>
+
+        <div class="provider-card__links">
+          @if (coolifyCredentials()[0]; as cred) {
+            <app-ui-button variant="quiet" icon="trash" (click)="askRemove(cred.id)">Remove connection</app-ui-button>
+          }
+        </div>
+      </div>
+
+      @if (showAdvancedCoolify()) {
+        <div class="token-panel">
+          <p class="token-panel__help">
+            Enter your Coolify instance URL and an API token from
+            <strong>Security → API Tokens</strong> in your Coolify dashboard.
+            Publish tells Coolify to rebuild from the Git branch configured in Coolify.
+          </p>
+          <label>
+            Instance URL
+            <app-ui-input [(ngModel)]="coolifyInstanceUrl" placeholder="https://coolify.example.com" />
+          </label>
+          <label>
+            API token
+            <app-ui-input type="password" [(ngModel)]="coolifyToken" placeholder="coolify_…" />
+          </label>
+          <label>
+            Label
+            <app-ui-input [(ngModel)]="coolifyLabel" placeholder="Homelab" />
+          </label>
+          <app-ui-button
+            variant="secondary"
+            tone="success"
+            icon="check"
+            [disabled]="!coolifyInstanceUrl || !coolifyToken || savingCoolify()"
+            [loading]="savingCoolify()"
+            (click)="connectCoolify()">
+            {{ coolifyCredentials().length > 0 ? 'Update' : 'Save' }}
           </app-ui-button>
         </div>
       }

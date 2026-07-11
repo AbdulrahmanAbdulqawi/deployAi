@@ -34,6 +34,12 @@
   }
 }
 
+@media (min-width: 1200px) {
+  .providers {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .provider-card {
   display: grid;
   gap: var(--space-4);
@@ -84,6 +90,11 @@
 .provider-card__icon--railway {
   background: #0b0d19;
   color: var(--provider-railway);
+}
+
+.provider-card__icon--coolify {
+  background: #1a2e1a;
+  color: #5cdb5c;
 }
 
 .provider-card__header h2 {

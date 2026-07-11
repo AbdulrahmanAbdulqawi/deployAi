@@ -15,6 +15,12 @@ public class DeploymentTemplateCatalogTests
         Assert.Contains(
             catalog.Templates,
             template => template.Id == "split-origin.angular.vercel.railway.vercel-json");
+        Assert.Contains(
+            catalog.Scenarios,
+            scenario => scenario.Id == "split-origin.angular.coolify.dotnet.coolify");
+        Assert.Contains(
+            catalog.Templates,
+            template => template.Id == "split-origin.angular.coolify.coolify.write-api-env");
     }
 
     [Fact]
@@ -127,6 +133,44 @@ public class DeploymentTemplateResolverTests
 
         Assert.Contains(resolved, template => template.TargetPath == "src/Api/Program.cs");
     }
+
+    [Fact]
+    public void ResolveForGaps_MapsCoolifyFullStackGapsToTemplates()
+    {
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "coolify", RootDirectory: "client", Framework: "Angular"),
+            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore", DockerfilePath: "src/Api/Dockerfile")
+        };
+        var missing = new List<MissingDeploymentFile>
+        {
+            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking),
+            new("docs/DEPLOYMENT.md", "missing", DeploymentFileSeverity.Recommended)
+        };
+
+        var resolved = resolver.ResolveForGaps(parts, missing);
+
+        Assert.Contains(resolved, template => template.TemplateId.Contains("write-api-env"));
+        Assert.Contains(resolved, template => template.TargetPath == "docs/DEPLOYMENT.md");
+        Assert.DoesNotContain(resolved, template => template.TemplateId.Contains("vercel-json"));
+        Assert.DoesNotContain(resolved, template => template.TemplateId.Contains("railway-toml"));
+    }
+
+    [Fact]
+    public void ResolveScenarioId_ReturnsCoolifyScenario_ForCoolifyFullStack()
+    {
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "coolify", RootDirectory: "client", Framework: "Angular"),
+            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore")
+        };
+
+        Assert.Equal("split-origin.angular.coolify.dotnet.coolify", resolver.ResolveScenarioId(parts));
+    }
 }
 
 public class DeploymentFileScaffolderIntegrationTests
@@ -157,6 +201,33 @@ public class DeploymentFileScaffolderIntegrationTests
         Assert.Contains(generated, file => file.Path == "client/vercel.json" && !file.Content.Contains("/api"));
         Assert.Contains(generated, file => file.Path == "client/scripts/write-api-env.mjs" && file.Content.Contains("process.env.DEPLOYAI_API_URL"));
         Assert.Contains(generated, file => file.Path.EndsWith("api-base.interceptor.ts") && file.Content.Contains("apiBaseInterceptor"));
+    }
+
+    [Fact]
+    public void ScaffoldMissingFiles_GeneratesCoolifyFullStackFiles_FromTemplates()
+    {
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+        var scaffolder = new DeploymentFileScaffolder(resolver);
+        var parts = new List<DeploymentPlanPart>
+        {
+            new("website", "coolify", RootDirectory: "client", Framework: "Angular", OutputDirectory: "dist/app/browser"),
+            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore", DockerfilePath: "src/Api/Dockerfile")
+        };
+        var missing = new List<MissingDeploymentFile>
+        {
+            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking),
+            new("client/src/app/core/interceptors/api-base.interceptor.ts", "missing", DeploymentFileSeverity.Blocking),
+            new("docs/DEPLOYMENT.md", "missing", DeploymentFileSeverity.Recommended)
+        };
+
+        var generated = scaffolder.ScaffoldMissingFiles(parts, missing);
+
+        Assert.Equal(3, generated.Count);
+        Assert.Contains(generated, file => file.Path == "client/scripts/write-api-env.mjs" && file.Content.Contains("website host"));
+        Assert.DoesNotContain(generated, file => file.Path == "railway.toml");
+        Assert.DoesNotContain(generated, file => file.Path == "client/vercel.json");
+        Assert.Contains(generated, file => file.Path == "docs/DEPLOYMENT.md" && file.Content.Contains("Coolify"));
     }
 
     private static readonly List<DeploymentPlanPart> SplitOriginParts =

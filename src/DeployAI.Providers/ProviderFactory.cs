@@ -49,6 +49,19 @@ public sealed class ProviderManagementFactory : IProviderManagementFactory
     }
 }
 
+public sealed class ProviderApplicationUrlResolverFactory : IProviderApplicationUrlResolverFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderApplicationUrlResolver> _providers;
+
+    public ProviderApplicationUrlResolverFactory(IEnumerable<IProviderApplicationUrlResolver> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderApplicationUrlResolver? GetResolver(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDatabaseProvisioningFactory : IProviderDatabaseProvisioningFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDatabaseProvisioning> _providers;
@@ -107,6 +120,14 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
+        services.AddHttpClient<Coolify.CoolifyProvider>();
+        services.AddSingleton<Coolify.CoolifyProvider>();
+        services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderApplicationUrlResolverFactory, ProviderApplicationUrlResolverFactory>();
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();

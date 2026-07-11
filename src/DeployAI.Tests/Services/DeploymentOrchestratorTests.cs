@@ -348,6 +348,65 @@ public class DeploymentOrchestratorTests
     }
 
     [Fact]
+    public void OrderDeploymentTargetIds_PlacesCoolifyServerBeforeWebsite()
+    {
+        var projectId = Guid.NewGuid();
+        var websiteTargetId = Guid.NewGuid();
+        var serverTargetId = Guid.NewGuid();
+        var websiteDeploymentTargetId = Guid.NewGuid();
+        var serverDeploymentTargetId = Guid.NewGuid();
+
+        var project = new Project
+        {
+            Id = projectId,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = websiteTargetId,
+                    ProviderName = "coolify",
+                    ConfigJson = """{"role":"website"}"""
+                },
+                new DeployTarget
+                {
+                    Id = serverTargetId,
+                    ProviderName = "coolify",
+                    ConfigJson = """{"role":"server"}"""
+                }
+            ]
+        };
+
+        var deployment = new Deployment
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = projectId,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = websiteDeploymentTargetId,
+                    DeployTargetId = websiteTargetId,
+                    ProviderName = "coolify"
+                },
+                new DeploymentTarget
+                {
+                    Id = serverDeploymentTargetId,
+                    DeployTargetId = serverTargetId,
+                    ProviderName = "coolify"
+                }
+            ]
+        };
+
+        var ordered = DeploymentOrchestrator.OrderDeploymentTargetIds(
+            deployment,
+            project,
+            [websiteDeploymentTargetId, serverDeploymentTargetId]);
+
+        Assert.Equal(serverDeploymentTargetId, ordered[0]);
+        Assert.Equal(websiteDeploymentTargetId, ordered[1]);
+    }
+
+    [Fact]
     public async Task TriggerTargetAsync_CreatesSingleTargetDeployment()
     {
         var options = new DbContextOptionsBuilder<DeployAIDbContext>()

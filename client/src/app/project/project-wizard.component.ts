@@ -7,6 +7,7 @@ import {
   CredentialSummary,
   DatabaseRequirementProfile,
   DeploymentPlan,
+  DeploymentPlanKind,
   DeploymentPlanPart,
   DeploymentReadinessResult,
   FrontendBuildProfile,
@@ -14,11 +15,17 @@ import {
   ServerBuildProfile,
   GitHubBranch,
   GitHubRepo,
-  ProviderProject
+  ProviderProject,
+  ProviderName,
+  CoolifyInfrastructure,
+  CoolifyInfrastructureResource,
+  CoolifyBuildPack
 } from '../core/models/api.models';
 import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-folder-picker.component';
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
+import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
+import { usesCoolifySetupScaffold } from '../core/utils/readiness-scorecard';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
 import { AppLogoPickerComponent } from '../shared/app-logo-picker/app-logo-picker.component';
@@ -29,12 +36,12 @@ interface EnvRow {
   value: string;
 }
 
-type DeploymentMode = 'website' | 'server' | 'both';
+type DeploymentMode = 'website' | 'server' | 'both' | 'coolify' | 'coolify-fullstack';
 
 @Component({
   selector: 'app-project-wizard',
   standalone: true,
-  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ButtonComponent, IconComponent, AppLogoPickerComponent],
+  imports: [FormsModule, RepoFolderPickerComponent, DeployPlanComponent, DeploymentSetupPanelComponent, ReadinessScorecardComponent, ButtonComponent, IconComponent, AppLogoPickerComponent],
   templateUrl: './project-wizard.component.html',
   styleUrl: './project-wizard.component.scss'
 })
@@ -45,10 +52,23 @@ export class ProjectWizardComponent implements OnInit {
   readonly credentials = signal<CredentialSummary[]>([]);
   readonly vercelProjects = signal<ProviderProject[]>([]);
   readonly railwayProjects = signal<ProviderProject[]>([]);
+  readonly coolifyProjects = signal<ProviderProject[]>([]);
+  readonly selectedCoolifyProjectId = signal<string | null>(null);
+  readonly selectedCoolifyWebsiteProjectId = signal<string | null>(null);
+  readonly selectedCoolifyServerProjectId = signal<string | null>(null);
   readonly selectedRepo = signal<GitHubRepo | null>(null);
   readonly selectedBranch = signal<string | null>(null);
   readonly selectedVercelProjectId = signal<string | null>(null);
   readonly selectedRailwayProjectId = signal<string | null>(null);
+  readonly loadingCoolifyProjects = signal(false);
+  readonly coolifyHostingMode = signal<'existing' | 'create'>('existing');
+  readonly coolifyWebsiteHostingMode = signal<'existing' | 'create'>('existing');
+  readonly coolifyServerHostingMode = signal<'existing' | 'create'>('existing');
+  readonly creatingCoolifyProject = signal(false);
+  readonly loadingCoolifyInfrastructure = signal(false);
+  readonly coolifyInfrastructure = signal<CoolifyInfrastructure | null>(null);
+  readonly loadingCoolifyEnvironments = signal(false);
+  readonly coolifyEnvironments = signal<CoolifyInfrastructureResource[]>([]);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly loadingCredentials = signal(true);
@@ -158,9 +178,18 @@ export class ProjectWizardComponent implements OnInit {
   readonly selectedLogoKey = signal<string | null>(null);
   newVercelProjectName = '';
   newRailwayProjectName = '';
+  newCoolifyProjectName = '';
+  newCoolifyWebsiteProjectName = '';
+  newCoolifyServerProjectName = '';
+  selectedCoolifyCredentialId = '';
+  selectedCoolifyGithubAppId = '';
+  selectedCoolifyProjectUuid = '';
+  selectedCoolifyServerUuid = '';
+  selectedCoolifyEnvironmentName = '';
   selectedVercelCredentialId = '';
   selectedRailwayCredentialId = '';
   deploymentMode: DeploymentMode | null = null;
+  publishCoolify = false;
   publishWebsite = false;
   publishServer = false;
   websiteRootPath = '';
@@ -203,15 +232,20 @@ export class ProjectWizardComponent implements OnInit {
       next: (response) => {
         this.credentials.set(response.credentials);
         this.loadingCredentials.set(false);
-        const vercel = response.credentials.find(c => c.providerName === 'vercel');
+        const vercel = response.credentials.find(c => c.providerName === ProviderName.Vercel);
         if (vercel) {
           this.selectedVercelCredentialId = vercel.id;
           this.loadVercelProjects();
         }
-        const railway = response.credentials.find(c => c.providerName === 'railway');
+        const railway = response.credentials.find(c => c.providerName === ProviderName.Railway);
         if (railway) {
           this.selectedRailwayCredentialId = railway.id;
           this.loadRailwayProjects();
+        }
+        const coolify = response.credentials.find(c => c.providerName === ProviderName.Coolify);
+        if (coolify) {
+          this.selectedCoolifyCredentialId = coolify.id;
+          this.loadCoolifyProjects();
         }
       },
       error: (err) => {
@@ -253,23 +287,40 @@ export class ProjectWizardComponent implements OnInit {
     });
   }
 
+  isCoolifyFullStack(): boolean {
+    return this.deploymentMode === 'coolify-fullstack';
+  }
+
   missingConnections(): string[] {
     const missing: string[] = [];
+    if (this.isCoolifyFullStack()) {
+      if (this.coolifyCredentials().length === 0) {
+        missing.push('Coolify');
+      }
+      return missing;
+    }
     if (this.publishWebsite && this.vercelCredentials().length === 0) {
       missing.push('Vercel');
     }
     if (this.publishServer && this.railwayCredentials().length === 0) {
       missing.push('Railway');
     }
+    if (this.publishCoolify && this.coolifyCredentials().length === 0) {
+      missing.push('Coolify');
+    }
     return missing;
   }
 
   vercelCredentials(): CredentialSummary[] {
-    return this.credentials().filter(c => c.providerName === 'vercel');
+    return this.credentials().filter(c => c.providerName === ProviderName.Vercel);
   }
 
   railwayCredentials(): CredentialSummary[] {
-    return this.credentials().filter(c => c.providerName === 'railway');
+    return this.credentials().filter(c => c.providerName === ProviderName.Railway);
+  }
+
+  coolifyCredentials(): CredentialSummary[] {
+    return this.credentials().filter(c => c.providerName === ProviderName.Coolify);
   }
 
   loadRepos(): void {
@@ -285,6 +336,9 @@ export class ProjectWizardComponent implements OnInit {
     this.projectName = repoName;
     this.newVercelProjectName = this.sanitizeName(repoName);
     this.newRailwayProjectName = `${this.sanitizeName(repoName)}-api`;
+    this.newCoolifyProjectName = this.sanitizeName(repoName);
+    this.newCoolifyWebsiteProjectName = this.sanitizeName(repoName);
+    this.newCoolifyServerProjectName = `${this.sanitizeName(repoName)}-api`;
   }
 
   private sanitizeName(name: string): string {
@@ -397,6 +451,7 @@ export class ProjectWizardComponent implements OnInit {
     this.deploymentMode = null;
     this.publishWebsite = false;
     this.publishServer = false;
+    this.publishCoolify = false;
     this.websiteRootPath = '';
     this.serverRootPath = '';
     this.websiteFolderSelected = false;
@@ -419,8 +474,12 @@ export class ProjectWizardComponent implements OnInit {
     this.loadDeploymentReadiness();
   }
 
-  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+  showReadinessScorecard(readiness: DeploymentReadinessResult): boolean {
     return readiness.usesSplitOrigin;
+  }
+
+  showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
+    return usesCoolifySetupScaffold(readiness);
   }
 
   deployFromPlan(): void {
@@ -460,6 +519,17 @@ export class ProjectWizardComponent implements OnInit {
     if (this.publishServer && !this.selectedRailwayProjectId()) {
       tasks.push(this.createRailwayProjectRequest());
     }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      tasks.push(this.createCoolifyProjectRequest('server', this.newCoolifyProjectName));
+    }
+    if (this.isCoolifyFullStack()) {
+      if (!this.selectedCoolifyWebsiteProjectId()) {
+        tasks.push(this.createCoolifyProjectRequest('website', this.newCoolifyWebsiteProjectName));
+      }
+      if (!this.selectedCoolifyServerProjectId()) {
+        tasks.push(this.createCoolifyProjectRequest('server', this.newCoolifyServerProjectName));
+      }
+    }
 
     if (tasks.length === 0) {
       return of(undefined);
@@ -479,8 +549,13 @@ export class ProjectWizardComponent implements OnInit {
       .filter(part => part.role !== 'database')
       .map(part => {
         const isWebsite = part.role === 'website';
-        const credentialId = isWebsite ? this.selectedVercelCredentialId : this.selectedRailwayCredentialId;
-        const providerProjectId = isWebsite ? this.selectedVercelProjectId() : this.selectedRailwayProjectId();
+        const isCoolify = part.providerName === ProviderName.Coolify;
+        const credentialId = isCoolify
+          ? this.selectedCoolifyCredentialId
+          : (isWebsite ? this.selectedVercelCredentialId : this.selectedRailwayCredentialId);
+        const providerProjectId = isCoolify
+          ? (isWebsite ? this.selectedCoolifyWebsiteProjectId() : this.selectedCoolifyServerProjectId())
+          : (isWebsite ? this.selectedVercelProjectId() : this.selectedRailwayProjectId());
         if (!credentialId || !providerProjectId) {
           return null;
         }
@@ -533,7 +608,7 @@ export class ProjectWizardComponent implements OnInit {
         return throwError(() => new Error('Vercel setup is incomplete.'));
       }
       targets.push({
-        providerName: 'vercel',
+        providerName: ProviderName.Vercel,
         credentialId: this.selectedVercelCredentialId,
         providerProjectId: vercelProjectId,
         config: this.buildWebsiteTargetConfig()
@@ -546,9 +621,45 @@ export class ProjectWizardComponent implements OnInit {
         return throwError(() => new Error('Railway setup is incomplete.'));
       }
       targets.push({
-        providerName: 'railway',
+        providerName: ProviderName.Railway,
         credentialId: this.selectedRailwayCredentialId,
         providerProjectId: railwayProjectId,
+        config: this.buildServerTargetConfig()
+      });
+    }
+
+    if (this.publishCoolify) {
+      const coolifyProjectId = this.selectedCoolifyProjectId();
+      if (!coolifyProjectId || !this.selectedCoolifyCredentialId) {
+        return throwError(() => new Error('Coolify setup is incomplete.'));
+      }
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: coolifyProjectId,
+        config: this.buildCoolifyTargetConfig(
+          'server',
+          this.coolifyProjects().find(project => project.id === coolifyProjectId)?.gitBranch
+        )
+      });
+    }
+
+    if (this.isCoolifyFullStack()) {
+      const websiteProjectId = this.selectedCoolifyWebsiteProjectId();
+      const serverProjectId = this.selectedCoolifyServerProjectId();
+      if (!websiteProjectId || !serverProjectId || !this.selectedCoolifyCredentialId) {
+        return throwError(() => new Error('Coolify setup is incomplete.'));
+      }
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: websiteProjectId,
+        config: this.buildWebsiteTargetConfig()
+      });
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: serverProjectId,
         config: this.buildServerTargetConfig()
       });
     }
@@ -603,23 +714,65 @@ export class ProjectWizardComponent implements OnInit {
     );
   }
 
+  private createCoolifyProjectRequest(
+    role: 'website' | 'server',
+    projectName: string
+  ): Observable<{ project: ProviderProject }> {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch || !this.selectedCoolifyCredentialId || !projectName) {
+      return throwError(() => new Error('Missing Coolify connection.'));
+    }
+
+    return this.api.createCoolifyProject(
+      this.selectedCoolifyCredentialId,
+      projectName,
+      repo.fullName,
+      branch,
+      this.buildCoolifyCreateOptions(repo.private, role)
+    ).pipe(
+      map(response => {
+        if (role === 'website') {
+          this.selectedCoolifyWebsiteProjectId.set(response.project.id);
+        } else if (this.isCoolifyFullStack()) {
+          this.selectedCoolifyServerProjectId.set(response.project.id);
+        } else {
+          this.selectedCoolifyProjectId.set(response.project.id);
+        }
+        return response;
+      })
+    );
+  }
+
   private applyPlanParts(parts: DeploymentPlanPart[]): void {
     const websitePart = parts.find(part => part.role === 'website');
     const serverPart = parts.find(part => part.role === 'server');
     const databaseParts = parts.filter(part => part.role === 'database');
+    const isCoolifyFullStack = !!websitePart && !!serverPart &&
+      websitePart.providerName === ProviderName.Coolify &&
+      serverPart.providerName === ProviderName.Coolify;
 
-    if (websitePart && serverPart) {
+    this.publishWebsite = false;
+    this.publishServer = false;
+    this.publishCoolify = false;
+
+    if (isCoolifyFullStack) {
+      this.deploymentMode = 'coolify-fullstack';
+    } else if (websitePart && serverPart) {
       this.deploymentMode = 'both';
       this.publishWebsite = true;
       this.publishServer = true;
     } else if (websitePart) {
       this.deploymentMode = 'website';
       this.publishWebsite = true;
-      this.publishServer = false;
     } else if (serverPart) {
-      this.deploymentMode = 'server';
-      this.publishWebsite = false;
-      this.publishServer = true;
+      if (serverPart.providerName === ProviderName.Coolify) {
+        this.deploymentMode = 'coolify';
+        this.publishCoolify = true;
+      } else {
+        this.deploymentMode = 'server';
+        this.publishServer = true;
+      }
     }
 
     if (websitePart) {
@@ -664,11 +817,19 @@ export class ProjectWizardComponent implements OnInit {
     this.deploymentMode = mode;
     this.publishWebsite = mode === 'website' || mode === 'both';
     this.publishServer = mode === 'server' || mode === 'both';
-    if (!this.publishWebsite) {
+    this.publishCoolify = mode === 'coolify';
+    if (mode !== 'coolify-fullstack') {
+      this.selectedCoolifyWebsiteProjectId.set(null);
+      this.selectedCoolifyServerProjectId.set(null);
+    }
+    if (mode !== 'coolify') {
+      this.selectedCoolifyProjectId.set(null);
+    }
+    if (!this.publishWebsite && !this.isCoolifyFullStack()) {
       this.websiteRootPath = '';
       this.websiteFolderSelected = false;
     }
-    if (!this.publishServer) {
+    if (!this.publishServer && !this.isCoolifyFullStack()) {
       this.serverRootPath = '';
       this.serverFolderSelected = false;
     }
@@ -678,6 +839,12 @@ export class ProjectWizardComponent implements OnInit {
   canContinueFromPartsStep(): boolean {
     if (this.deploymentMode === null) {
       return false;
+    }
+    if (this.publishCoolify) {
+      return true;
+    }
+    if (this.isCoolifyFullStack()) {
+      return this.websiteFolderSelected && this.serverFolderSelected;
     }
     if (this.publishWebsite && !this.websiteFolderSelected) {
       return false;
@@ -692,6 +859,17 @@ export class ProjectWizardComponent implements OnInit {
     if (this.deploymentMode === null) {
       return 'Choose what you want to publish.';
     }
+    if (this.publishCoolify || this.isCoolifyFullStack()) {
+      if (this.isCoolifyFullStack()) {
+        if (!this.websiteFolderSelected) {
+          return 'Choose the website folder to continue.';
+        }
+        if (!this.serverFolderSelected) {
+          return 'Choose the API folder to continue.';
+        }
+      }
+      return '';
+    }
     if (this.publishWebsite && !this.websiteFolderSelected) {
       return 'Choose the website folder to continue.';
     }
@@ -702,22 +880,92 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   hostingStepBlockedHint(): string {
+    if (this.isCoolifyFullStack()) {
+      if (!this.selectedCoolifyWebsiteProjectId()) {
+        return 'Select or create a Coolify app for your website.';
+      }
+      if (!this.selectedCoolifyServerProjectId()) {
+        return 'Select or create a Coolify app for your API.';
+      }
+      return 'Finish hosting setup to continue.';
+    }
     if (this.publishWebsite && !this.selectedVercelProjectId()) {
       return 'Select or create a Vercel app to continue.';
     }
     if (this.publishServer && !this.selectedRailwayProjectId()) {
       return 'Select or create a Railway service to continue.';
     }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      return 'Select or create a Coolify application to continue.';
+    }
     return 'Finish hosting setup to continue.';
+  }
+
+  canContinueFromHostingStep(): boolean {
+    if (this.isCoolifyFullStack()) {
+      return !!this.selectedCoolifyWebsiteProjectId() &&
+        !!this.selectedCoolifyServerProjectId() &&
+        !!this.selectedCoolifyCredentialId;
+    }
+    if (this.publishWebsite && !this.selectedVercelProjectId()) {
+      return false;
+    }
+    if (this.publishServer && !this.selectedRailwayProjectId()) {
+      return false;
+    }
+    if (this.publishCoolify && !this.selectedCoolifyProjectId()) {
+      return false;
+    }
+    return this.publishWebsite || this.publishServer || this.publishCoolify || this.isCoolifyFullStack();
   }
 
   enterHostingStep(): void {
     this.step.set(4);
-    if (this.publishWebsite && this.vercelCredentials().length > 0) {
+    if (this.publishWebsite && !this.isCoolifyFullStack() && this.vercelCredentials().length > 0) {
       this.loadVercelProjects();
     }
-    if (this.publishServer && this.railwayCredentials().length > 0) {
+    if (this.publishServer && !this.isCoolifyFullStack() && this.railwayCredentials().length > 0) {
       this.loadRailwayProjects();
+    }
+    if ((this.publishCoolify || this.isCoolifyFullStack()) && this.coolifyCredentials().length > 0) {
+      this.loadCoolifyProjects();
+      if (this.publishCoolify && this.coolifyHostingMode() === 'create') {
+        this.loadCoolifyInfrastructure();
+      }
+      if (this.isCoolifyFullStack() &&
+          (this.coolifyWebsiteHostingMode() === 'create' || this.coolifyServerHostingMode() === 'create')) {
+        this.loadCoolifyInfrastructure();
+      }
+    }
+  }
+
+  setCoolifyHostingMode(mode: 'existing' | 'create'): void {
+    this.coolifyHostingMode.set(mode);
+    this.selectedCoolifyProjectId.set(null);
+    if (mode === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
+    }
+  }
+
+  setCoolifyWebsiteHostingMode(mode: 'existing' | 'create'): void {
+    this.coolifyWebsiteHostingMode.set(mode);
+    this.selectedCoolifyWebsiteProjectId.set(null);
+    if (mode === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
+    }
+  }
+
+  setCoolifyServerHostingMode(mode: 'existing' | 'create'): void {
+    this.coolifyServerHostingMode.set(mode);
+    this.selectedCoolifyServerProjectId.set(null);
+    if (mode === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
     }
   }
 
@@ -751,14 +999,25 @@ export class ProjectWizardComponent implements OnInit {
     }
   }
 
-  canContinueFromHostingStep(): boolean {
-    if (this.publishWebsite && !this.selectedVercelProjectId()) {
-      return false;
+  onCoolifyCredentialChange(): void {
+    this.selectedCoolifyProjectId.set(null);
+    this.selectedCoolifyWebsiteProjectId.set(null);
+    this.selectedCoolifyServerProjectId.set(null);
+    this.selectedCoolifyGithubAppId = '';
+    if (this.publishCoolify && this.coolifyHostingMode() === 'existing') {
+      this.loadCoolifyProjects();
+    } else if (this.isCoolifyFullStack()) {
+      if (this.coolifyWebsiteHostingMode() === 'existing' || this.coolifyServerHostingMode() === 'existing') {
+        this.loadCoolifyProjects();
+      }
+      if (this.coolifyWebsiteHostingMode() === 'create' || this.coolifyServerHostingMode() === 'create') {
+        this.loadCoolifyInfrastructure();
+      }
+    } else if (this.coolifyHostingMode() === 'existing') {
+      this.loadCoolifyProjects();
+    } else {
+      this.loadCoolifyInfrastructure();
     }
-    if (this.publishServer && !this.selectedRailwayProjectId()) {
-      return false;
-    }
-    return this.publishWebsite || this.publishServer;
   }
 
   detectedDatabaseSummary(): string {
@@ -775,7 +1034,8 @@ export class ProjectWizardComponent implements OnInit {
       parts.push('Redis');
     }
 
-    return `DeployAI will create ${parts.join(' and ')} on Railway automatically.`;
+    const host = this.isCoolifyFullStack() || this.publishCoolify ? 'Coolify' : 'Railway';
+    return `DeployAI will create ${parts.join(' and ')} on ${host} automatically.`;
   }
 
   loadVercelProjects(): void {
@@ -806,6 +1066,21 @@ export class ProjectWizardComponent implements OnInit {
       error: (err) => {
         this.loadingRailwayProjects.set(false);
         this.error.set(err?.error?.error?.message ?? 'Could not load your Railway services.');
+      }
+    });
+  }
+
+  loadCoolifyProjects(): void {
+    if (!this.selectedCoolifyCredentialId) return;
+    this.loadingCoolifyProjects.set(true);
+    this.api.listProviderProjects(this.selectedCoolifyCredentialId).subscribe({
+      next: (response) => {
+        this.coolifyProjects.set(response.projects);
+        this.loadingCoolifyProjects.set(false);
+      },
+      error: (err) => {
+        this.loadingCoolifyProjects.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify applications.');
       }
     });
   }
@@ -861,6 +1136,199 @@ export class ProjectWizardComponent implements OnInit {
     });
   }
 
+  createCoolifyProject(): void {
+    this.createCoolifyProjectForRole('server', this.newCoolifyProjectName, id => {
+      this.selectedCoolifyProjectId.set(id);
+    });
+  }
+
+  createCoolifyWebsiteProject(): void {
+    this.createCoolifyProjectForRole('website', this.newCoolifyWebsiteProjectName, id => {
+      this.selectedCoolifyWebsiteProjectId.set(id);
+    });
+  }
+
+  createCoolifyServerProject(): void {
+    this.createCoolifyProjectForRole('server', this.newCoolifyServerProjectName, id => {
+      this.selectedCoolifyServerProjectId.set(id);
+    });
+  }
+
+  private createCoolifyProjectForRole(
+    role: 'website' | 'server',
+    projectName: string,
+    selectProject: (id: string) => void
+  ): void {
+    const repo = this.selectedRepo();
+    const branch = this.selectedBranch();
+    if (!repo || !branch || !this.selectedCoolifyCredentialId || !projectName) return;
+
+    this.creatingCoolifyProject.set(true);
+    this.error.set(null);
+    this.api.createCoolifyProject(
+      this.selectedCoolifyCredentialId,
+      projectName,
+      repo.fullName,
+      branch,
+      this.buildCoolifyCreateOptions(repo.private, role)
+    ).subscribe({
+      next: (response) => {
+        selectProject(response.project.id);
+        this.coolifyProjects.update(projects => [...projects, response.project]);
+        if (role === 'website') {
+          this.coolifyWebsiteHostingMode.set('existing');
+        } else if (this.isCoolifyFullStack()) {
+          this.coolifyServerHostingMode.set('existing');
+        } else {
+          this.coolifyHostingMode.set('existing');
+        }
+        this.creatingCoolifyProject.set(false);
+        this.error.set(null);
+      },
+      error: (err) => {
+        this.creatingCoolifyProject.set(false);
+        this.error.set(err?.error?.error?.message ?? 'Could not create that Coolify application.');
+        this.loadCoolifyProjects();
+      }
+    });
+  }
+
+  loadCoolifyInfrastructure(): void {
+    if (!this.selectedCoolifyCredentialId) return;
+    this.loadingCoolifyInfrastructure.set(true);
+    this.api.listCoolifyInfrastructure(this.selectedCoolifyCredentialId).subscribe({
+      next: (response) => {
+        this.coolifyInfrastructure.set(response);
+        if (!this.selectedCoolifyProjectUuid && response.projects.length > 0) {
+          this.selectedCoolifyProjectUuid = response.projects[0].id;
+        }
+        if (!this.selectedCoolifyServerUuid && response.servers.length > 0) {
+          this.selectedCoolifyServerUuid = response.servers[0].id;
+        }
+        if (!this.selectedCoolifyGithubAppId && response.githubApps.length === 1) {
+          this.selectedCoolifyGithubAppId = response.githubApps[0].id;
+        }
+        this.loadingCoolifyInfrastructure.set(false);
+        this.loadCoolifyEnvironments();
+      },
+      error: (err) => {
+        this.loadingCoolifyInfrastructure.set(false);
+        this.coolifyEnvironments.set([]);
+        this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify infrastructure.');
+      }
+    });
+  }
+
+  onCoolifyProjectUuidChange(): void {
+    this.selectedCoolifyEnvironmentName = '';
+    this.loadCoolifyEnvironments();
+  }
+
+  loadCoolifyEnvironments(): void {
+    if (!this.selectedCoolifyCredentialId || !this.selectedCoolifyProjectUuid) {
+      this.coolifyEnvironments.set([]);
+      return;
+    }
+
+    this.loadingCoolifyEnvironments.set(true);
+    this.api.listCoolifyProjectEnvironments(
+      this.selectedCoolifyCredentialId,
+      this.selectedCoolifyProjectUuid
+    ).subscribe({
+      next: (response) => {
+        this.coolifyEnvironments.set(response.environments);
+        if (!this.selectedCoolifyEnvironmentName && response.environments.length > 0) {
+          this.selectedCoolifyEnvironmentName = response.environments[0].name;
+        }
+        this.loadingCoolifyEnvironments.set(false);
+      },
+      error: () => {
+        this.coolifyEnvironments.set([]);
+        this.loadingCoolifyEnvironments.set(false);
+      }
+    });
+  }
+
+  coolifyCreateBlockedReason(): string | null {
+    const repo = this.selectedRepo();
+    if (repo?.private && !this.selectedCoolifyGithubAppId) {
+      const apps = this.coolifyInfrastructure()?.githubApps ?? [];
+      if (apps.length === 0) {
+        return 'Connect a GitHub App in Coolify to deploy private repositories.';
+      }
+      return 'Choose the Coolify GitHub App for this private repository.';
+    }
+    return null;
+  }
+
+  private buildCoolifyCreateOptions(isPrivateRepository: boolean, role: 'website' | 'server' = 'server') {
+    const serverProfile = role === 'server' ? this.serverBuildProfile() : null;
+    const websiteProfile = role === 'website' ? this.websiteBuildProfile() : null;
+    const profile = serverProfile ?? websiteProfile ?? undefined;
+    const dockerfilePath = serverProfile?.dockerfilePath;
+    const outputDirectory = websiteProfile?.outputDirectory;
+
+    return {
+      isPrivateRepository,
+      coolifyProjectUuid: this.selectedCoolifyProjectUuid || undefined,
+      coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
+      coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
+      coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
+      buildPack: dockerfilePath || profile?.framework === 'docker'
+        ? CoolifyBuildPack.Dockerfile
+        : outputDirectory
+          ? CoolifyBuildPack.Static
+          : CoolifyBuildPack.Nixpacks,
+      rootDirectory: profile?.rootDirectory,
+      outputDirectory,
+      buildCommand: profile?.buildCommand,
+      installCommand: profile?.installCommand,
+      startCommand: serverProfile?.startCommand,
+      framework: profile?.framework,
+      dockerfilePath,
+      serviceDirectory: serverProfile?.serviceDirectory
+    };
+  }
+
+  selectedCoolifyProjectName(): string | null {
+    const projectId = this.selectedCoolifyProjectId();
+    if (!projectId) {
+      return null;
+    }
+
+    return this.coolifyProjects().find(project => project.id === projectId)?.name ?? projectId;
+  }
+
+  selectedCoolifyWebsiteProjectName(): string | null {
+    const projectId = this.selectedCoolifyWebsiteProjectId();
+    if (!projectId) {
+      return null;
+    }
+
+    return this.coolifyProjects().find(project => project.id === projectId)?.name ?? projectId;
+  }
+
+  selectedCoolifyServerProjectName(): string | null {
+    const projectId = this.selectedCoolifyServerProjectId();
+    if (!projectId) {
+      return null;
+    }
+
+    return this.coolifyProjects().find(project => project.id === projectId)?.name ?? projectId;
+  }
+
+  private buildCoolifyTargetConfig(
+    role: 'website' | 'server',
+    gitBranch?: string,
+    buildPack?: CoolifyBuildPack
+  ): string {
+    return JSON.stringify({
+      role,
+      coolifyGitBranch: gitBranch ?? undefined,
+      coolifyBuildPack: buildPack ?? undefined
+    });
+  }
+
   addEnvRow(): void {
     this.envRows.push({ key: '', value: '' });
   }
@@ -876,7 +1344,7 @@ export class ProjectWizardComponent implements OnInit {
       const vercelProjectId = this.selectedVercelProjectId();
       if (!vercelProjectId || !this.selectedVercelCredentialId) return;
       targets.push({
-        providerName: 'vercel',
+        providerName: ProviderName.Vercel,
         credentialId: this.selectedVercelCredentialId,
         providerProjectId: vercelProjectId,
         config: this.buildWebsiteTargetConfig()
@@ -887,19 +1355,54 @@ export class ProjectWizardComponent implements OnInit {
       const railwayProjectId = this.selectedRailwayProjectId();
       if (!railwayProjectId || !this.selectedRailwayCredentialId) return;
       targets.push({
-        providerName: 'railway',
+        providerName: ProviderName.Railway,
         credentialId: this.selectedRailwayCredentialId,
         providerProjectId: railwayProjectId,
         config: this.buildServerTargetConfig()
       });
     }
 
+    if (this.publishCoolify) {
+      const coolifyProjectId = this.selectedCoolifyProjectId();
+      if (!coolifyProjectId || !this.selectedCoolifyCredentialId) return;
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: coolifyProjectId,
+        config: this.buildCoolifyTargetConfig(
+          'server',
+          this.coolifyProjects().find(project => project.id === coolifyProjectId)?.gitBranch
+        )
+      });
+    }
+
+    if (this.isCoolifyFullStack()) {
+      const websiteProjectId = this.selectedCoolifyWebsiteProjectId();
+      const serverProjectId = this.selectedCoolifyServerProjectId();
+      if (!websiteProjectId || !serverProjectId || !this.selectedCoolifyCredentialId) return;
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: websiteProjectId,
+        config: this.buildWebsiteTargetConfig()
+      });
+      targets.push({
+        providerName: ProviderName.Coolify,
+        credentialId: this.selectedCoolifyCredentialId,
+        providerProjectId: serverProjectId,
+        config: this.buildServerTargetConfig()
+      });
+    }
+
+    const dbProfile = this.databaseRequirements();
     this.saving.set(true);
     this.api.createProject({
       name: this.projectName,
       githubRepoFullName: repo.fullName,
       defaultBranch: branch,
       logoKey: this.selectedLogoKey(),
+      includePostgres: dbProfile?.requiresPostgres,
+      includeRedis: dbProfile?.requiresRedis,
       targets
     }).subscribe({
       next: (project) => {
@@ -1062,7 +1565,7 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   private suggestDefaultFolders(): void {
-    if (!this.publishWebsite && !this.publishServer) {
+    if (!this.publishWebsite && !this.publishServer && !this.isCoolifyFullStack()) {
       return;
     }
 
@@ -1073,7 +1576,7 @@ export class ProjectWizardComponent implements OnInit {
       return;
     }
 
-    if (this.publishWebsite) {
+    if (this.publishWebsite || this.isCoolifyFullStack()) {
       this.api.listRepoContents(owner, name, '', branch).subscribe({
         next: (response) => {
           const names = new Set(response.directories.map(d => d.name.toLowerCase()));
@@ -1084,7 +1587,7 @@ export class ProjectWizardComponent implements OnInit {
       });
     }
 
-    if (this.publishServer) {
+    if (this.publishServer || this.isCoolifyFullStack()) {
       this.api.detectServerBuildProfile(owner, name, '', branch).subscribe({
         next: (profile) => {
           if (profile.serviceDirectory || profile.rootDirectory) {

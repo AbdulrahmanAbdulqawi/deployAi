@@ -35,8 +35,9 @@ public sealed class ProviderHealthService : IProviderHealthService
 
         var vercel = await FetchVercelStatusAsync(client, cancellationToken);
         var railway = await FetchRailwayStatusAsync(client, cancellationToken);
+        var coolify = FetchCoolifyStatus();
 
-        _cache = new ProviderHealthSummary([vercel, railway]);
+        _cache = new ProviderHealthSummary([vercel, railway, coolify]);
         _cacheExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         return _cache;
     }
@@ -69,6 +70,9 @@ public sealed class ProviderHealthService : IProviderHealthService
         // Railway does not expose a simple public status JSON endpoint in this integration.
         return Task.FromResult(new ProviderHealthStatus("railway", "unknown", null));
     }
+
+    private static ProviderHealthStatus FetchCoolifyStatus() =>
+        new("coolify", "self-hosted", "Coolify runs on your own server — check your instance directly.");
 
     private static string MapIndicator(string indicator) => indicator switch
     {

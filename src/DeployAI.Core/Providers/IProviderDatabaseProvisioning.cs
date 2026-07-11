@@ -35,6 +35,11 @@ public interface IProviderDatabaseProvisioning
         string appProviderProjectId,
         IReadOnlyList<DatabaseVariableLink> links,
         CancellationToken cancellationToken);
+
+    Task DeleteDatabaseAsync(
+        ProviderCredentials credentials,
+        string databaseProviderProjectId,
+        CancellationToken cancellationToken);
 }
 
 public interface IProviderDatabaseProvisioningFactory

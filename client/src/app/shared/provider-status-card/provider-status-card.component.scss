@@ -149,6 +149,17 @@
   color: var(--provider-railway);
 }
 
+.provider-card__logo--coolify {
+  background: #1a2e1a;
+  border: 1px solid var(--border-default);
+  color: #5cdb5c;
+}
+
+.provider-card__logo-mark {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
 .provider-card__header-end {
   display: flex;
   align-items: center;

@@ -48,6 +48,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
     private readonly IProviderFactory _providerFactory;
+    private readonly IProviderApplicationUrlResolverFactory _applicationUrlResolverFactory;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IGitHubService _gitHubService;
     private readonly IEncryptionService _encryption;
@@ -60,6 +61,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         IProviderManagementFactory managementFactory,
         IProviderServiceOperationsFactory serviceOperationsFactory,
         IProviderFactory providerFactory,
+        IProviderApplicationUrlResolverFactory applicationUrlResolverFactory,
         IProviderCredentialTokenService tokens,
         IGitHubService gitHubService,
         IEncryptionService encryption,
@@ -71,6 +73,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         _managementFactory = managementFactory;
         _serviceOperationsFactory = serviceOperationsFactory;
         _providerFactory = providerFactory;
+        _applicationUrlResolverFactory = applicationUrlResolverFactory;
         _tokens = tokens;
         _gitHubService = gitHubService;
         _encryption = encryption;
@@ -99,7 +102,12 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         var serverDeployTarget = FindServerDeployTarget(project);
         if (websiteDeployTarget?.Credential is null || serverDeployTarget?.Credential is null)
         {
-            return SkippedResult(options.Source, completedAt, "Project does not have both Railway and Vercel targets.");
+            return SkippedResult(options.Source, completedAt, "Project does not have both website and server targets.");
+        }
+
+        if (!IsSupportedDualProviderPair(websiteDeployTarget.ProviderName, serverDeployTarget.ProviderName))
+        {
+            return SkippedResult(options.Source, completedAt, "Project does not have a supported website and server provider pair.");
         }
 
         var websiteConfig = DeployTargetConfig.Parse(websiteDeployTarget.ConfigJson);
@@ -115,7 +123,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return SkippedResult(
                 options.Source,
                 completedAt,
-                "Could not resolve live Railway API URL and Vercel website URL.");
+                "Could not resolve live API URL and website URL.");
         }
 
         apiUrl = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
@@ -168,24 +176,41 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return driftOnlyResult;
         }
 
-        var hadVercelDrift = driftDetails.Any(d => d.StartsWith("Vercel ", StringComparison.Ordinal));
+        var hadWebsiteDrift = driftDetails.Any(d =>
+            d.StartsWith(GetWebsiteDriftLabel(websiteDeployTarget.ProviderName), StringComparison.Ordinal));
 
         var railwayKeysApplied = new List<string>();
         var vercelKeysApplied = new List<string>();
 
         if (options.ApplyVercelEnv)
         {
-            vercelKeysApplied.AddRange(await ApplyVercelApiEnvironmentAsync(
-                websiteDeployTarget,
-                websiteConfig.Framework,
-                apiUrl,
-                cancellationToken));
+            if (string.Equals(websiteDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+            {
+                vercelKeysApplied.AddRange(await ApplyCoolifyApiEnvironmentAsync(
+                    websiteDeployTarget,
+                    websiteConfig.Framework,
+                    apiUrl,
+                    cancellationToken));
+            }
+            else
+            {
+                vercelKeysApplied.AddRange(await ApplyVercelApiEnvironmentAsync(
+                    websiteDeployTarget,
+                    websiteConfig.Framework,
+                    apiUrl,
+                    cancellationToken));
+            }
         }
 
+        var isCoolifyStack =
+            string.Equals(websiteDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(serverDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
+
         var vercelRedeployTriggered = false;
+        var coolifyWebsiteRedeployTriggered = false;
         string? vercelCommitSha = null;
         string? domainAssignmentMessage = null;
-        if (options.EnsureWebsiteWiring)
+        if (options.EnsureWebsiteWiring && !isCoolifyStack)
         {
             vercelCommitSha = await EnsureWebsiteWiringAsync(
                 project,
@@ -196,26 +221,27 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 cancellationToken);
         }
 
-        var shouldRedeployVercel = options.RedeployVercelAfterUpdate ||
+        var shouldRedeployWebsite = options.RedeployVercelAfterUpdate ||
             !string.IsNullOrWhiteSpace(vercelCommitSha) ||
-            hadVercelDrift;
+            hadWebsiteDrift;
 
         if (options.EnsureWebsiteWiring &&
             !usesSplitOrigin &&
             CrossProviderUrlWiring.UsesRelativeApiPaths(websiteConfig.Framework) &&
-            !shouldRedeployVercel)
+            !shouldRedeployWebsite &&
+            !isCoolifyStack)
         {
             var proxyWorking = await ProbeProxiedApiPostAsync(websiteUrl, cancellationToken);
             if (proxyWorking == false)
             {
-                shouldRedeployVercel = true;
+                shouldRedeployWebsite = true;
             }
         }
 
         string? deployedSpaWiringMessage = null;
         if (options.EnsureWebsiteWiring &&
             usesSplitOrigin &&
-            !shouldRedeployVercel)
+            !shouldRedeployWebsite)
         {
             var spaWired = await ProbeDeployedSpaWiredToApiAsync(websiteUrl, apiUrl, cancellationToken);
             if (spaWired == false)
@@ -224,29 +250,45 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 if (blockingIssues is null || blockingIssues.Count == 0)
                 {
                     // The repo has the split-origin wiring but the deployed bundle predates the
-                    // env vars, so relative /api calls still hit the Vercel catch-all and 405.
-                    // Only a production rebuild bakes the Railway URL into the SPA.
-                    shouldRedeployVercel = true;
+                    // env vars, so relative /api calls still miss the API host.
+                    // Only a production rebuild bakes the API URL into the SPA.
+                    shouldRedeployWebsite = true;
                 }
                 else
                 {
+                    var websiteHostLabel = isCoolifyStack ? "Coolify static host" : "Vercel static host";
+                    var apiHostLabel = isCoolifyStack ? "Coolify API" : "Railway API";
                     deployedSpaWiringMessage =
-                        "Deployed SPA wiring check failed: the deployed site does not call the Railway API directly, " +
-                        "so its /api requests hit the Vercel static host and return 405. Missing split-origin setup files: " +
+                        $"Deployed SPA wiring check failed: the deployed site does not call the {apiHostLabel} directly, " +
+                        $"so its /api requests hit the {websiteHostLabel} and return 405. Missing split-origin setup files: " +
                         string.Join("; ", blockingIssues.Select(issue => $"{issue.Path} ({issue.Reason})")) +
                         ". Regenerate the deployment setup files, merge them, then deploy and sync again.";
                 }
             }
             else if (spaWired == true)
             {
-                var railwayAuth = await ProbeRailwayAuthEndpointAsync(apiUrl, cancellationToken);
-                deployedSpaWiringMessage = railwayAuth == false
-                    ? $"Deployed SPA bundle wiring passed, but Railway POST /api/v1/auth/login returned 405 at {apiUrl}."
-                    : $"Deployed SPA wiring check passed: interceptor and apiBaseUrl are baked into the production bundle.";
+                if (isCoolifyStack)
+                {
+                    deployedSpaWiringMessage =
+                        "Deployed SPA wiring check passed: interceptor and apiBaseUrl are baked into the production bundle.";
+                }
+                else
+                {
+                    var railwayAuth = await ProbeRailwayAuthEndpointAsync(apiUrl, cancellationToken);
+                    deployedSpaWiringMessage = railwayAuth == false
+                        ? $"Deployed SPA bundle wiring passed, but Railway POST /api/v1/auth/login returned 405 at {apiUrl}."
+                        : "Deployed SPA wiring check passed: interceptor and apiBaseUrl are baked into the production bundle.";
+                }
             }
         }
 
-        if (shouldRedeployVercel)
+        if (shouldRedeployWebsite && isCoolifyStack)
+        {
+            coolifyWebsiteRedeployTriggered = await TriggerCoolifyWebsiteRedeployAsync(
+                websiteDeployTarget,
+                cancellationToken);
+        }
+        else if (shouldRedeployWebsite && !isCoolifyStack)
         {
             var triggeredDeploymentId = await TriggerVercelProductionRedeployAsync(
                 project,
@@ -256,7 +298,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 cancellationToken);
             vercelRedeployTriggered = !string.IsNullOrWhiteSpace(triggeredDeploymentId);
         }
-        else if (options.EnsureWebsiteWiring)
+        else if (options.EnsureWebsiteWiring && !isCoolifyStack)
         {
             domainAssignmentMessage = await EnsureVercelProductionDomainsAsync(
                 websiteDeployTarget,
@@ -266,19 +308,33 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
 
         if (options.ApplyRailwayEnv)
         {
-            railwayKeysApplied.AddRange(await ApplyRailwayServerEnvironmentAsync(
-                serverDeployTarget,
-                serverConfig.Framework,
-                websiteConfig.Framework,
-                websiteUrl,
-                websiteOrigins,
-                apiUrl,
-                cancellationToken));
+            if (string.Equals(serverDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+            {
+                railwayKeysApplied.AddRange(await ApplyCoolifyServerEnvironmentAsync(
+                    serverDeployTarget,
+                    serverConfig.Framework,
+                    websiteConfig.Framework,
+                    websiteUrl,
+                    websiteOrigins,
+                    apiUrl,
+                    cancellationToken));
+            }
+            else
+            {
+                railwayKeysApplied.AddRange(await ApplyRailwayServerEnvironmentAsync(
+                    serverDeployTarget,
+                    serverConfig.Framework,
+                    websiteConfig.Framework,
+                    websiteUrl,
+                    websiteOrigins,
+                    apiUrl,
+                    cancellationToken));
+            }
         }
 
         if (options.RedeployRailwayAfterUpdate)
         {
-            var serviceOperations = _serviceOperationsFactory.GetServiceOperations("railway");
+            var serviceOperations = _serviceOperationsFactory.GetServiceOperations(serverDeployTarget.ProviderName);
             if (serviceOperations is not null)
             {
                 var serverCredentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
@@ -309,6 +365,13 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                     "Vercel production redeploy triggered. Wait for the deployment to finish, then sync again to verify split-origin wiring and CORS."
                 ];
             }
+            else if (coolifyWebsiteRedeployTriggered)
+            {
+                verificationMessages =
+                [
+                    "Coolify website redeploy triggered. Wait for the deployment to finish, then sync again to verify split-origin wiring and CORS."
+                ];
+            }
             else if (!string.IsNullOrWhiteSpace(domainAssignmentMessage))
             {
                 verificationMessages = [domainAssignmentMessage];
@@ -323,7 +386,9 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                     cancellationToken);
             }
 
-            if (!vercelRedeployTriggered && deployedSpaWiringMessage is not null)
+            if (!vercelRedeployTriggered &&
+                !coolifyWebsiteRedeployTriggered &&
+                deployedSpaWiringMessage is not null)
             {
                 verificationMessages = [.. verificationMessages, deployedSpaWiringMessage];
             }
@@ -352,7 +417,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         DeploymentTarget websiteTarget,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(websiteTarget.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase))
+        if (!IsWebsiteProvider(websiteTarget.ProviderName))
         {
             return null;
         }
@@ -366,6 +431,16 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         var websiteConfig = DeployTargetConfig.Parse(context.WebsiteDeployTarget!.ConfigJson);
         var serverConfig = DeployTargetConfig.Parse(context.ServerDeployTarget.ConfigJson);
         var normalizedApiUrl = CrossProviderUrlWiring.NormalizeOrigin(context.ApiUrl);
+
+        if (string.Equals(websiteTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            await ApplyCoolifyApiEnvironmentAsync(
+                context.WebsiteDeployTarget,
+                websiteConfig.Framework,
+                normalizedApiUrl,
+                cancellationToken);
+            return null;
+        }
 
         await ApplyVercelApiEnvironmentAsync(
             context.WebsiteDeployTarget,
@@ -387,7 +462,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         DeploymentTarget railwayTarget,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(railwayTarget.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+        if (!IsServerProvider(railwayTarget.ProviderName))
         {
             return;
         }
@@ -417,7 +492,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         DeploymentTarget websiteTarget,
         CancellationToken cancellationToken)
     {
-        if (!string.Equals(websiteTarget.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) ||
+        if (!IsWebsiteProvider(websiteTarget.ProviderName) ||
             websiteTarget.Status != DeploymentStatuses.Success ||
             string.IsNullOrWhiteSpace(websiteTarget.DeployUrl))
         {
@@ -518,26 +593,19 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
 
         var serverDeploymentTarget = deployment.Targets
             .FirstOrDefault(t =>
-                string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
+                IsServerProvider(t.ProviderName) &&
                 !string.IsNullOrWhiteSpace(t.DeployUrl));
 
         var serverDeployTarget = serverDeploymentTarget is null
             ? deployment.Project.DeployTargets.FirstOrDefault(t =>
-                string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-                DeployTargetConfig.Parse(t.ConfigJson).IsDeployableTarget)
+                IsServerProvider(t.ProviderName) &&
+                string.Equals(DeployTargetConfig.Parse(t.ConfigJson).Role, "server", StringComparison.OrdinalIgnoreCase))
             : deployment.Project.DeployTargets.FirstOrDefault(t => t.Id == serverDeploymentTarget.DeployTargetId);
 
         var apiUrl = serverDeploymentTarget?.DeployUrl;
-        if (string.IsNullOrWhiteSpace(apiUrl) &&
-            serverDeployTarget?.Credential is not null &&
-            _serviceOperationsFactory.GetServiceOperations("railway") is { } railwayOperations)
+        if (string.IsNullOrWhiteSpace(apiUrl) && serverDeployTarget?.Credential is not null)
         {
-            var serverCredentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
-            var status = await railwayOperations.GetServiceStatusAsync(
-                serverCredentials,
-                serverDeployTarget.ProviderProjectId,
-                cancellationToken);
-            apiUrl = status.DeployUrl;
+            apiUrl = await ResolveLiveApiUrlAsync(serverDeployTarget, cancellationToken);
         }
 
         if (serverDeployTarget is null)
@@ -555,15 +623,28 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
 
     private static DeployTarget? FindWebsiteDeployTarget(Project project) =>
         project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
+            IsWebsiteProvider(t.ProviderName) &&
             string.Equals(DeployTargetConfig.Parse(t.ConfigJson).Role, "website", StringComparison.OrdinalIgnoreCase))
-        ?? project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase));
+        ?? project.DeployTargets.FirstOrDefault(t => IsWebsiteProvider(t.ProviderName));
 
     private async Task<string?> ResolveLiveApiUrlAsync(
         DeployTarget serverDeployTarget,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(serverDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            if (_applicationUrlResolverFactory.GetResolver(ProviderNameValues.Coolify) is not { } resolver)
+            {
+                return null;
+            }
+
+            var credentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
+            return await resolver.ResolveApplicationUrlAsync(
+                credentials,
+                serverDeployTarget.ProviderProjectId,
+                cancellationToken);
+        }
+
         if (_serviceOperationsFactory.GetServiceOperations("railway") is not { } railwayOperations)
         {
             return null;
@@ -585,6 +666,36 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         if (websiteDeployTarget?.Credential is null)
         {
             return null;
+        }
+
+        if (string.Equals(websiteDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            string? deploymentUrl = null;
+            if (deploymentId.HasValue)
+            {
+                deploymentUrl = await _db.DeploymentTargets
+                    .Where(t =>
+                        t.DeploymentId == deploymentId.Value &&
+                        t.DeployTargetId == websiteDeployTarget.Id &&
+                        !string.IsNullOrWhiteSpace(t.DeployUrl))
+                    .OrderByDescending(t => t.CompletedAt)
+                    .Select(t => t.DeployUrl)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            deploymentUrl ??= await _db.DeploymentTargets
+                .Where(t =>
+                    t.DeployTargetId == websiteDeployTarget.Id &&
+                    t.Status == DeploymentStatuses.Success &&
+                    !string.IsNullOrWhiteSpace(t.DeployUrl))
+                .OrderByDescending(t => t.CompletedAt)
+                .Select(t => t.DeployUrl)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            return await ResolveCoolifyPublicWebsiteUrlAsync(
+                websiteDeployTarget,
+                deploymentUrl,
+                cancellationToken);
         }
 
         if (deploymentId.HasValue)
@@ -629,6 +740,29 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             cancellationToken);
     }
 
+    private async Task<string?> ResolveCoolifyPublicWebsiteUrlAsync(
+        DeployTarget websiteDeployTarget,
+        string? deploymentUrl,
+        CancellationToken cancellationToken)
+    {
+        if (_applicationUrlResolverFactory.GetResolver(ProviderNameValues.Coolify) is { } resolver)
+        {
+            var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
+            var resolved = await resolver.ResolveApplicationUrlAsync(
+                credentials,
+                websiteDeployTarget.ProviderProjectId,
+                cancellationToken);
+            if (!string.IsNullOrWhiteSpace(resolved))
+            {
+                return CrossProviderUrlWiring.NormalizeOrigin(resolved);
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(deploymentUrl)
+            ? null
+            : CrossProviderUrlWiring.NormalizeOrigin(deploymentUrl);
+    }
+
     private async Task<string?> ResolveVercelPublicWebsiteUrlAsync(
         DeployTarget websiteDeployTarget,
         string? deploymentUrl,
@@ -659,6 +793,11 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         string primaryWebsiteUrl,
         CancellationToken cancellationToken)
     {
+        if (string.Equals(websiteDeployTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return [primaryWebsiteUrl];
+        }
+
         var vercelManagement = _managementFactory.GetManagement("vercel");
         if (vercelManagement is IWebsiteApiProxySupport proxySupport)
         {
@@ -678,8 +817,81 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
 
     private static DeployTarget? FindServerDeployTarget(Project project) =>
         project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
+            IsServerProvider(t.ProviderName) &&
+            string.Equals(DeployTargetConfig.Parse(t.ConfigJson).Role, "server", StringComparison.OrdinalIgnoreCase))
+        ?? project.DeployTargets.FirstOrDefault(t =>
+            IsServerProvider(t.ProviderName) &&
             DeployTargetConfig.Parse(t.ConfigJson).IsDeployableTarget);
+
+    private static bool IsWebsiteProvider(string providerName) =>
+        string.Equals(providerName, "vercel", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsServerProvider(string providerName) =>
+        string.Equals(providerName, "railway", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSupportedDualProviderPair(string websiteProvider, string serverProvider) =>
+        (string.Equals(websiteProvider, "vercel", StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(serverProvider, "railway", StringComparison.OrdinalIgnoreCase)) ||
+        (string.Equals(websiteProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+         string.Equals(serverProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
+
+    private async Task<IReadOnlyList<string>> ApplyCoolifyApiEnvironmentAsync(
+        DeployTarget websiteDeployTarget,
+        string? websiteFramework,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        var appliedKeys = new List<string>();
+        var management = _managementFactory.GetManagement(ProviderNameValues.Coolify);
+        var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
+        var normalizedApiUrl = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
+
+        foreach (var key in CrossProviderUrlWiring.ResolveApiEnvKeys(websiteFramework))
+        {
+            await management.UpsertEnvVarAsync(
+                credentials,
+                websiteDeployTarget.ProviderProjectId,
+                new UpsertProviderEnvVarRequest(key, normalizedApiUrl, "plain", []),
+                cancellationToken);
+            appliedKeys.Add(key);
+        }
+
+        return appliedKeys;
+    }
+
+    private async Task<IReadOnlyList<string>> ApplyCoolifyServerEnvironmentAsync(
+        DeployTarget serverDeployTarget,
+        string? serverFramework,
+        string? websiteFramework,
+        string websiteUrl,
+        IReadOnlyList<string> websiteOrigins,
+        string apiUrl,
+        CancellationToken cancellationToken)
+    {
+        var appliedKeys = new List<string>();
+        var coolifyManagement = _managementFactory.GetManagement(ProviderNameValues.Coolify);
+        var serverCredentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
+        var assignments = CrossProviderUrlWiring.BuildServerRuntimeEnvAssignments(
+            serverFramework,
+            websiteFramework,
+            websiteUrl,
+            websiteOrigins,
+            apiUrl);
+
+        foreach (var (key, value) in assignments)
+        {
+            await coolifyManagement.UpsertEnvVarAsync(
+                serverCredentials,
+                serverDeployTarget.ProviderProjectId,
+                new UpsertProviderEnvVarRequest(key, value, "plain", []),
+                cancellationToken);
+            appliedKeys.Add(key);
+        }
+
+        return appliedKeys;
+    }
 
     private async Task<IReadOnlyList<string>> ApplyVercelApiEnvironmentAsync(
         DeployTarget websiteDeployTarget,
@@ -756,41 +968,79 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         CancellationToken cancellationToken)
     {
         var driftDetails = new List<string>();
-        var expectedRailway = CrossProviderUrlWiring.BuildExpectedRailwayEnvValues(
+        var expectedServer = CrossProviderUrlWiring.BuildExpectedRailwayEnvValues(
             serverFramework,
             websiteFramework,
             websiteUrl,
             websiteOrigins,
             apiUrl);
-        var expectedVercel = CrossProviderUrlWiring.BuildExpectedVercelEnvValues(websiteFramework, apiUrl);
+        var expectedWebsite = CrossProviderUrlWiring.BuildExpectedVercelEnvValues(websiteFramework, apiUrl);
 
-        var railwayManagement = _managementFactory.GetManagement("railway");
-        var vercelManagement = _managementFactory.GetManagement("vercel");
-        var railwayCredentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
-        var vercelCredentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
+        var websiteManagement = _managementFactory.GetManagement(websiteDeployTarget.ProviderName);
+        var serverManagement = _managementFactory.GetManagement(serverDeployTarget.ProviderName);
+        var websiteCredentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
+        var serverCredentials = await GetCredentialsAsync(serverDeployTarget, cancellationToken);
 
-        var railwayEnvVars = await railwayManagement.ListEnvVarsAsync(
-            railwayCredentials,
-            serverDeployTarget.ProviderProjectId,
-            cancellationToken);
-        var vercelEnvVars = await vercelManagement.ListEnvVarsAsync(
-            vercelCredentials,
+        var websiteEnvVars = await websiteManagement.ListEnvVarsAsync(
+            websiteCredentials,
             websiteDeployTarget.ProviderProjectId,
             cancellationToken);
+        var serverEnvVars = await serverManagement.ListEnvVarsAsync(
+            serverCredentials,
+            serverDeployTarget.ProviderProjectId,
+            cancellationToken);
 
-        CompareExpectedEnvVars(driftDetails, "Railway", expectedRailway, railwayEnvVars);
-        CompareExpectedEnvVars(driftDetails, "Vercel", expectedVercel, vercelEnvVars, skipHiddenValues: true);
+        CompareExpectedEnvVars(
+            driftDetails,
+            GetWebsiteDriftLabel(websiteDeployTarget.ProviderName),
+            expectedWebsite,
+            websiteEnvVars,
+            skipHiddenValues: true);
+        CompareExpectedEnvVars(
+            driftDetails,
+            GetServerDriftLabel(serverDeployTarget.ProviderName),
+            expectedServer,
+            serverEnvVars);
 
-        if (CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteFramework, serverFramework))
+        if (CrossProviderUrlWiring.ShouldUseSplitOrigin(websiteFramework, serverFramework) &&
+            string.Equals(serverDeployTarget.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase))
         {
             foreach (var warning in CrossProviderUrlWiring.ValidateIgnoredRailwayEnvKeys(
-                         railwayEnvVars.Select(env => new CrossProviderUrlWiring.ProviderEnvVarSnapshot(env.Key, env.Value)).ToArray()))
+                         serverEnvVars.Select(env => new CrossProviderUrlWiring.ProviderEnvVarSnapshot(env.Key, env.Value)).ToArray()))
             {
                 driftDetails.Add(warning);
             }
         }
 
         return driftDetails;
+    }
+
+    private static string GetWebsiteDriftLabel(string providerName) =>
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
+            ? "Coolify"
+            : "Vercel";
+
+    private static string GetServerDriftLabel(string providerName) =>
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
+            ? "Coolify"
+            : "Railway";
+
+    private async Task<bool> TriggerCoolifyWebsiteRedeployAsync(
+        DeployTarget websiteDeployTarget,
+        CancellationToken cancellationToken)
+    {
+        var serviceOperations = _serviceOperationsFactory.GetServiceOperations(ProviderNameValues.Coolify);
+        if (serviceOperations is null)
+        {
+            return false;
+        }
+
+        var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
+        await serviceOperations.RedeployServiceAsync(
+            credentials,
+            websiteDeployTarget.ProviderProjectId,
+            cancellationToken);
+        return true;
     }
 
     private static void CompareExpectedEnvVars(

@@ -11,9 +11,11 @@ import {
   DeploymentPlanPart,
   DeploymentReadinessResult,
   DeploymentSummary,
-  ProjectDetail
+  ProjectDetail,
+  ProviderName
 } from '../core/models/api.models';
 import { parseTargetConfig, roleLabelForProvider } from '../core/utils/target-config';
+import { canSyncEnvironmentUrls } from '../core/utils/environment-sync-eligibility';
 import { IconComponent } from '../shared/ui/icon/icon.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { DeploymentVerificationPanelComponent } from '../shared/deployment-verification-panel/deployment-verification-panel.component';
@@ -91,11 +93,14 @@ export class ProjectTroubleshootComponent implements OnInit {
   roleLabel(providerName: string): string {
     const name = this.project()?.name;
     if (name) {
-      if (providerName === 'railway') {
+      if (providerName === ProviderName.Railway) {
         return `${name} API`;
       }
-      if (providerName === 'vercel') {
+      if (providerName === ProviderName.Vercel) {
         return `${name} UI`;
+      }
+      if (providerName === ProviderName.Coolify) {
+        return `${name} on Coolify`;
       }
     }
 
@@ -126,14 +131,7 @@ export class ProjectTroubleshootComponent implements OnInit {
   }
 
   canSyncUrls(): boolean {
-    const deployment = this.deployment();
-    if (!deployment) {
-      return false;
-    }
-
-    const hasRailway = deployment.targets.some(t => t.providerName === 'railway' && t.status === 'success');
-    const hasVercel = deployment.targets.some(t => t.providerName === 'vercel' && t.status === 'success');
-    return hasRailway && hasVercel;
+    return canSyncEnvironmentUrls(this.deployment());
   }
 
   repoOwner(): string | null {

@@ -16,6 +16,7 @@ import { OperationProgressComponent } from '../shared/operation-progress/operati
 import { ToastService } from '../shared/ui/toast/toast.service';
 import { ElapsedTimer, ElapsedTimerService } from '../core/services/elapsed-timer.service';
 import { durationMsFromTimestamps, formatDurationMs, formatDurationSeconds } from '../core/utils/duration';
+import { canSyncEnvironmentUrls } from '../core/utils/environment-sync-eligibility';
 import type { OperationProgressMode } from '../shared/operation-progress/operation-progress.component';
 
 @Component({
@@ -330,14 +331,7 @@ export class PublishViewComponent implements OnInit, OnDestroy {
   }
 
   canSyncUrls(): boolean {
-    const deployment = this.store.deployment();
-    if (!deployment || !this.store.isComplete()) {
-      return false;
-    }
-
-    const hasRailway = deployment.targets.some(t => t.providerName === 'railway' && t.status === 'success');
-    const hasVercel = deployment.targets.some(t => t.providerName === 'vercel' && t.status === 'success');
-    return hasRailway && hasVercel;
+    return canSyncEnvironmentUrls(this.store.deployment(), this.store.isComplete());
   }
 
   syncUrls(): void {

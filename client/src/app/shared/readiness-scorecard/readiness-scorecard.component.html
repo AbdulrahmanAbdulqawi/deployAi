@@ -1,0 +1,50 @@
+@if (scorecard().visible) {
+  <section class="readiness-scorecard u-glass-panel" [class.readiness-scorecard--compact]="compact()">
+    @if (loading()) {
+      <p class="readiness-scorecard__loading detail__muted">Checking deployment readiness…</p>
+    } @else {
+      <header class="readiness-scorecard__header">
+        <div class="readiness-scorecard__summary">
+          <div class="readiness-scorecard__ring" [class.readiness-scorecard__ring--ready]="scorecard().isReady">
+            <span class="readiness-scorecard__percent">{{ scorecard().scorePercent }}%</span>
+          </div>
+          <div class="readiness-scorecard__copy">
+            <h2 class="readiness-scorecard__title">{{ headline() }}</h2>
+            <p class="readiness-scorecard__meta u-text-secondary">
+              {{ scorecard().passedCount }} of {{ scorecard().totalCount }} checks passed
+            </p>
+          </div>
+        </div>
+        @if (projectId()) {
+          <a
+            class="readiness-scorecard__action u-label-caps"
+            [routerLink]="['/projects', projectId(), 'troubleshoot']">
+            {{ scorecard().isReady ? 'Review setup' : 'Fix setup' }}
+          </a>
+        }
+      </header>
+
+      @if (!compact()) {
+        <ul class="readiness-scorecard__list">
+          @for (item of scorecard().items; track item.id) {
+            <li class="readiness-scorecard__item" [class]="'readiness-scorecard__item--' + item.status">
+              <span class="readiness-scorecard__item-icon" aria-hidden="true">
+                <app-ui-icon
+                  [name]="item.status === 'passed' ? 'check' : item.status === 'failed' ? 'x' : 'alert'"
+                  size="sm"
+                  [statusClass]="statusIcon(item.status)" />
+              </span>
+              <div class="readiness-scorecard__item-body">
+                <p class="readiness-scorecard__item-label">{{ item.label }}</p>
+                @if (item.detail) {
+                  <p class="readiness-scorecard__item-detail u-text-secondary">{{ item.detail }}</p>
+                }
+              </div>
+              <span class="readiness-scorecard__badge u-label-caps">{{ statusLabel(item.status) }}</span>
+            </li>
+          }
+        </ul>
+      }
+    }
+  </section>
+}

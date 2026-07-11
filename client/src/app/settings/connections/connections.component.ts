@@ -2,7 +2,7 @@ import { Component, OnInit, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
-import { CredentialSummary } from '../../core/models/api.models';
+import { CredentialSummary, ProviderName } from '../../core/models/api.models';
 import { ConnectionsStore } from '../../core/stores/connections.store';
 import { ButtonComponent } from '../../shared/ui/button/button.component';
 import { InputComponent } from '../../shared/ui/input/input.component';
@@ -10,7 +10,7 @@ import { ToastService } from '../../shared/ui/toast/toast.service';
 import { ConfirmService } from '../../shared/ui/confirm/confirm.service';
 import { StatusBadgeComponent } from '../../shared/status-badge/status-badge.component';
 
-type ProviderKey = 'vercel' | 'railway';
+type ProviderKey = ProviderName.Vercel | ProviderName.Railway | ProviderName.Coolify;
 
 @Component({
   selector: 'app-connections',
@@ -20,27 +20,37 @@ type ProviderKey = 'vercel' | 'railway';
   styleUrl: './connections.component.scss'
 })
 export class ConnectionsComponent implements OnInit {
+  readonly ProviderName = ProviderName;
   readonly saving = signal(false);
   readonly connectingOAuth = signal(false);
   readonly connectingRailwayOAuth = signal(false);
   readonly showAdvanced = signal(false);
   readonly showAdvancedRailway = signal(false);
+  readonly showAdvancedCoolify = signal(false);
   readonly savingRailway = signal(false);
+  readonly savingCoolify = signal(false);
   readonly providerHealth = signal<{ name: string; status: string; message?: string | null }[]>([]);
 
   readonly healthAlert = computed(() =>
     this.providerHealth().find(p => p.status === 'degraded' || p.status === 'incident')
   );
 
-  readonly vercelCredential = computed(() => this.store.credentialFor('vercel'));
-  readonly railwayCredential = computed(() => this.store.credentialFor('railway'));
-  readonly vercelConnected = computed(() => this.store.isConnected('vercel'));
-  readonly railwayConnected = computed(() => this.store.isConnected('railway'));
+  readonly vercelCredential = computed(() => this.store.credentialFor(ProviderName.Vercel));
+  readonly railwayCredential = computed(() => this.store.credentialFor(ProviderName.Railway));
+  readonly coolifyCredentials = computed(() =>
+    this.store.credentials().filter(c => c.providerName === ProviderName.Coolify)
+  );
+  readonly vercelConnected = computed(() => this.store.isConnected(ProviderName.Vercel));
+  readonly railwayConnected = computed(() => this.store.isConnected(ProviderName.Railway));
+  readonly coolifyConnected = computed(() => this.store.isConnected(ProviderName.Coolify));
 
   token = '';
   label = 'Personal';
   railwayToken = '';
   railwayLabel = 'Personal';
+  coolifyInstanceUrl = '';
+  coolifyToken = '';
+  coolifyLabel = 'Homelab';
   private returnUrl: string | null = null;
 
   constructor(
@@ -78,16 +88,21 @@ export class ConnectionsComponent implements OnInit {
   }
 
   introMessage(): string {
-    if (this.vercelConnected() && this.railwayConnected()) {
-      return 'Vercel and Railway are connected. Reconnect anytime to refresh access.';
+    const connected = [
+      this.vercelConnected() ? 'Vercel' : null,
+      this.railwayConnected() ? 'Railway' : null,
+      this.coolifyConnected() ? 'Coolify' : null
+    ].filter((name): name is string => name !== null);
+
+    if (connected.length === 0) {
+      return 'Connect Vercel, Railway, or your self-hosted Coolify instance to deploy your apps.';
     }
-    if (this.vercelConnected()) {
-      return 'Vercel is connected. Connect Railway to deploy databases and backends.';
+
+    if (connected.length === 3) {
+      return 'Vercel, Railway, and Coolify are connected. Reconnect anytime to refresh access.';
     }
-    if (this.railwayConnected()) {
-      return 'Railway is connected. Connect Vercel to deploy frontends.';
-    }
-    return 'Connect Vercel and Railway to deploy your apps.';
+
+    return `${connected.join(' and ')} connected. Add more providers anytime.`;
   }
 
   statusFor(credential: CredentialSummary | undefined): { status: string; label: string } {
@@ -149,7 +164,7 @@ export class ConnectionsComponent implements OnInit {
   connectWithToken(): void {
     const updating = !!this.vercelCredential();
     this.saving.set(true);
-    this.store.addCredential('vercel', this.token, this.label).subscribe({
+    this.store.addCredential(ProviderName.Vercel, this.token, this.label).subscribe({
       next: () => {
         this.token = '';
         this.toast.success(updating ? 'Vercel token updated' : 'Connected to Vercel');
@@ -185,7 +200,7 @@ export class ConnectionsComponent implements OnInit {
   connectRailwayWithToken(): void {
     const updating = !!this.railwayCredential();
     this.savingRailway.set(true);
-    this.store.addCredential('railway', this.railwayToken, this.railwayLabel).subscribe({
+    this.store.addCredential(ProviderName.Railway, this.railwayToken, this.railwayLabel).subscribe({
       next: () => {
         this.railwayToken = '';
         this.toast.success(updating ? 'Railway token updated' : 'Connected to Railway');
@@ -201,12 +216,49 @@ export class ConnectionsComponent implements OnInit {
     });
   }
 
+  connectCoolify(): void {
+    this.savingCoolify.set(true);
+    this.store
+      .addCredential(ProviderName.Coolify, this.coolifyToken, this.coolifyLabel, this.coolifyInstanceUrl)
+      .subscribe({
+        next: () => {
+          this.coolifyToken = '';
+          this.toast.success('Connected to Coolify');
+          this.savingCoolify.set(false);
+          this.showAdvancedCoolify.set(false);
+          this.store.load();
+          this.navigateBackIfNeeded();
+        },
+        error: (err) => {
+          this.toast.error(err?.error?.error?.message ?? 'Connection did not go through.');
+          this.savingCoolify.set(false);
+        }
+      });
+  }
+
   toggleToken(provider: ProviderKey): void {
-    if (provider === 'vercel') {
+    if (provider === ProviderName.Vercel) {
       this.showAdvanced.update(open => !open);
       return;
     }
-    this.showAdvancedRailway.update(open => !open);
+    if (provider === ProviderName.Railway) {
+      this.showAdvancedRailway.update(open => !open);
+      return;
+    }
+
+    this.showAdvancedCoolify.update(open => {
+      const next = !open;
+      if (next) {
+        const cred = this.coolifyCredentials()[0];
+        if (cred?.instanceUrl) {
+          this.coolifyInstanceUrl = cred.instanceUrl;
+        }
+        if (cred?.label) {
+          this.coolifyLabel = cred.label;
+        }
+      }
+      return next;
+    });
   }
 
   private navigateBackIfNeeded(): void {
