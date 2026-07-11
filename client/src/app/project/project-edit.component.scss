@@ -215,6 +215,20 @@
   color: var(--provider-railway);
 }
 
+.edit__target-logo--coolify {
+  background: #1a2e1a;
+  border: 1px solid var(--border-default);
+  color: #5cdb5c;
+  font-weight: 700;
+}
+
+.edit__readonly-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
 .edit__target-badge {
   flex-shrink: 0;
   padding: var(--space-1) var(--space-3);

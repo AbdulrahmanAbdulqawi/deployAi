@@ -1,4 +1,4 @@
-import { DeploymentDetail } from '../models/api.models';
+import { DeploymentDetail, ProviderName } from '../models/api.models';
 
 export type DeploymentProgressStage =
   | 'preparing'
@@ -23,10 +23,12 @@ export function computeDeploymentProgress(deployment: DeploymentDetail | null): 
     return null;
   }
 
-  const apiTarget = findTarget(deployment.targets, 'railway');
-  const websiteTarget = findTarget(deployment.targets, 'vercel');
+  const apiTarget = findTarget(deployment.targets, ProviderName.Railway);
+  const websiteTarget = findTarget(deployment.targets, ProviderName.Vercel);
+  const coolifyTarget = findTarget(deployment.targets, ProviderName.Coolify);
   const hasApi = apiTarget !== null;
   const hasWebsite = websiteTarget !== null;
+  const hasCoolify = coolifyTarget !== null;
 
   if (deployment.status === 'success') {
     return {
@@ -46,13 +48,17 @@ export function computeDeploymentProgress(deployment: DeploymentDetail | null): 
     };
   }
 
-  if (!hasApi && !hasWebsite) {
+  if (!hasApi && !hasWebsite && !hasCoolify) {
     return {
       stage: 'preparing',
       percent: 5,
       label: 'Preparing deployment…',
       mode: 'determinate'
     };
+  }
+
+  if (hasCoolify && !hasApi && !hasWebsite) {
+    return computeSingleTargetProgress(coolifyTarget!, 'Coolify');
   }
 
   if (hasApi && !hasWebsite) {
@@ -70,9 +76,13 @@ function computeSingleTargetProgress(target: DeploymentTarget, role: string): De
   switch (target.status) {
     case 'in_progress':
       return {
-        stage: role === 'API' ? 'api_deploying' : 'website_deploying',
+        stage: role === 'API' ? 'api_deploying' : role === 'Coolify' ? 'api_deploying' : 'website_deploying',
         percent: 50,
-        label: role === 'API' ? 'Deploying your API…' : 'Deploying your website…',
+        label: role === 'API'
+          ? 'Deploying your API…'
+          : role === 'Coolify'
+            ? 'Publishing to Coolify…'
+            : 'Deploying your website…',
         mode: 'determinate'
       };
     case 'success':

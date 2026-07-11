@@ -581,7 +581,9 @@ export class ProjectWizardComponent implements OnInit {
         providerName: ProviderName.Coolify,
         credentialId: this.selectedCoolifyCredentialId,
         providerProjectId: coolifyProjectId,
-        config: JSON.stringify({ role: 'server' })
+        config: this.buildCoolifyTargetConfig(
+          this.coolifyProjects().find(project => project.id === coolifyProjectId)?.gitBranch
+        )
       });
     }
 
@@ -930,6 +932,22 @@ export class ProjectWizardComponent implements OnInit {
     });
   }
 
+  selectedCoolifyProjectName(): string | null {
+    const projectId = this.selectedCoolifyProjectId();
+    if (!projectId) {
+      return null;
+    }
+
+    return this.coolifyProjects().find(project => project.id === projectId)?.name ?? projectId;
+  }
+
+  private buildCoolifyTargetConfig(gitBranch?: string): string {
+    return JSON.stringify({
+      role: 'server',
+      coolifyGitBranch: gitBranch ?? undefined
+    });
+  }
+
   addEnvRow(): void {
     this.envRows.push({ key: '', value: '' });
   }
@@ -970,7 +988,9 @@ export class ProjectWizardComponent implements OnInit {
         providerName: ProviderName.Coolify,
         credentialId: this.selectedCoolifyCredentialId,
         providerProjectId: coolifyProjectId,
-        config: JSON.stringify({ role: 'server' })
+        config: this.buildCoolifyTargetConfig(
+          this.coolifyProjects().find(project => project.id === coolifyProjectId)?.gitBranch
+        )
       });
     }
 

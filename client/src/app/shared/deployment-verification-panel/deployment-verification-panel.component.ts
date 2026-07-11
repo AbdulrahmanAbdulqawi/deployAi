@@ -6,6 +6,7 @@ import {
   DeploymentVerificationCheck,
   DeploymentVerificationResult,
   DeploymentVerificationScope,
+  ProviderName,
   VerificationCheckStatus
 } from '../../core/models/api.models';
 import { ElapsedTimer, ElapsedTimerService } from '../../core/services/elapsed-timer.service';
@@ -60,11 +61,15 @@ export class DeploymentVerificationPanelComponent {
   });
 
   readonly websiteTarget = computed(() =>
-    this.targets().find(target => target.providerName === 'vercel' && target.status === 'success' && !!target.deployUrl) ?? null
+    this.targets().find(target => target.providerName === ProviderName.Vercel && target.status === 'success' && !!target.deployUrl) ?? null
   );
 
   readonly serverTarget = computed(() =>
-    this.targets().find(target => target.providerName === 'railway' && target.status === 'success' && !!target.deployUrl) ?? null
+    this.targets().find(target => target.providerName === ProviderName.Railway && target.status === 'success' && !!target.deployUrl) ?? null
+  );
+
+  readonly coolifyTarget = computed(() =>
+    this.targets().find(target => target.providerName === ProviderName.Coolify && target.status === 'success' && !!target.deployUrl) ?? null
   );
 
   readonly hasBothTargets = computed(() => !!this.websiteTarget() && !!this.serverTarget());
@@ -79,6 +84,9 @@ export class DeploymentVerificationPanelComponent {
     }
     if (this.serverTarget()) {
       options.push({ value: 'server', label: 'API' });
+    }
+    if (this.coolifyTarget()) {
+      options.push({ value: 'server', label: 'Coolify app' });
     }
     return options;
   });

@@ -39,18 +39,20 @@ public sealed class CredentialsController : ControllerBase
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
         var userId = RequireUserId();
-        var credentials = await _db.ProviderCredentials
+        var stored = await _db.ProviderCredentials
             .Where(c => c.UserId == userId)
             .OrderBy(c => c.ProviderName)
-            .Select(c => new
-            {
-                id = c.Id,
-                providerName = c.ProviderName,
-                label = c.Label,
-                isValid = c.IsValid,
-                lastValidatedAt = c.LastValidatedAt
-            })
             .ToListAsync(cancellationToken);
+
+        var credentials = stored.Select(c => new
+        {
+            id = c.Id,
+            providerName = c.ProviderName,
+            label = c.Label,
+            isValid = c.IsValid,
+            lastValidatedAt = c.LastValidatedAt,
+            instanceUrl = TryGetCoolifyInstanceUrl(c)
+        }).ToList();
 
         return Ok(new { credentials });
     }
@@ -92,6 +94,32 @@ public sealed class CredentialsController : ControllerBase
             }
         }
 
+        if (string.Equals(provider.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            var existingCoolify = await _db.ProviderCredentials
+                .FirstOrDefaultAsync(
+                    c => c.UserId == userId &&
+                         c.ProviderName == ProviderNameValues.Coolify &&
+                         c.Label == label,
+                    cancellationToken);
+            if (existingCoolify is not null)
+            {
+                existingCoolify.TokenEncrypted = _encryption.Encrypt(tokenToStore);
+                existingCoolify.IsValid = true;
+                existingCoolify.LastValidatedAt = DateTimeOffset.UtcNow;
+                await _db.SaveChangesAsync(cancellationToken);
+                return Ok(new
+                {
+                    id = existingCoolify.Id,
+                    providerName = existingCoolify.ProviderName,
+                    label = existingCoolify.Label,
+                    isValid = existingCoolify.IsValid,
+                    lastValidatedAt = existingCoolify.LastValidatedAt,
+                    instanceUrl = TryGetCoolifyInstanceUrl(existingCoolify)
+                });
+            }
+        }
+
         var credential = new ProviderCredential
         {
             Id = Guid.NewGuid(),
@@ -113,7 +141,8 @@ public sealed class CredentialsController : ControllerBase
             providerName = credential.ProviderName,
             label = credential.Label,
             isValid = credential.IsValid,
-            lastValidatedAt = credential.LastValidatedAt
+            lastValidatedAt = credential.LastValidatedAt,
+            instanceUrl = TryGetCoolifyInstanceUrl(credential)
         });
     }
 
@@ -167,6 +196,24 @@ public sealed class CredentialsController : ControllerBase
         }
 
         return CoolifyCredentialStorage.Serialize(request.InstanceUrl, request.Token);
+    }
+
+    private string? TryGetCoolifyInstanceUrl(ProviderCredential credential)
+    {
+        if (!string.Equals(credential.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            var decrypted = _encryption.Decrypt(credential.TokenEncrypted);
+            return CoolifyCredentialStorage.TryParse(decrypted)?.InstanceUrl;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private Guid RequireUserId()

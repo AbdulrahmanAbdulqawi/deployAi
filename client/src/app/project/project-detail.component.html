@@ -1,5 +1,9 @@
 @if (project()) {
   <section class="detail">
+    @if (coolifyBranchMismatch(); as branchWarning) {
+      <div class="detail__notice" role="status">{{ branchWarning }}</div>
+    }
+
     <nav class="breadcrumb" aria-label="Breadcrumb">
       <button type="button" class="breadcrumb__link" (click)="goToProjects()">
         <app-ui-icon name="arrow-left" size="sm" statusClass="muted" />
@@ -122,11 +126,14 @@
                     <div
                       class="service-tile__logo"
                       [class.service-tile__logo--vercel]="service.providerName === 'vercel'"
-                      [class.service-tile__logo--railway]="service.providerName === 'railway'">
+                      [class.service-tile__logo--railway]="service.providerName === 'railway'"
+                      [class.service-tile__logo--coolify]="service.providerName === 'coolify'">
                       @if (service.providerName === 'vercel') {
                         <svg width="16" height="14" viewBox="0 0 20 18" fill="none" aria-hidden="true">
                           <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
                         </svg>
+                      } @else if (service.providerName === 'coolify') {
+                        <span aria-hidden="true">C</span>
                       } @else {
                         <app-ui-icon name="link" size="sm" statusClass="accent" />
                       }

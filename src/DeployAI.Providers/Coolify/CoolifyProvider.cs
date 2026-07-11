@@ -25,9 +25,16 @@ public sealed class CoolifyProvider : IDeploymentProvider
         try
         {
             var session = CoolifyApiSupport.ParseSession(credentials);
-            using var request = CreateRequest(HttpMethod.Get, session, "health");
-            var response = await _httpClient.SendAsync(request, cancellationToken);
-            return response.IsSuccessStatusCode;
+            using var healthRequest = CreateRequest(HttpMethod.Get, session, "health");
+            var healthResponse = await _httpClient.SendAsync(healthRequest, cancellationToken);
+            if (!healthResponse.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            using var appsRequest = CreateRequest(HttpMethod.Get, session, "applications");
+            var appsResponse = await _httpClient.SendAsync(appsRequest, cancellationToken);
+            return appsResponse.IsSuccessStatusCode;
         }
         catch (DeployAIException)
         {
@@ -55,7 +62,11 @@ public sealed class CoolifyProvider : IDeploymentProvider
         var applications = await response.Content.ReadFromJsonAsync<List<CoolifyApplication>>(cancellationToken) ?? [];
         return applications
             .Where(app => !string.IsNullOrWhiteSpace(app.Uuid))
-            .Select(app => new ProviderProject(app.Uuid!, app.Name ?? app.Uuid!, NormalizeUrl(app.Fqdn)))
+            .Select(app => new ProviderProject(
+                app.Uuid!,
+                app.Name ?? app.Uuid!,
+                NormalizeUrl(app.Fqdn),
+                app.GitBranch))
             .ToList();
     }
 
@@ -235,6 +246,9 @@ public sealed class CoolifyProvider : IDeploymentProvider
 
         [JsonPropertyName("fqdn")]
         public string? Fqdn { get; set; }
+
+        [JsonPropertyName("git_branch")]
+        public string? GitBranch { get; set; }
     }
 
     private sealed class CoolifyDeployResponse

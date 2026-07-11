@@ -13,10 +13,12 @@ import {
   ProjectServiceStatus,
   ProjectServiceView,
   ProjectServicesResponse,
-  ProviderEnvVar
+  ProviderEnvVar,
+  ProviderName
 } from '../core/models/api.models';
 import {
   databaseEngineLabel,
+  parseTargetConfig,
   providerLabel,
   serviceStatusLabel
 } from '../core/utils/target-config';
@@ -132,21 +134,49 @@ export class ProjectDetailComponent implements OnInit {
 
     const websiteUrl =
       sync?.resolvedWebsiteUrl ||
-      deployment?.targets.find(t => t.providerName === 'vercel')?.deployUrl ||
-      this.serviceDeployUrl('vercel');
+      deployment?.targets.find(t => t.providerName === ProviderName.Vercel)?.deployUrl ||
+      this.serviceDeployUrl(ProviderName.Vercel);
     if (websiteUrl) {
       urls.push({ label: 'Website', url: websiteUrl });
     }
 
     const apiUrl =
       sync?.resolvedApiUrl ||
-      deployment?.targets.find(t => t.providerName === 'railway')?.deployUrl ||
-      this.serviceDeployUrl('railway');
+      deployment?.targets.find(t => t.providerName === ProviderName.Railway)?.deployUrl ||
+      this.serviceDeployUrl(ProviderName.Railway);
     if (apiUrl) {
       urls.push({ label: 'API', url: apiUrl });
     }
 
+    const coolifyUrl =
+      deployment?.targets.find(t => t.providerName === ProviderName.Coolify)?.deployUrl ||
+      this.serviceDeployUrl(ProviderName.Coolify);
+    if (coolifyUrl) {
+      urls.push({ label: 'Coolify app', url: coolifyUrl });
+    }
+
     return urls;
+  }
+
+  coolifyBranchMismatch(): string | null {
+    const project = this.project();
+    if (!project) {
+      return null;
+    }
+
+    for (const target of project.targets) {
+      if (target.providerName !== ProviderName.Coolify) {
+        continue;
+      }
+
+      const config = parseTargetConfig(target.config);
+      const coolifyBranch = config.coolifyGitBranch;
+      if (coolifyBranch && coolifyBranch !== project.defaultBranch) {
+        return `Coolify rebuilds from branch "${coolifyBranch}", but this app uses "${project.defaultBranch}".`;
+      }
+    }
+
+    return null;
   }
 
   serviceOpenUrl(service: ProjectServiceView): string | undefined {

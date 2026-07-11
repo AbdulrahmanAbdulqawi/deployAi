@@ -245,7 +245,20 @@ export class ConnectionsComponent implements OnInit {
       this.showAdvancedRailway.update(open => !open);
       return;
     }
-    this.showAdvancedCoolify.update(open => !open);
+
+    this.showAdvancedCoolify.update(open => {
+      const next = !open;
+      if (next) {
+        const cred = this.coolifyCredentials()[0];
+        if (cred?.instanceUrl) {
+          this.coolifyInstanceUrl = cred.instanceUrl;
+        }
+        if (cred?.label) {
+          this.coolifyLabel = cred.label;
+        }
+      }
+      return next;
+    });
   }
 
   private navigateBackIfNeeded(): void {

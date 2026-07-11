@@ -11,7 +11,8 @@ import {
   DeploymentPlanPart,
   DeploymentReadinessResult,
   DeploymentSummary,
-  ProjectDetail
+  ProjectDetail,
+  ProviderName
 } from '../core/models/api.models';
 import { parseTargetConfig, roleLabelForProvider } from '../core/utils/target-config';
 import { IconComponent } from '../shared/ui/icon/icon.component';
@@ -91,11 +92,14 @@ export class ProjectTroubleshootComponent implements OnInit {
   roleLabel(providerName: string): string {
     const name = this.project()?.name;
     if (name) {
-      if (providerName === 'railway') {
+      if (providerName === ProviderName.Railway) {
         return `${name} API`;
       }
-      if (providerName === 'vercel') {
+      if (providerName === ProviderName.Vercel) {
         return `${name} UI`;
+      }
+      if (providerName === ProviderName.Coolify) {
+        return `${name} on Coolify`;
       }
     }
 

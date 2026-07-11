@@ -23,6 +23,7 @@ export interface CredentialSummary {
   label: string;
   isValid: boolean;
   lastValidatedAt?: string;
+  instanceUrl?: string;
 }
 
 export interface GitHubRepo {
@@ -102,6 +103,7 @@ export interface ProviderProject {
   id: string;
   name: string;
   url?: string;
+  gitBranch?: string;
 }
 
 export interface ProviderEnvVar {

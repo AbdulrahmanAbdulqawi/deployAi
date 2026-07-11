@@ -20,15 +20,31 @@ public class CoolifyProviderContractTests
     }
 
     [Fact]
-    public async Task ValidateCredentialsAsync_ReturnsTrue_WhenHealthcheckSucceeds()
+    public async Task ValidateCredentialsAsync_ReturnsTrue_WhenHealthcheckAndApplicationsSucceed()
     {
         var handler = new MockHttpMessageHandler();
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/health")
             .Respond(HttpStatusCode.OK, "text/html", "OK");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
 
         var provider = CreateProvider(handler);
         var result = await provider.ValidateCredentialsAsync(Credentials, CancellationToken.None);
         Assert.True(result);
+    }
+
+    [Fact]
+    public async Task ValidateCredentialsAsync_ReturnsFalse_WhenApplicationsFail()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/health")
+            .Respond(HttpStatusCode.OK, "text/html", "OK");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.Forbidden);
+
+        var provider = CreateProvider(handler);
+        var result = await provider.ValidateCredentialsAsync(Credentials, CancellationToken.None);
+        Assert.False(result);
     }
 
     [Fact]
@@ -50,7 +66,7 @@ public class CoolifyProviderContractTests
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
             .Respond(HttpStatusCode.OK, "application/json", """
             [
-              { "uuid": "app-uuid-1", "name": "My App", "fqdn": "https://app.example.com" }
+              { "uuid": "app-uuid-1", "name": "My App", "fqdn": "https://app.example.com", "git_branch": "main" }
             ]
             """);
 
@@ -61,6 +77,7 @@ public class CoolifyProviderContractTests
         Assert.Equal("app-uuid-1", projects[0].Id);
         Assert.Equal("My App", projects[0].Name);
         Assert.Equal("https://app.example.com", projects[0].Url);
+        Assert.Equal("main", projects[0].GitBranch);
     }
 
     [Fact]

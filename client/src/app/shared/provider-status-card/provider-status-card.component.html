@@ -2,15 +2,18 @@
   class="provider-card u-card u-glass-panel"
   [class.provider-card--expanded]="expanded"
   [class.provider-card--live]="live"
-  [class.provider-card--vercel]="providerName === 'vercel'"
-  [class.provider-card--railway]="providerName === 'railway'">
+  [class.provider-card--vercel]="isVercel"
+  [class.provider-card--railway]="providerName === 'railway'"
+  [class.provider-card--coolify]="isCoolify">
   @if (live) {
     <div class="provider-card__header">
-      <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
-        @if (providerName === 'vercel') {
+      <div class="provider-card__logo" [class.provider-card__logo--vercel]="isVercel" [class.provider-card__logo--railway]="providerName === 'railway'" [class.provider-card__logo--coolify]="isCoolify" aria-hidden="true">
+        @if (isVercel) {
           <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
           </svg>
+        } @else if (isCoolify) {
+          <span class="provider-card__logo-mark">C</span>
         } @else {
           <app-ui-icon name="link" size="sm" statusClass="accent" />
         }
@@ -30,11 +33,13 @@
   } @else {
     <button type="button" class="provider-card__toggle" (click)="toggleExpanded()" [attr.aria-expanded]="expanded">
       <div class="provider-card__header">
-        <div class="provider-card__logo" [class.provider-card__logo--vercel]="providerName === 'vercel'" [class.provider-card__logo--railway]="providerName === 'railway'" aria-hidden="true">
-          @if (providerName === 'vercel') {
+        <div class="provider-card__logo" [class.provider-card__logo--vercel]="isVercel" [class.provider-card__logo--railway]="providerName === 'railway'" [class.provider-card__logo--coolify]="isCoolify" aria-hidden="true">
+          @if (isVercel) {
             <svg width="18" height="16" viewBox="0 0 20 18" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M10 0L20 17.5H0L10 0Z" fill="currentColor"/>
             </svg>
+          } @else if (isCoolify) {
+            <span class="provider-card__logo-mark">C</span>
           } @else {
             <app-ui-icon name="link" size="sm" statusClass="accent" />
           }

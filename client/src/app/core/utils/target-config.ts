@@ -13,6 +13,7 @@ export interface TargetConfig {
   databaseEngine?: string;
   linkedServiceName?: string;
   railwayProjectId?: string;
+  coolifyGitBranch?: string;
   includePostgres?: boolean;
   includeRedis?: boolean;
 }

@@ -6,6 +6,8 @@ import { IconComponent } from '../ui/icon/icon.component';
 import { LiveLogPanelComponent, ActivityLine } from '../live-log-panel/live-log-panel.component';
 import { ElapsedTimer, ElapsedTimerService } from '../../core/services/elapsed-timer.service';
 import { durationMsFromTimestamps, formatDurationMs } from '../../core/utils/duration';
+import { providerLabel } from '../../core/utils/target-config';
+import { isCoolifyProvider, isVercelProvider, providerLiveStatusText, providerSubtitle } from '../../core/utils/provider-branding';
 
 @Component({
   selector: 'app-provider-status-card',
@@ -65,11 +67,19 @@ export class ProviderStatusCardComponent implements OnChanges, OnDestroy {
   }
 
   get providerDisplayName(): string {
-    return this.providerName === 'vercel' ? 'Vercel' : 'Railway';
+    return providerLabel(this.providerName);
   }
 
   get providerSubtitle(): string {
-    return this.providerName === 'vercel' ? 'What your visitors see' : 'Powers your app behind the scenes';
+    return providerSubtitle(this.providerName);
+  }
+
+  get isVercel(): boolean {
+    return isVercelProvider(this.providerName);
+  }
+
+  get isCoolify(): boolean {
+    return isCoolifyProvider(this.providerName);
   }
 
   get statusLabel(): string {
@@ -86,17 +96,7 @@ export class ProviderStatusCardComponent implements OnChanges, OnDestroy {
   }
 
   get liveStatusText(): string {
-    const isSite = this.providerName === 'vercel';
-    switch (this.status) {
-      case 'in_progress':
-        return isSite ? 'Publishing your website…' : 'Starting your backend…';
-      case 'success':
-        return isSite ? 'Your website is live' : 'Your backend is live';
-      case 'failed':
-        return isSite ? "Your website didn't finish" : "Your backend didn't finish";
-      default:
-        return 'Waiting to start…';
-    }
+    return providerLiveStatusText(this.providerName, this.status);
   }
 
   toggleExpanded(): void {
