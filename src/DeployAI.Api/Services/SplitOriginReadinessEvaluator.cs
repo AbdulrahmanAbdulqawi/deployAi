@@ -31,7 +31,7 @@ internal static class SplitOriginReadinessEvaluator
 
         return
         [
-            ..SplitOriginDetection.BuildReadinessFilePaths(websitePart, serverPart),
+            ..SplitOriginDetection.BuildSplitOriginReadinessFilePaths(websitePart, serverPart),
             $"{clientPrefix}angular.json",
             $"{clientPrefix}src/environments/environment.ts",
             $"{clientPrefix}src/environments/environment.production.ts",
@@ -70,7 +70,7 @@ internal static class SplitOriginReadinessEvaluator
         var registersInterceptor = SplitOriginClientWiringAnalyzer.RegistersApiBaseInterceptor(
             fileContentsByPath.GetValueOrDefault(appConfigPath));
 
-        foreach (var path in SplitOriginDetection.BuildReadinessFilePaths(websitePart, serverPart))
+        foreach (var path in SplitOriginDetection.BuildSplitOriginReadinessFilePaths(websitePart, serverPart))
         {
             if (IsMissing(fileContentsByPath, path))
             {

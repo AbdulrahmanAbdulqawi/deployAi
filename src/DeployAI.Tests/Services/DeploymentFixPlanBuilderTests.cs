@@ -78,8 +78,10 @@ public class DeploymentFixPlanBuilderTests
         Assert.Empty(parts);
     }
 
+    // An Angular + .NET pair on one Coolify server is a compose deployment, so a failing build
+    // must be handed compose references — not split-origin scaffolding it never had.
     [Fact]
-    public void ResolveForSplitOriginFix_IncludesCoolifyTemplates_WhenCoolifyWebsiteBuildFails()
+    public void ResolveForSplitOriginFix_IncludesComposeTemplates_WhenCoolifyWebsiteBuildFails()
     {
         var catalog = new DeploymentTemplateCatalog();
         var resolver = new DeploymentTemplateResolver(catalog);
@@ -95,9 +97,11 @@ public class DeploymentFixPlanBuilderTests
 
         var references = resolver.ResolveForSplitOriginFix(
             parts,
-            ["client/scripts/write-api-env.mjs", "client/src/app/app.config.ts"]);
+            ["client/Dockerfile", "client/nginx.conf"]);
 
-        Assert.Contains(references, template => template.TemplateId.Contains("write-api-env"));
+        Assert.Contains(references, template => template.TargetPath == "client/Dockerfile");
+        Assert.Contains(references, template => template.TargetPath == "client/nginx.conf");
+        Assert.DoesNotContain(references, template => template.TemplateId.Contains("write-api-env"));
         Assert.DoesNotContain(references, template => template.TemplateId.Contains("vercel-json"));
         Assert.DoesNotContain(references, template => template.TemplateId.Contains("railway-toml"));
     }

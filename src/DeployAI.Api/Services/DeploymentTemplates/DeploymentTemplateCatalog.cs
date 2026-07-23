@@ -56,13 +56,35 @@ public sealed class DeploymentTemplateCatalog
     internal DeploymentTemplateDefinition? FindTemplateById(string templateId) =>
         Templates.FirstOrDefault(template => template.Id.Equals(templateId, StringComparison.Ordinal));
 
-    internal DeploymentTemplateDefinition? FindTemplateForPath(string scenarioId, string gapPath)
+    internal DeploymentTemplateDefinition? FindTemplateForPath(
+        string scenarioId,
+        string gapPath,
+        DeploymentTemplateVariables? variables = null)
     {
         var normalizedPath = NormalizePath(gapPath);
         var fileName = Path.GetFileName(normalizedPath);
-
-        return Templates
+        var scenarioTemplates = Templates
             .Where(template => template.ScenarioId.Equals(scenarioId, StringComparison.Ordinal))
+            .ToArray();
+
+        // A path-patterned template is opting out of filename matching precisely because the
+        // filename is ambiguous within its scenario, so an exact pattern match must win — and a
+        // patterned template must never be reached by the filename fallback below.
+        if (variables is not null)
+        {
+            var byPattern = scenarioTemplates.FirstOrDefault(template =>
+                template.PathPattern is not null &&
+                NormalizePath(DeploymentTemplateRenderer.Render(template.PathPattern, variables))
+                    .Equals(normalizedPath, StringComparison.OrdinalIgnoreCase));
+
+            if (byPattern is not null)
+            {
+                return byPattern;
+            }
+        }
+
+        return scenarioTemplates
+            .Where(template => template.PathPattern is null)
             .Where(template => normalizedPath.EndsWith("/" + template.FileName, StringComparison.OrdinalIgnoreCase) ||
                                normalizedPath.Equals(template.FileName, StringComparison.OrdinalIgnoreCase) ||
                                fileName.Equals(template.FileName, StringComparison.OrdinalIgnoreCase))
@@ -178,7 +200,8 @@ public sealed class DeploymentTemplateCatalog
                 new DeploymentTemplateAiReference(
                     template.AiReference?.IncludeInPrompt ?? true,
                     template.AiReference?.Priority ?? 1),
-                template.Constraints ?? []))
+                template.Constraints ?? [],
+                template.PathPattern))
             .ToArray();
 
         return new CatalogSnapshot(scenarios, templates);
@@ -233,6 +256,8 @@ public sealed class DeploymentTemplateCatalog
         public CatalogAiReference? AiReference { get; set; }
 
         public List<string>? Constraints { get; set; }
+
+        public string? PathPattern { get; set; }
     }
 
     private sealed class CatalogAiReference

@@ -92,7 +92,9 @@ public class RepositoryClassifierTests
     }
 
     [Fact]
-    public async Task ClassifyAsync_Monorepo_DefaultsToCoolifyFullStack()
+    // One server hosting both halves means one compose file behind one origin — not two
+    // separately-addressed Coolify apps wired back together with CORS.
+    public async Task ClassifyAsync_Monorepo_DefaultsToSingleOriginCompose()
     {
         SetupMonorepo();
 
@@ -102,7 +104,7 @@ public class RepositoryClassifierTests
         Assert.Equal(2, plan.Parts.Count);
         Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == ProviderNameValues.Coolify);
         Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == ProviderNameValues.Coolify);
-        Assert.Equal(DeploymentPlanKind.CoolifyFullStack, plan.PlanKind);
+        Assert.Equal(DeploymentPlanKind.CoolifyCompose, plan.PlanKind);
     }
 
     [Fact]

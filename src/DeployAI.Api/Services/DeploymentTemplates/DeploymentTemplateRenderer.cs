@@ -15,6 +15,8 @@ internal static class DeploymentTemplateRenderer
         rendered = rendered.Replace("{{apiEnvKeysList}}", variables.ApiEnvKeysList, StringComparison.Ordinal);
         rendered = rendered.Replace("{{apiEnvKeysExpression}}", variables.ApiEnvKeysExpression, StringComparison.Ordinal);
         rendered = rendered.Replace("{{serverNamespace}}", variables.ServerNamespace, StringComparison.Ordinal);
+        rendered = rendered.Replace("{{rawBuildCommand}}", variables.RawBuildCommand, StringComparison.Ordinal);
+        rendered = rendered.Replace("{{serverAssemblyName}}", variables.ServerAssemblyName, StringComparison.Ordinal);
         return rendered;
     }
 
@@ -45,7 +47,24 @@ internal static class DeploymentTemplateRenderer
             buildCommand,
             apiEnvKeysList,
             apiEnvKeysExpression,
-            serverNamespace);
+            serverNamespace,
+            string.IsNullOrWhiteSpace(website.BuildCommand) ? "npm run build" : website.BuildCommand.Trim(),
+            GuessServerAssemblyName(serverRoot));
+    }
+
+    /// <summary>
+    /// .NET's convention is that the project directory, the csproj, and the output assembly share
+    /// a name, so the server root's last segment is the best guess available without reading the
+    /// csproj. The compose Dockerfile template carries a constraint telling the generator to
+    /// correct it when the repo breaks that convention.
+    /// </summary>
+    internal static string GuessServerAssemblyName(string serverRoot)
+    {
+        var segment = serverRoot
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault(s => !s.Equals("src", StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(segment) ? "Api" : segment;
     }
 
     /// <summary>

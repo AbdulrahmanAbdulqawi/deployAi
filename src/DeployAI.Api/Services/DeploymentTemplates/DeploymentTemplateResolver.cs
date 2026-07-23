@@ -39,7 +39,7 @@ public sealed class DeploymentTemplateResolver
                 continue;
             }
 
-            var definition = _catalog.FindTemplateForPath(scenario.Id, missing.Path);
+            var definition = _catalog.FindTemplateForPath(scenario.Id, missing.Path, variables);
             if (definition is null)
             {
                 continue;
@@ -110,7 +110,7 @@ public sealed class DeploymentTemplateResolver
 
         foreach (var path in referencedFilePaths)
         {
-            var definition = _catalog.FindTemplateForPath(scenario.Id, path);
+            var definition = _catalog.FindTemplateForPath(scenario.Id, path, variables);
             if (definition is null || !definition.AiReference.IncludeInPrompt)
             {
                 continue;
@@ -135,9 +135,12 @@ public sealed class DeploymentTemplateResolver
     internal string? ResolveScenarioId(IReadOnlyList<DeploymentPlanPart> parts) =>
         ResolveScenario(parts)?.Id;
 
+    internal const string SingleOriginWiringMode = "single-origin-compose";
+
     private DeploymentTemplateScenario? ResolveScenario(IReadOnlyList<DeploymentPlanPart> parts)
     {
-        if (!SplitOriginDetection.PlanUsesSplitOrigin(parts))
+        var usesCompose = SplitOriginDetection.PlanUsesSingleOriginCompose(parts);
+        if (!usesCompose && !SplitOriginDetection.PlanUsesSplitOrigin(parts))
         {
             return null;
         }
@@ -149,8 +152,17 @@ public sealed class DeploymentTemplateResolver
             return null;
         }
 
-        var wiringMode = CrossProviderUrlWiring.ResolveWiringMode(website.Framework, server.Framework);
-        if (wiringMode != CrossProviderWiringMode.SplitOrigin)
+        var wiringMode = CrossProviderUrlWiring.ResolveWiringMode(
+            website.Framework, server.Framework, usesCompose);
+
+        var expectedScenarioMode = wiringMode switch
+        {
+            CrossProviderWiringMode.SplitOrigin => "split-origin",
+            CrossProviderWiringMode.SameOriginProxy when usesCompose => SingleOriginWiringMode,
+            _ => null
+        };
+
+        if (expectedScenarioMode is null)
         {
             return null;
         }
@@ -160,7 +172,7 @@ public sealed class DeploymentTemplateResolver
             ProviderMatches(scenario.BackendProvider, server.ProviderName) &&
             FrameworkMatches(scenario.WebsiteFramework, website.Framework) &&
             FrameworkMatches(scenario.BackendFramework, server.Framework) &&
-            scenario.WiringMode.Equals("split-origin", StringComparison.OrdinalIgnoreCase));
+            scenario.WiringMode.Equals(expectedScenarioMode, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ProviderMatches(string expected, string? actual) =>

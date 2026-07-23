@@ -16,8 +16,35 @@ internal static class SplitOriginDetection
             return false;
         }
 
-        return CrossProviderUrlWiring.ResolveWiringMode(websiteFramework, serverFramework) ==
+        return CrossProviderUrlWiring.ResolveWiringMode(
+                   websiteFramework,
+                   serverFramework,
+                   IsSingleOriginComposeStack(websiteFramework, serverFramework, websiteProvider, serverProvider)) ==
                CrossProviderWiringMode.SplitOrigin;
+    }
+
+    /// <summary>
+    /// One Coolify server hosting both halves: they belong in one compose file behind one
+    /// origin, so none of the split-origin scaffolding, CORS wiring, or readiness checks apply.
+    /// </summary>
+    internal static bool IsSingleOriginComposeStack(
+        string? websiteFramework,
+        string? serverFramework,
+        string? websiteProvider,
+        string? serverProvider) =>
+        SingleOriginComposeShape.Supports(websiteFramework, serverFramework, websiteProvider, serverProvider);
+
+    internal static bool PlanUsesSingleOriginCompose(IReadOnlyList<DeploymentPlanPart> parts)
+    {
+        var website = FindWebsitePart(parts);
+        var server = FindServerPart(parts);
+        if (website is null || server is null)
+        {
+            return false;
+        }
+
+        return IsSingleOriginComposeStack(
+            website.Framework, server.Framework, website.ProviderName, server.ProviderName);
     }
 
     internal static bool IsCoolifyFullStack(string? websiteProvider, string? serverProvider) =>
@@ -52,7 +79,19 @@ internal static class SplitOriginDetection
         return IsSplitOriginStack(website.Framework, server.Framework, website.ProviderName, server.ProviderName);
     }
 
-    internal static IReadOnlyList<string> BuildReadinessFilePaths(DeploymentPlanPart websitePart, DeploymentPlanPart serverPart)
+    /// <summary>
+    /// The files this plan's shape requires. Dispatches by shape — callers ask for "what does
+    /// this plan need" and must not assume split-origin.
+    /// </summary>
+    internal static IReadOnlyList<string> BuildReadinessFilePaths(DeploymentPlanPart websitePart, DeploymentPlanPart serverPart) =>
+        IsSingleOriginComposeStack(
+            websitePart.Framework, serverPart.Framework, websitePart.ProviderName, serverPart.ProviderName)
+            ? SingleOriginComposeReadinessEvaluator.BuildReadinessFilePaths(websitePart, serverPart)
+            : BuildSplitOriginReadinessFilePaths(websitePart, serverPart);
+
+    internal static IReadOnlyList<string> BuildSplitOriginReadinessFilePaths(
+        DeploymentPlanPart websitePart,
+        DeploymentPlanPart serverPart)
     {
         var clientRoot = NormalizeRoot(websitePart.RootDirectory);
         var serverRoot = NormalizeRoot(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
@@ -79,10 +118,18 @@ internal static class SplitOriginDetection
         bool usesSplitOrigin,
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart,
-        IReadOnlyDictionary<string, string?> fileContentsByPath) =>
-        usesSplitOrigin
+        IReadOnlyDictionary<string, string?> fileContentsByPath)
+    {
+        if (IsSingleOriginComposeStack(
+                websitePart.Framework, serverPart.Framework, websitePart.ProviderName, serverPart.ProviderName))
+        {
+            return SingleOriginComposeReadinessEvaluator.Evaluate(websitePart, serverPart, fileContentsByPath);
+        }
+
+        return usesSplitOrigin
             ? SplitOriginReadinessEvaluator.Evaluate(websitePart, serverPart, fileContentsByPath)
             : [];
+    }
 
     private static string NormalizeRoot(string? root) =>
         root?.Trim().Trim('/') ?? string.Empty;

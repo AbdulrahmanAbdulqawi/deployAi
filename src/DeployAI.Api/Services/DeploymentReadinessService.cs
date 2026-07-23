@@ -39,10 +39,11 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
     {
         var commitSha = await ResolveGitRefAsync(accessToken, owner, repo, gitRef, cancellationToken);
         var usesSplitOrigin = SplitOriginDetection.PlanUsesSplitOrigin(parts);
+        var usesCompose = SplitOriginDetection.PlanUsesSingleOriginCompose(parts);
         var website = SplitOriginDetection.FindWebsitePart(parts);
         var server = SplitOriginDetection.FindServerPart(parts);
 
-        if (!usesSplitOrigin || website is null || server is null)
+        if ((!usesSplitOrigin && !usesCompose) || website is null || server is null)
         {
             return new DeploymentReadinessResult(
                 IsReady: true,
@@ -52,7 +53,9 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
                 Warnings: []);
         }
 
-        var paths = SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
+        var paths = usesCompose
+            ? SingleOriginComposeReadinessEvaluator.BuildAllScanPaths(website, server).ToList()
+            : SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
         var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
         {
@@ -82,11 +85,12 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
         return new DeploymentReadinessResult(
             IsReady: SplitOriginReadinessEvaluator.IsReady(missing),
             CommitSha: commitSha,
-            UsesSplitOrigin: true,
+            UsesSplitOrigin: usesSplitOrigin,
             MissingFiles: missing,
             Warnings: warnings,
             WebsiteProviderName: website.ProviderName,
-            ServerProviderName: server.ProviderName);
+            ServerProviderName: server.ProviderName,
+            UsesSingleOriginCompose: usesCompose);
     }
 
     public async Task<DeploymentReadinessResult> ScanProjectAsync(
@@ -133,15 +137,18 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
 
         var commitSha = await ResolveGitRefAsync(token, repoParts[0], repoParts[1], branch, cancellationToken);
         var usesSplitOrigin = SplitOriginDetection.PlanUsesSplitOrigin(parts);
+        var usesCompose = SplitOriginDetection.PlanUsesSingleOriginCompose(parts);
         var website = SplitOriginDetection.FindWebsitePart(parts);
         var server = SplitOriginDetection.FindServerPart(parts);
 
-        if (!usesSplitOrigin || website is null || server is null)
+        if ((!usesSplitOrigin && !usesCompose) || website is null || server is null)
         {
             return new DeploymentReadinessResult(true, commitSha, false, [], []);
         }
 
-        var paths = SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
+        var paths = usesCompose
+            ? SingleOriginComposeReadinessEvaluator.BuildAllScanPaths(website, server).ToList()
+            : SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
         var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
         {
@@ -172,11 +179,12 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
         return new DeploymentReadinessResult(
             IsReady: SplitOriginReadinessEvaluator.IsReady(missing),
             CommitSha: commitSha,
-            UsesSplitOrigin: true,
+            UsesSplitOrigin: usesSplitOrigin,
             MissingFiles: missing,
             Warnings: warnings,
             WebsiteProviderName: website.ProviderName,
-            ServerProviderName: server.ProviderName);
+            ServerProviderName: server.ProviderName,
+            UsesSingleOriginCompose: usesCompose);
     }
 
     private async Task<string?> ResolveGitRefAsync(

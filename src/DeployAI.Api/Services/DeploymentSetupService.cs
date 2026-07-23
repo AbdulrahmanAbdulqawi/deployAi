@@ -47,7 +47,12 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         CancellationToken cancellationToken)
     {
         var token = await GetGitHubTokenAsync(userId, cancellationToken);
-        await ReportActivityAsync(reportActivity, "Scanning repository for split-origin readiness…");
+        var singleOriginCompose = SplitOriginDetection.PlanUsesSingleOriginCompose(request.Parts);
+        await ReportActivityAsync(
+            reportActivity,
+            singleOriginCompose
+                ? "Scanning repository for single-origin compose readiness…"
+                : "Scanning repository for split-origin readiness…");
         var readiness = await _readinessService.ScanRepositoryAsync(
             token,
             owner,
@@ -62,12 +67,18 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             .ToArray();
         if (missing.Length == 0 && request.ForceRegenerate)
         {
-            missing = SplitOriginReadinessEvaluator.BuildRegenerationTargets(request.Parts).ToArray();
+            missing = singleOriginCompose
+                ? SingleOriginComposeReadinessEvaluator.BuildRegenerationTargets(request.Parts).ToArray()
+                : SplitOriginReadinessEvaluator.BuildRegenerationTargets(request.Parts).ToArray();
         }
 
         if (missing.Length == 0)
         {
-            throw new DeployAIException("setup_not_needed", "Repository already has required split-origin deployment files.");
+            throw new DeployAIException(
+                "setup_not_needed",
+                singleOriginCompose
+                    ? "Repository already has the compose, Dockerfile, and nginx files this deployment needs."
+                    : "Repository already has required split-origin deployment files.");
         }
 
         var selection = await _generatorSelector.SelectAsync(request.UseAi, reportActivity);

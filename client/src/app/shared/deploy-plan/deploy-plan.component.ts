@@ -44,6 +44,21 @@ export class DeployPlanComponent {
   }
 
   roleDescription(role: string): string {
+    if (this.isSingleOriginComposePlan()) {
+      // Under compose these are services inside one deployment, not separately-addressed apps —
+      // calling the site a "Static site on Coolify" implies a second URL that doesn't exist.
+      switch (role) {
+        case 'website':
+          return 'Web service — serves the site and proxies /api';
+        case 'server':
+          return 'API service — reached through the site, not its own domain';
+        case 'database':
+          return 'PostgreSQL on Coolify';
+        default:
+          return '';
+      }
+    }
+
     switch (role) {
       case 'website':
         return this.isCoolifyFullStackPlan() ? 'Static site on Coolify' : 'Fast global hosting';
@@ -56,8 +71,13 @@ export class DeployPlanComponent {
     }
   }
 
+  isSingleOriginComposePlan(): boolean {
+    return this.plan?.planKind === DeploymentPlanKind.CoolifyCompose;
+  }
+
   isCoolifyFullStackPlan(): boolean {
     return this.plan?.planKind === DeploymentPlanKind.CoolifyFullStack ||
+      this.isSingleOriginComposePlan() ||
       (this.activeParts.some(part => part.role === 'website' && isCoolifyProvider(part.providerName)) &&
         this.activeParts.some(part => part.role === 'server' && isCoolifyProvider(part.providerName)));
   }
@@ -76,10 +96,16 @@ export class DeployPlanComponent {
   }
 
   planTitle(): string {
+    if (this.isSingleOriginComposePlan()) {
+      return 'Single-origin Coolify setup';
+    }
     return this.isCoolifyFullStackPlan() ? 'Coolify full-stack setup' : 'AI Recommended Setup';
   }
 
   planSubtitle(): string {
+    if (this.isSingleOriginComposePlan()) {
+      return 'One Docker Compose deployment on your Coolify server, served from a single domain';
+    }
     return this.isCoolifyFullStackPlan()
       ? 'Website, API, and database on your Coolify server'
       : 'Based on source code analysis';

@@ -93,11 +93,20 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         // Deliberately keyed off the resolved parts rather than the preference: a repo with a
         // Dockerfile routes its server to Coolify even on the legacy path, and the plan kind
         // must reflect what was actually chosen.
+        var website = parts.FirstOrDefault(part => part.Role == "website");
+        var server = parts.FirstOrDefault(part => part.Role == "server");
+
         if (hasWebsite && hasServer &&
-            parts.Any(part => part.Role == "website" && IsCoolifyProvider(part.ProviderName)) &&
-            parts.Any(part => part.Role == "server" && IsCoolifyProvider(part.ProviderName)))
+            website is not null && IsCoolifyProvider(website.ProviderName) &&
+            server is not null && IsCoolifyProvider(server.ProviderName))
         {
-            return DeploymentPlanKind.CoolifyFullStack;
+            // One server hosting both halves has no reason to split them across two domains
+            // and wire them back together with CORS. Compose is the default full-stack shape;
+            // CoolifyFullStack stays reachable for stacks compose templates don't cover.
+            return SingleOriginComposeShape.Supports(
+                website.Framework, server.Framework, website.ProviderName, server.ProviderName)
+                ? DeploymentPlanKind.CoolifyCompose
+                : DeploymentPlanKind.CoolifyFullStack;
         }
 
         if (parts.Any(part => IsCoolifyProvider(part.ProviderName)))

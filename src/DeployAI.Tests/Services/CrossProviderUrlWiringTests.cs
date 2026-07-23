@@ -102,28 +102,80 @@ public class SplitOriginDetectionTests
         Assert.True(SplitOriginDetection.PlanUsesSplitOrigin(parts));
     }
 
+    // Both halves on one Coolify server is a single-origin compose deployment, not two
+    // separately-addressed apps — so none of the cross-origin machinery may engage.
     [Fact]
-    public void PlanUsesSplitOrigin_WhenAngularCoolifyFullStack()
+    public void AngularDotnetOnOneCoolifyServer_IsSingleOriginCompose_NotSplitOrigin()
+    {
+        var parts = CoolifyFullStackParts();
+
+        Assert.True(SplitOriginDetection.PlanUsesSingleOriginCompose(parts));
+        Assert.False(SplitOriginDetection.PlanUsesSplitOrigin(parts));
+    }
+
+    [Fact]
+    public void ResolveWiringMode_IsSameOriginProxy_ForCompose()
+    {
+        Assert.Equal(
+            CrossProviderWiringMode.SameOriginProxy,
+            CrossProviderUrlWiring.ResolveWiringMode("angular", "dotnet", singleOriginCompose: true));
+    }
+
+    [Fact]
+    public void ServerRuntimeEnv_ForCompose_PointsApiUrlAtTheSingleOrigin()
+    {
+        // Same frameworks as the split-origin case; only the plan shape differs. A separate API
+        // host is passed in deliberately — under compose it must be ignored, because the API is
+        // only ever reached through the website origin's proxy.
+        var assignments = CrossProviderUrlWiring.BuildServerRuntimeEnvAssignments(
+            "dotnet",
+            "angular",
+            "https://app.example.com",
+            [],
+            "https://api.example.com",
+            singleOriginCompose: true)
+            .ToDictionary(a => a.Key, a => a.Value, StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal("https://app.example.com", assignments["App__ApiUrl"]);
+        Assert.DoesNotContain(assignments.Values, value => value.Contains("api.example.com", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void BuildReadinessFilePaths_ForCompose_WantsComposeFilesNotSplitOriginScaffolding()
+    {
+        var parts = CoolifyFullStackParts();
+
+        var paths = SplitOriginDetection.BuildReadinessFilePaths(parts[0], parts[1]);
+
+        Assert.Contains(paths, path => path.Equals("docker-compose.coolify.yml", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path => path.Equals("client/nginx.conf", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path => path.Equals("client/Dockerfile", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(paths, path => path.Equals("src/api/Dockerfile", StringComparison.OrdinalIgnoreCase));
+
+        // These are what would block publishing if the split-origin rules leaked in.
+        Assert.DoesNotContain(paths, path => path.Contains("api-base.interceptor.ts", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, path => path.Contains("write-api-env.mjs", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, path => path.Equals("railway.toml", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(paths, path => path.Equals("client/vercel.json", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // A frontend with its own server runtime can't be fronted by nginx as a static bundle, so it
+    // stays on the split-origin path even when both halves land on Coolify.
+    [Fact]
+    public void NextJsOnCoolify_StaysSplitOrigin_NotCompose()
     {
         var parts = new List<DeploymentPlanPart>
         {
-            new("website", "coolify", "client", null, null, null, null, null, "angular", null, null),
+            new("website", "coolify", "client", null, null, null, null, null, "next", null, null),
             new("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null)
         };
 
-        Assert.True(SplitOriginDetection.PlanUsesSplitOrigin(parts));
+        Assert.False(SplitOriginDetection.PlanUsesSingleOriginCompose(parts));
     }
 
-    [Fact]
-    public void BuildReadinessFilePaths_OmitsVercelAndRailwayFiles_ForCoolifyFullStack()
-    {
-        var website = new DeploymentPlanPart("website", "coolify", "client", null, null, null, null, null, "angular", null, null);
-        var server = new DeploymentPlanPart("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null);
-
-        var paths = SplitOriginDetection.BuildReadinessFilePaths(website, server);
-
-        Assert.DoesNotContain(paths, path => path.Equals("railway.toml", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(paths, path => path.Equals("client/vercel.json", StringComparison.OrdinalIgnoreCase));
-        Assert.Contains(paths, path => path.Contains("api-base.interceptor.ts", StringComparison.OrdinalIgnoreCase));
-    }
+    private static List<DeploymentPlanPart> CoolifyFullStackParts() =>
+    [
+        new("website", "coolify", "client", null, null, null, null, null, "angular", null, null),
+        new("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null)
+    ];
 }

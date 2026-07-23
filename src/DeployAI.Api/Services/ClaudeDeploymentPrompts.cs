@@ -712,7 +712,19 @@ internal static class ClaudeDeploymentPrompts
         builder.AppendLine("- Document required firewall rules, network policies, or CORS settings.");
         builder.AppendLine();
 
-        if (!SplitOriginDetection.PlanUsesSplitOrigin(parts) || referenceTemplates.Count == 0)
+        // A single-origin app must never be told to add the split-origin scaffolding: there is no
+        // second host to point at, so an injected API base URL would break the working proxy.
+        if (SplitOriginDetection.PlanUsesSingleOriginCompose(parts))
+        {
+            builder.AppendLine("### Single-Origin Compose (Coolify)");
+            builder.AppendLine("- One compose file, two services: nginx (`web`) serves the SPA and proxies /api to `api`.");
+            builder.AppendLine("- Never publish host ports; Coolify's Traefik owns 80/443 and routes the domain to `web`.");
+            builder.AppendLine("- Do NOT add write-api-env.mjs, api-base.interceptor.ts, vercel.json, or railway.toml — there is no separate API origin to inject.");
+            builder.AppendLine("- Services keep calling relative /api/* paths; leave them alone.");
+            builder.AppendLine("- nginx client_max_body_size must be at least the API's own upload limit.");
+            builder.AppendLine();
+        }
+        else if (!SplitOriginDetection.PlanUsesSplitOrigin(parts) || referenceTemplates.Count == 0)
         {
             builder.AppendLine("### Split-Origin Angular (Vercel + Railway)");
             builder.AppendLine("- Register apiBaseInterceptor in app.config.ts; services use relative /api/* paths.");
@@ -876,7 +888,14 @@ internal static class ClaudeDeploymentPrompts
                 $"API ({server.Framework ?? "server"}) on {server.ProviderName}");
         }
 
-        if (SplitOriginDetection.PlanUsesSplitOrigin(parts))
+        if (SplitOriginDetection.PlanUsesSingleOriginCompose(parts))
+        {
+            builder.AppendLine("- Architecture: single-origin Docker Compose on one Coolify server");
+            builder.AppendLine("- The browser only ever talks to the website domain; nginx proxies /api to the api service in-network");
+            builder.AppendLine("- No CORS wiring and no API base URL: there is only one origin");
+            builder.AppendLine("- Coolify: attach the domain to the `web` service and set Docker Compose Location to the compose file");
+        }
+        else if (SplitOriginDetection.PlanUsesSplitOrigin(parts))
         {
             var coolifyStack = SplitOriginDetection.IsCoolifyFullStack(website?.ProviderName, server?.ProviderName);
 

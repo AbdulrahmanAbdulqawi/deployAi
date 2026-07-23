@@ -44,4 +44,26 @@ describe('DeployPlanComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Coolify full-stack setup');
     expect(fixture.nativeElement.textContent).toContain('Coolify · Static site on Coolify');
   });
+
+  it('describes services rather than separate apps when planKind is coolify-compose', () => {
+    const composePlan: DeploymentPlan = {
+      parts: [
+        { role: 'website', providerName: 'coolify' },
+        { role: 'server', providerName: 'coolify' }
+      ],
+      confidence: 'high',
+      plainSummary: 'Deploy everything to Coolify.',
+      planKind: DeploymentPlanKind.CoolifyCompose
+    };
+
+    fixture.componentRef.setInput('plan', composePlan);
+    fixture.componentRef.setInput('activeParts', composePlan.parts);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Single-origin Coolify setup');
+    expect(text).toContain('served from a single domain');
+    // "Static site on Coolify" implies a second URL that a compose deployment does not have.
+    expect(text).not.toContain('Static site on Coolify');
+  });
 });

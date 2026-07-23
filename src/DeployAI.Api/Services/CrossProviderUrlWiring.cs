@@ -53,8 +53,22 @@ internal static class CrossProviderUrlWiring
         };
     }
 
-    internal static CrossProviderWiringMode ResolveWiringMode(string? websiteFramework, string? serverFramework)
+    /// <summary>
+    /// <paramref name="singleOriginCompose"/> is the escape hatch for plans that put both halves
+    /// behind one origin (see <see cref="DeploymentPlanKind.CoolifyCompose"/>). Framework alone
+    /// can't tell the two shapes apart — Angular + .NET is split-origin on Vercel/Railway and
+    /// same-origin under compose — so callers that know the plan shape must say so.
+    /// </summary>
+    internal static CrossProviderWiringMode ResolveWiringMode(
+        string? websiteFramework,
+        string? serverFramework,
+        bool singleOriginCompose = false)
     {
+        if (singleOriginCompose)
+        {
+            return CrossProviderWiringMode.SameOriginProxy;
+        }
+
         if (!UsesRelativeApiPaths(websiteFramework))
         {
             return CrossProviderWiringMode.DirectClientApi;
@@ -77,8 +91,12 @@ internal static class CrossProviderUrlWiring
     private static bool IsRecognizedSplitOriginFrontend(string? framework) =>
         framework?.ToLowerInvariant() is "angular";
 
-    internal static bool ShouldUseSplitOrigin(string? websiteFramework, string? serverFramework) =>
-        ResolveWiringMode(websiteFramework, serverFramework) == CrossProviderWiringMode.SplitOrigin;
+    internal static bool ShouldUseSplitOrigin(
+        string? websiteFramework,
+        string? serverFramework,
+        bool singleOriginCompose = false) =>
+        ResolveWiringMode(websiteFramework, serverFramework, singleOriginCompose) ==
+        CrossProviderWiringMode.SplitOrigin;
 
     internal static IReadOnlyList<string> ResolveApiEnvKeys(string? framework)
     {
@@ -177,9 +195,10 @@ internal static class CrossProviderUrlWiring
         string? websiteFramework,
         string primaryWebsiteUrl,
         IEnumerable<string> websiteOrigins,
-        string apiUrl)
+        string apiUrl,
+        bool singleOriginCompose = false)
     {
-        var mode = ResolveWiringMode(websiteFramework, serverFramework);
+        var mode = ResolveWiringMode(websiteFramework, serverFramework, singleOriginCompose);
         var assignments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var website = NormalizeOrigin(primaryWebsiteUrl);
         var api = NormalizeOrigin(apiUrl);

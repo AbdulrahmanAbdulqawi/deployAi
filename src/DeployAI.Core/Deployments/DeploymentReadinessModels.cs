@@ -19,7 +19,8 @@ public sealed record DeploymentReadinessResult(
     IReadOnlyList<MissingDeploymentFile> MissingFiles,
     IReadOnlyList<string> Warnings,
     string? WebsiteProviderName = null,
-    string? ServerProviderName = null);
+    string? ServerProviderName = null,
+    bool UsesSingleOriginCompose = false);
 
 public sealed record DeploymentSetupResult(
     string BranchName,

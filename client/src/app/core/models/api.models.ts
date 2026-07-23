@@ -98,6 +98,8 @@ export interface DeploymentPlan {
 export enum DeploymentPlanKind {
   Default = 'default',
   CoolifyFullStack = 'coolify-fullstack',
+  /** One Docker Compose resource serving the whole app from a single origin. */
+  CoolifyCompose = 'coolify-compose',
   CoolifySingle = 'coolify-single',
 }
 

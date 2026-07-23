@@ -17,7 +17,14 @@ internal sealed record DeploymentTemplateDefinition(
     DeploymentTemplateKind Kind,
     string ResourcePath,
     DeploymentTemplateAiReference AiReference,
-    IReadOnlyList<string> Constraints);
+    IReadOnlyList<string> Constraints,
+    /// <summary>
+    /// Optional templated path (e.g. <c>{{clientPrefix}}Dockerfile</c>) matched instead of the
+    /// bare filename. Required whenever one scenario ships two templates sharing a filename in
+    /// different directories — a compose repo has both a client and a server Dockerfile, and
+    /// filename matching alone would hand the web template to the API gap.
+    /// </summary>
+    string? PathPattern = null);
 
 internal sealed record DeploymentTemplateScenario(
     string Id,
@@ -37,7 +44,14 @@ internal sealed record DeploymentTemplateVariables(
     string BuildCommand,
     string ApiEnvKeysList,
     string ApiEnvKeysExpression,
-    string ServerNamespace);
+    string ServerNamespace,
+    /// <summary>
+    /// The plan's own build command, without the split-origin write-api-env prelude that
+    /// <see cref="BuildCommand"/> prepends. A single-origin app has no API base URL to bake in.
+    /// </summary>
+    string RawBuildCommand = "npm run build",
+    /// <summary>Assembly name for the generated .NET Dockerfile ENTRYPOINT.</summary>
+    string ServerAssemblyName = "Api");
 
 internal sealed record ResolvedDeploymentTemplate(
     string TemplateId,

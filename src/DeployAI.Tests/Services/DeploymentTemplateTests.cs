@@ -135,42 +135,62 @@ public class DeploymentTemplateResolverTests
     }
 
     [Fact]
-    public void ResolveForGaps_MapsCoolifyFullStackGapsToTemplates()
+    public void ResolveForGaps_MapsSingleOriginComposeGapsToTemplates()
     {
         var catalog = new DeploymentTemplateCatalog();
         var resolver = new DeploymentTemplateResolver(catalog);
-        var parts = new List<DeploymentPlanPart>
-        {
-            new("website", "coolify", RootDirectory: "client", Framework: "Angular"),
-            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore", DockerfilePath: "src/Api/Dockerfile")
-        };
         var missing = new List<MissingDeploymentFile>
         {
-            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking),
+            new("docker-compose.coolify.yml", "missing", DeploymentFileSeverity.Blocking),
+            new("client/nginx.conf", "missing", DeploymentFileSeverity.Blocking),
             new("docs/DEPLOYMENT.md", "missing", DeploymentFileSeverity.Recommended)
         };
 
-        var resolved = resolver.ResolveForGaps(parts, missing);
+        var resolved = resolver.ResolveForGaps(ComposeParts, missing);
 
-        Assert.Contains(resolved, template => template.TemplateId.Contains("write-api-env"));
+        Assert.Contains(resolved, template => template.TargetPath == "docker-compose.coolify.yml");
+        Assert.Contains(resolved, template => template.TargetPath == "client/nginx.conf");
         Assert.Contains(resolved, template => template.TargetPath == "docs/DEPLOYMENT.md");
+        Assert.DoesNotContain(resolved, template => template.TemplateId.Contains("write-api-env"));
         Assert.DoesNotContain(resolved, template => template.TemplateId.Contains("vercel-json"));
         Assert.DoesNotContain(resolved, template => template.TemplateId.Contains("railway-toml"));
     }
 
+    // Both Dockerfile templates share a filename, so only the path pattern can tell the web gap
+    // from the api gap. Getting this wrong silently ships an nginx image as the API.
     [Fact]
-    public void ResolveScenarioId_ReturnsCoolifyScenario_ForCoolifyFullStack()
+    public void ResolveForGaps_DistinguishesWebAndApiDockerfiles_ByPath()
     {
         var catalog = new DeploymentTemplateCatalog();
         var resolver = new DeploymentTemplateResolver(catalog);
-        var parts = new List<DeploymentPlanPart>
+        var missing = new List<MissingDeploymentFile>
         {
-            new("website", "coolify", RootDirectory: "client", Framework: "Angular"),
-            new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore")
+            new("client/Dockerfile", "missing", DeploymentFileSeverity.Blocking),
+            new("src/Api/Dockerfile", "missing", DeploymentFileSeverity.Blocking)
         };
 
-        Assert.Equal("split-origin.angular.coolify.dotnet.coolify", resolver.ResolveScenarioId(parts));
+        var resolved = resolver.ResolveForGaps(ComposeParts, missing);
+
+        var web = Assert.Single(resolved.Where(template => template.TargetPath == "client/Dockerfile"));
+        var api = Assert.Single(resolved.Where(template => template.TargetPath == "src/Api/Dockerfile"));
+        Assert.Contains("nginx", web.RenderedContent!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dotnet publish", api.RenderedContent!, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void ResolveScenarioId_ReturnsComposeScenario_ForAngularDotnetOnOneCoolifyServer()
+    {
+        var catalog = new DeploymentTemplateCatalog();
+        var resolver = new DeploymentTemplateResolver(catalog);
+
+        Assert.Equal("single-origin.compose.angular.dotnet.coolify", resolver.ResolveScenarioId(ComposeParts));
+    }
+
+    private static readonly List<DeploymentPlanPart> ComposeParts =
+    [
+        new("website", "coolify", RootDirectory: "client", Framework: "Angular", OutputDirectory: "dist/app/browser"),
+        new("server", "coolify", ServiceDirectory: "src/Api", Framework: "AspNetCore", DockerfilePath: "src/Api/Dockerfile")
+    ];
 }
 
 public class DeploymentFileScaffolderIntegrationTests
@@ -204,7 +224,7 @@ public class DeploymentFileScaffolderIntegrationTests
     }
 
     [Fact]
-    public void ScaffoldMissingFiles_GeneratesCoolifyFullStackFiles_FromTemplates()
+    public void ScaffoldMissingFiles_GeneratesSingleOriginComposeFiles_FromTemplates()
     {
         var catalog = new DeploymentTemplateCatalog();
         var resolver = new DeploymentTemplateResolver(catalog);
@@ -216,15 +236,25 @@ public class DeploymentFileScaffolderIntegrationTests
         };
         var missing = new List<MissingDeploymentFile>
         {
-            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking),
-            new("client/src/app/core/interceptors/api-base.interceptor.ts", "missing", DeploymentFileSeverity.Blocking),
+            new("docker-compose.coolify.yml", "missing", DeploymentFileSeverity.Blocking),
+            new("client/nginx.conf", "missing", DeploymentFileSeverity.Blocking),
             new("docs/DEPLOYMENT.md", "missing", DeploymentFileSeverity.Recommended)
         };
 
         var generated = scaffolder.ScaffoldMissingFiles(parts, missing);
 
         Assert.Equal(3, generated.Count);
-        Assert.Contains(generated, file => file.Path == "client/scripts/write-api-env.mjs" && file.Content.Contains("website host"));
+
+        var compose = Assert.Single(generated.Where(file => file.Path == "docker-compose.coolify.yml")).Content;
+        Assert.Contains("build: ./client", compose, StringComparison.Ordinal);
+        Assert.Contains("build: ./src/Api", compose, StringComparison.Ordinal);
+        // Traefik owns the host ports; publishing them from a service collides with it.
+        Assert.DoesNotContain("ports:", compose, StringComparison.Ordinal);
+
+        var nginx = Assert.Single(generated.Where(file => file.Path == "client/nginx.conf")).Content;
+        Assert.Contains("proxy_pass http://api:8080", nginx, StringComparison.Ordinal);
+        Assert.Contains("try_files $uri $uri/ /index.html", nginx, StringComparison.Ordinal);
+
         Assert.DoesNotContain(generated, file => file.Path == "railway.toml");
         Assert.DoesNotContain(generated, file => file.Path == "client/vercel.json");
         Assert.Contains(generated, file => file.Path == "docs/DEPLOYMENT.md" && file.Content.Contains("Coolify"));

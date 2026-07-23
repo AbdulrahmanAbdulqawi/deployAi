@@ -28,9 +28,13 @@ public sealed class DeploymentSetupFileFetcher
             return new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         }
 
+        var scanPaths = SplitOriginDetection.PlanUsesSingleOriginCompose(parts)
+            ? SingleOriginComposeReadinessEvaluator.BuildAllScanPaths(website, server)
+            : SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server);
+
         var paths = missingFiles
             .Select(missing => missing.Path)
-            .Concat(SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server))
+            .Concat(scanPaths)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 

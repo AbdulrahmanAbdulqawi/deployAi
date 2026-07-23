@@ -169,7 +169,7 @@ public class ClaudeDeploymentPromptsTests
     }
 
     [Fact]
-    public void BuildMissingFilesPrompt_DescribesCoolifyArchitecture_ForCoolifyFullStack()
+    public void BuildMissingFilesPrompt_DescribesSingleOriginCompose_ForAngularDotnetOnCoolify()
     {
         var parts = new List<DeploymentPlanPart>
         {
@@ -178,7 +178,7 @@ public class ClaudeDeploymentPromptsTests
         };
         var missing = new List<MissingDeploymentFile>
         {
-            new("client/scripts/write-api-env.mjs", "missing", DeploymentFileSeverity.Blocking)
+            new("docker-compose.coolify.yml", "missing", DeploymentFileSeverity.Blocking)
         };
         var catalog = new DeploymentTemplateCatalog();
         var resolver = new DeploymentTemplateResolver(catalog);
@@ -193,9 +193,12 @@ public class ClaudeDeploymentPromptsTests
             referenceTemplates,
             []);
 
-        Assert.Contains("Coolify: set DEPLOYAI_API_URL", prompt);
-        Assert.Contains("no vercel.json or railway.toml", prompt);
+        Assert.Contains("single-origin Docker Compose", prompt);
         Assert.Contains("## Reference Templates", prompt);
+
+        // The split-origin instructions must not leak in: telling Claude to inject an API base
+        // URL into a single-origin app would break the proxy that makes it work.
+        Assert.DoesNotContain("Coolify: set DEPLOYAI_API_URL", prompt);
         Assert.DoesNotContain("client/vercel.json", prompt);
     }
 
@@ -205,8 +208,8 @@ public class ClaudeDeploymentPromptsTests
         var analysis = new DeploymentFailureAnalysis(
             DeploymentFailureCategory.CodeBuild,
             "Build failed",
-            "write-api-env missing",
-            ["client/scripts/write-api-env.mjs"],
+            "nginx.conf missing",
+            ["client/nginx.conf"],
             true);
         var parts = DeploymentFixPlanBuilder.BuildSyntheticSplitOriginParts(
             ProviderNameValues.Coolify,
@@ -226,7 +229,7 @@ public class ClaudeDeploymentPromptsTests
             referenceTemplates: references);
 
         Assert.Contains("## Reference Templates", prompt);
-        Assert.Contains("write-api-env", prompt);
+        Assert.Contains("nginx.conf", prompt);
         Assert.DoesNotContain("client/vercel.json", prompt);
     }
 

@@ -15,6 +15,14 @@
       "websiteFramework": "angular",
       "backendFramework": "dotnet",
       "wiringMode": "split-origin"
+    },
+    {
+      "id": "single-origin.compose.angular.dotnet.coolify",
+      "websiteProvider": "coolify",
+      "backendProvider": "coolify",
+      "websiteFramework": "angular",
+      "backendFramework": "dotnet",
+      "wiringMode": "single-origin-compose"
     }
   ],
   "templates": [
@@ -318,6 +326,85 @@
       "aiReference": { "includeInPrompt": true, "priority": 3 },
       "constraints": [
         "Production SignalR hub URL must use absolute ${environment.apiBaseUrl}/hubs/..."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.docker-compose",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "docker-compose.coolify.yml",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/docker-compose.coolify.yml.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Never publish host ports — Coolify's Traefik owns 80/443 and routes the domain itself.",
+        "The api service must be named `api`: nginx proxies to it by service name over the compose network.",
+        "Add every environment variable the API reads from configuration, sourced as ${VAR} so Coolify supplies the values.",
+        "Declare named volumes for anything that must survive a redeploy (SQLite files, uploaded media)."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.web-dockerfile",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "Dockerfile",
+      "pathPattern": "{{clientPrefix}}Dockerfile",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/Dockerfile.web.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "The build context is the client directory, so COPY paths are relative to it, not to the repo root.",
+        "Copy the built bundle from the repo's actual Angular output path (check angular.json outputPath).",
+        "Do not run write-api-env or bake any API URL into the build — the app calls relative /api paths."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.api-dockerfile",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "Dockerfile",
+      "pathPattern": "{{serverRoot}}/Dockerfile",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/Dockerfile.api.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Match the SDK and runtime image tags to the TargetFramework in the csproj.",
+        "The ENTRYPOINT dll must be the assembly name from the csproj, which is not always the directory name.",
+        "The container must listen on 8080 — that is the port nginx proxies to."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.nginx-conf",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "nginx.conf",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/nginx.conf.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 1 },
+      "constraints": [
+        "Keep the SPA fallback (try_files ... /index.html) or deep links 404 on refresh.",
+        "Set client_max_body_size to at least the API's own upload limit, or uploads fail at the proxy with a 413.",
+        "Add a proxy location for any other path the API serves directly (uploaded media, static files)."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.health-controller",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "HealthController.cs",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/HealthController.cs.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 2 },
+      "constraints": [
+        "Route must sit under /api so the nginx proxy reaches it; match the repo's existing API route convention.",
+        "Match the namespace to the surrounding controllers."
+      ]
+    },
+    {
+      "id": "single-origin.compose.coolify.deployment-doc",
+      "scenarioId": "single-origin.compose.angular.dotnet.coolify",
+      "fileName": "DEPLOYMENT.md",
+      "kind": "full-file",
+      "resourcePath": "single-origin-compose/angular-dotnet-coolify/DEPLOYMENT.md.tpl",
+      "aiReference": { "includeInPrompt": true, "priority": 3 },
+      "constraints": [
+        "List the actual environment variables this repo's API reads, not placeholders.",
+        "State that the domain attaches to the web service and that api stays internal."
       ]
     }
   ]
