@@ -28,17 +28,20 @@ public sealed class StorageController : ControllerBase
     private readonly DeployAIDbContext _db;
     private readonly ICurrentUserService _currentUser;
     private readonly IObjectStorageProviderFactory _storageFactory;
+    private readonly IObjectStorageProvisioningService _provisioning;
     private readonly IEncryptionService _encryption;
 
     public StorageController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IObjectStorageProviderFactory storageFactory,
+        IObjectStorageProvisioningService provisioning,
         IEncryptionService encryption)
     {
         _db = db;
         _currentUser = currentUser;
         _storageFactory = storageFactory;
+        _provisioning = provisioning;
         _encryption = encryption;
     }
 
@@ -150,6 +153,36 @@ public sealed class StorageController : ControllerBase
         var (provider, credentials) = await ResolveAsync(id, cancellationToken);
         var buckets = await provider.ListBucketsAsync(credentials, cancellationToken);
         return Ok(new { buckets });
+    }
+
+    /// <summary>
+    /// Provisions the app's bucket and writes its keys onto the server target. Idempotent —
+    /// re-running reuses the bucket the app already owns.
+    /// </summary>
+    [HttpPost("~/api/projects/{projectId:guid}/storage/provision")]
+    public async Task<IActionResult> ProvisionForProject(Guid projectId, CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var result = await _provisioning.ProvisionAsync(userId, projectId, cancellationToken);
+
+        if (result is null)
+        {
+            return Ok(new { provisioned = false, reason = "This app doesn't use object storage." });
+        }
+
+        // Only the key names — the values include the secret key.
+        return Ok(new { provisioned = true, bucket = result.Bucket, appliedKeys = result.AppliedKeys });
+    }
+
+    [HttpPost("connections/{id:guid}/buckets")]
+    public async Task<IActionResult> CreateBucket(
+        Guid id,
+        [FromBody] CreateBucketRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (provider, credentials) = await ResolveAsync(id, cancellationToken);
+        var bucket = await provider.CreateBucketAsync(credentials, request.Name, cancellationToken);
+        return Ok(new { bucket });
     }
 
     [HttpGet("connections/{id:guid}/buckets/{bucket}/objects")]
@@ -280,4 +313,6 @@ public sealed class StorageController : ControllerBase
         string? Label);
 
     public sealed record DeleteObjectsRequest(IReadOnlyList<string> Keys);
+
+    public sealed record CreateBucketRequest(string Name);
 }

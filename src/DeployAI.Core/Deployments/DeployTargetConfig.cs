@@ -51,9 +51,16 @@ public sealed class DeployTargetConfig
     public bool IncludeRedis { get; set; }
 
     public bool IsDatabaseTarget =>
-        string.Equals(Role, "database", StringComparison.OrdinalIgnoreCase);
+        string.Equals(Role, DeploymentPartRoles.Database, StringComparison.OrdinalIgnoreCase);
 
-    public bool IsDeployableTarget => !IsDatabaseTarget;
+    public bool IsStorageTarget =>
+        string.Equals(Role, DeploymentPartRoles.Storage, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Databases and buckets are provisioned, not deployed — nothing is built or published for
+    /// them, so they must stay out of deploy loops and progress bars.
+    /// </summary>
+    public bool IsDeployableTarget => !IsDatabaseTarget && !IsStorageTarget;
 
     public static DeployTargetConfig Parse(string? configJson)
     {

@@ -55,6 +55,74 @@ public class HetznerStorageProviderContractTests
     }
 
     [Fact]
+    public async Task CreateBucketAsync_PutsTheBucket()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.Expect(HttpMethod.Put, $"{Endpoint}/new-media-bucket/")
+            .Respond(HttpStatusCode.OK, "application/xml", "");
+
+        var provider = CreateProvider(handler);
+        var bucket = await provider.CreateBucketAsync(Credentials, "new-media-bucket", CancellationToken.None);
+
+        Assert.Equal("new-media-bucket", bucket.Name);
+        handler.VerifyNoOutstandingExpectation();
+    }
+
+    // Provisioning runs on every deploy, so redeploying an app that already has its bucket
+    // must be a no-op rather than an error.
+    [Fact]
+    public async Task CreateBucketAsync_IsIdempotent_WhenWeAlreadyOwnTheBucket()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Put, $"{Endpoint}/{Bucket}/")
+            .Respond(HttpStatusCode.Conflict, "application/xml",
+                """<?xml version="1.0"?><Error><Code>BucketAlreadyOwnedByYou</Code><Message>Yours</Message></Error>""");
+        handler.When(HttpMethod.Get, $"{Endpoint}/")
+            .Respond(HttpStatusCode.OK, "application/xml", ListBucketsXml);
+
+        var provider = CreateProvider(handler);
+        var bucket = await provider.CreateBucketAsync(Credentials, Bucket, CancellationToken.None);
+
+        Assert.Equal(Bucket, bucket.Name);
+    }
+
+    // Bucket names are globally unique per endpoint: a conflict over a name we don't hold is
+    // someone else's bucket, and retrying will never succeed.
+    [Fact]
+    public async Task CreateBucketAsync_ReportsANameTakenBySomeoneElse()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Put, $"{Endpoint}/taken-name/")
+            .Respond(HttpStatusCode.Conflict, "application/xml",
+                """<?xml version="1.0"?><Error><Code>BucketAlreadyExists</Code><Message>Taken</Message></Error>""");
+        handler.When(HttpMethod.Get, $"{Endpoint}/")
+            .Respond(HttpStatusCode.OK, "application/xml", ListBucketsXml);
+
+        var provider = CreateProvider(handler);
+        var error = await Assert.ThrowsAsync<DeployAIException>(() =>
+            provider.CreateBucketAsync(Credentials, "taken-name", CancellationToken.None));
+
+        Assert.Equal("storage_bucket_name_taken", error.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData("ab")]
+    [InlineData("UPPERCASE")]
+    [InlineData("-leading-hyphen")]
+    [InlineData("trailing-hyphen-")]
+    [InlineData("double..dot")]
+    public async Task CreateBucketAsync_RejectsInvalidNames_BeforeCallingTheApi(string name)
+    {
+        // No handler expectations: an invalid name must not reach the network.
+        var provider = CreateProvider(new MockHttpMessageHandler());
+
+        var error = await Assert.ThrowsAsync<DeployAIException>(() =>
+            provider.CreateBucketAsync(Credentials, name, CancellationToken.None));
+
+        Assert.Equal("storage_bucket_name_invalid", error.ErrorCode);
+    }
+
+    [Fact]
     public async Task ListBucketsAsync_MapsNamesAndSortsThem()
     {
         var handler = new MockHttpMessageHandler();

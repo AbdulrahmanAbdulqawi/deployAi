@@ -1,0 +1,225 @@
+using DeployAI.Core.Deployments;
+using DeployAI.Core.Exceptions;
+using DeployAI.Core.Providers;
+using DeployAI.Core.Security;
+using DeployAI.Data;
+using DeployAI.Data.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace DeployAI.Api.Services;
+
+public sealed record ObjectStorageProvisioningResult(
+    string Bucket,
+    IReadOnlyList<string> AppliedKeys);
+
+public interface IObjectStorageProvisioningService
+{
+    /// <summary>
+    /// Ensures the bucket exists and writes its connection onto the app's server target.
+    /// Returns null when the project has no storage part — having no bucket is normal.
+    /// </summary>
+    Task<ObjectStorageProvisioningResult?> ProvisionAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// The bridge between the storage capability and deployments.
+///
+/// <see cref="IObjectStorageProvider"/>'s own doc comment says storage providers must never
+/// appear in deploy-target pickers, and that stays true — a bucket is still not somewhere an app
+/// is deployed. But an app needs one provisioned and its keys wired in, and this is the only
+/// place the two worlds meet.
+/// </summary>
+public sealed class ObjectStorageProvisioningService : IObjectStorageProvisioningService
+{
+    private readonly DeployAIDbContext _db;
+    private readonly IObjectStorageProviderFactory _storageFactory;
+    private readonly IProviderManagementFactory _managementFactory;
+    private readonly IEncryptionService _encryption;
+
+    public ObjectStorageProvisioningService(
+        DeployAIDbContext db,
+        IObjectStorageProviderFactory storageFactory,
+        IProviderManagementFactory managementFactory,
+        IEncryptionService encryption)
+    {
+        _db = db;
+        _storageFactory = storageFactory;
+        _managementFactory = managementFactory;
+        _encryption = encryption;
+    }
+
+    public async Task<ObjectStorageProvisioningResult?> ProvisionAsync(
+        Guid userId,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var project = await _db.Projects
+            .Include(p => p.DeployTargets)
+            .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken);
+
+        if (project is null)
+        {
+            throw new DeployAIException("not_found", "We couldn't find that app.");
+        }
+
+        var targets = project.DeployTargets
+            .Select(target => (Target: target, Config: DeployTargetConfig.Parse(target.ConfigJson)))
+            .ToList();
+
+        var storage = targets.FirstOrDefault(t => t.Config.IsStorageTarget);
+        if (storage.Target is null)
+        {
+            return null;
+        }
+
+        // Keyed off role, not provider name: under a single-origin compose plan both halves
+        // share the Coolify provider, so matching on provider would pick the wrong target.
+        var server = targets.FirstOrDefault(t =>
+            DeploymentPartRoles.Is(t.Config.Role, DeploymentPartRoles.Server));
+
+        if (server.Target is null)
+        {
+            throw new DeployAIException(
+                "storage_no_server",
+                "This app has a bucket but no server to wire it into.");
+        }
+
+        var connectionCredential = await ResolveStorageCredentialAsync(userId, storage.Config, cancellationToken);
+        var provider = _storageFactory.GetObjectStorage(connectionCredential.ProviderName)
+            ?? throw new DeployAIException(
+                "storage_provider_unavailable",
+                $"No storage provider is registered for {connectionCredential.ProviderName}.");
+
+        var storageCredentials = new ProviderCredentials(_encryption.Decrypt(connectionCredential.TokenEncrypted));
+        var payload = StorageCredentialStorage.TryParse(storageCredentials.Token)
+            ?? throw new DeployAIException(
+                "storage_credentials_invalid",
+                "That storage connection is missing its endpoint or keys. Reconnect it in settings.");
+
+        var bucketName = string.IsNullOrWhiteSpace(storage.Config.LinkedServiceName)
+            ? BuildBucketName(project.Name)
+            : storage.Config.LinkedServiceName;
+
+        var bucket = await provider.CreateBucketAsync(storageCredentials, bucketName, cancellationToken);
+
+        var connection = new ObjectStorageConnection(
+            payload.Endpoint,
+            payload.Region,
+            bucket.Name,
+            payload.AccessKey,
+            payload.SecretKey);
+
+        var applied = await ApplyEnvVarsAsync(userId, server.Target, server.Config, connection, cancellationToken);
+
+        // Remember which bucket this app owns, so the next deploy reuses it instead of
+        // minting a second one from a renamed project.
+        storage.Config.LinkedServiceName = bucket.Name;
+        storage.Target.ConfigJson = storage.Config.ToJson();
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return new ObjectStorageProvisioningResult(bucket.Name, applied);
+    }
+
+    private async Task<IReadOnlyList<string>> ApplyEnvVarsAsync(
+        Guid userId,
+        DeployTarget serverTarget,
+        DeployTargetConfig serverConfig,
+        ObjectStorageConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var management = _managementFactory.GetManagement(serverTarget.ProviderName)
+            ?? throw new DeployAIException(
+                "unsupported_provider",
+                $"{serverTarget.ProviderName} can't have environment variables set from here.");
+
+        var credential = await _db.ProviderCredentials
+            .FirstOrDefaultAsync(
+                c => c.UserId == userId &&
+                     c.ProviderName == serverTarget.ProviderName &&
+                     c.Kind == CredentialKind.Deployment,
+                cancellationToken)
+            ?? throw new DeployAIException(
+                "credential_missing",
+                $"Connect {serverTarget.ProviderName} before provisioning storage.");
+
+        var providerCredentials = new ProviderCredentials(_encryption.Decrypt(credential.TokenEncrypted));
+        var assignments = ObjectStorageEnvironmentWiring.BuildAssignments(serverConfig.Framework, connection);
+        var applied = new List<string>();
+
+        foreach (var assignment in assignments)
+        {
+            await management.UpsertEnvVarAsync(
+                providerCredentials,
+                serverTarget.ProviderProjectId!,
+                new UpsertProviderEnvVarRequest(
+                    assignment.Key,
+                    assignment.Value,
+                    // Access keys must not be readable back out of the platform's UI.
+                    assignment.IsSecret ? ProviderEnvVarTypes.Secret : ProviderEnvVarTypes.Plain,
+                    []),
+                cancellationToken);
+
+            applied.Add(assignment.Key);
+        }
+
+        return applied;
+    }
+
+    private async Task<ProviderCredential> ResolveStorageCredentialAsync(
+        Guid userId,
+        DeployTargetConfig storageConfig,
+        CancellationToken cancellationToken)
+    {
+        var query = _db.ProviderCredentials
+            .Where(c => c.UserId == userId && c.Kind == CredentialKind.ObjectStorage);
+
+        if (!string.IsNullOrWhiteSpace(storageConfig.RailwayProjectId) &&
+            Guid.TryParse(storageConfig.RailwayProjectId, out var credentialId))
+        {
+            query = query.Where(c => c.Id == credentialId);
+        }
+
+        var credentials = await query.ToListAsync(cancellationToken);
+
+        return credentials.Count switch
+        {
+            0 => throw new DeployAIException(
+                "storage_connection_missing",
+                "Connect object storage in settings before provisioning a bucket."),
+            1 => credentials[0],
+            _ => throw new DeployAIException(
+                "storage_connection_ambiguous",
+                "You have more than one storage connection. Pick which one this app should use: " +
+                string.Join(", ", credentials.Select(c => c.Label)))
+        };
+    }
+
+    /// <summary>
+    /// Bucket names are globally unique per endpoint and constrained to lowercase DNS-ish
+    /// characters, so a project name can't be used as-is.
+    /// </summary>
+    internal static string BuildBucketName(string projectName)
+    {
+        var slug = new string(projectName
+            .Trim()
+            .ToLowerInvariant()
+            .Select(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) ? c : '-')
+            .ToArray())
+            .Trim('-');
+
+        while (slug.Contains("--", StringComparison.Ordinal))
+        {
+            slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        if (slug.Length < 3)
+        {
+            slug = $"app-{slug}".Trim('-');
+        }
+
+        return slug.Length > 63 ? slug[..63].Trim('-') : slug;
+    }
+}

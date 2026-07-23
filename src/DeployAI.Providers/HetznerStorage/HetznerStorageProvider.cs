@@ -64,6 +64,73 @@ public sealed class HetznerStorageProvider : IObjectStorageProvider
                 .ToList();
     }
 
+    /// <summary>
+    /// Hetzner supports CreateBucket, but only accepts <c>x-amz-acl</c> (private or public-read),
+    /// <c>x-amz-bucket-object-lock-enabled</c>, and a <c>LocationConstraint</c> body. Anything
+    /// else the SDK might add comes back as InvalidArgument, so this sends the bare minimum.
+    /// </summary>
+    public async Task<StorageBucket> CreateBucketAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        CancellationToken cancellationToken)
+    {
+        var name = bucket.Trim();
+        if (!IsValidBucketName(name))
+        {
+            throw new DeployAIException(
+                "storage_bucket_name_invalid",
+                "Bucket names must be 3–63 characters, lowercase letters, numbers, dots and " +
+                "hyphens only, and must start and end with a letter or number.");
+        }
+
+        using var client = CreateClient(credentials);
+
+        try
+        {
+            await client.PutBucketAsync(
+                new PutBucketRequest
+                {
+                    BucketName = name,
+                    // The SDK otherwise infers a region from the client and can send an
+                    // AWS region name Hetzner does not recognise.
+                    UseClientRegion = false,
+                    CannedACL = S3CannedACL.Private
+                },
+                cancellationToken);
+        }
+        catch (AmazonS3Exception ex) when (
+            ex.ErrorCode == "BucketAlreadyOwnedByYou" ||
+            ex.ErrorCode == "BucketAlreadyExists")
+        {
+            // Provisioning runs on every deploy. Re-deploying an app that already has its
+            // bucket must not be an error.
+            var existing = await ListBucketsAsync(credentials, cancellationToken);
+            var match = existing.FirstOrDefault(b =>
+                string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase));
+
+            if (match is not null)
+            {
+                return match;
+            }
+
+            // BucketAlreadyExists without it appearing in our own list means someone else
+            // holds the name — S3 bucket names are globally unique per endpoint.
+            throw new DeployAIException(
+                "storage_bucket_name_taken",
+                $"The bucket name \"{name}\" is already taken on this endpoint. Pick another.");
+        }
+
+        return new StorageBucket(name, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>S3 bucket naming rules, checked before the call so the error is legible.</summary>
+    private static bool IsValidBucketName(string name) =>
+        name.Length is >= 3 and <= 63 &&
+        char.IsLetterOrDigit(name[0]) &&
+        char.IsLetterOrDigit(name[^1]) &&
+        name.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c is '.' or '-') &&
+        !name.Contains("..", StringComparison.Ordinal);
+
     public async Task<StorageObjectPage> ListObjectsAsync(
         ProviderCredentials credentials,
         string bucket,

@@ -42,6 +42,15 @@ public interface IObjectStorageProvider
         ProviderCredentials credentials,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Creates a bucket, or returns the existing one when the caller already owns a bucket by
+    /// that name — provisioning runs on every deploy, so it has to be idempotent.
+    /// </summary>
+    Task<StorageBucket> CreateBucketAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        CancellationToken cancellationToken);
+
     Task<StorageObjectPage> ListObjectsAsync(
         ProviderCredentials credentials,
         string bucket,

@@ -82,6 +82,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IDeploymentOrchestrator, DeploymentOrchestrator>();
 builder.Services.AddScoped<DeploymentJobRunner>();
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
+builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();
 builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();
 builder.Services.AddScoped<IDataServiceInspectionService, DataServiceInspectionService>();
 

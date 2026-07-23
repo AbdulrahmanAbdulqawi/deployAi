@@ -234,6 +234,11 @@ public class StorageControllerTests
         var currentUser = new Mock<ICurrentUserService>();
         currentUser.Setup(u => u.UserId).Returns(userId);
 
-        return new StorageController(db, currentUser.Object, factory.Object, encryption);
+        return new StorageController(
+            db,
+            currentUser.Object,
+            factory.Object,
+            Mock.Of<IObjectStorageProvisioningService>(),
+            encryption);
     }
 }
