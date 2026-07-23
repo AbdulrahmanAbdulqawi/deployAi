@@ -13,7 +13,7 @@ public class RepositoryClassifierTests
     private readonly DatabaseRequirementDetector _databaseDetector = new();
 
     [Fact]
-    public async Task ClassifyAsync_StaticSite_ReturnsWebsiteOnVercelWithHighConfidence()
+    public async Task ClassifyAsync_StaticSite_DefaultsToCoolify()
     {
         SetupRootFiles(["index.html"]);
         SetupFile("index.html", "<html></html>");
@@ -23,12 +23,24 @@ public class RepositoryClassifierTests
         Assert.Equal("high", plan.Confidence);
         Assert.Single(plan.Parts);
         Assert.Equal("website", plan.Parts[0].Role);
-        Assert.Equal("vercel", plan.Parts[0].ProviderName);
+        Assert.Equal(ProviderNameValues.Coolify, plan.Parts[0].ProviderName);
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_StaticSite_UsesVercel_WhenLegacyPathRequested()
+    {
+        SetupRootFiles(["index.html"]);
+        SetupFile("index.html", "<html></html>");
+
+        var plan = await ClassifyAsync(preferVercelRailway: true);
+
+        Assert.Single(plan.Parts);
+        Assert.Equal(ProviderNameValues.Vercel, plan.Parts[0].ProviderName);
         Assert.Contains("global hosting", plan.PlainSummary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task ClassifyAsync_DotNetServer_ReturnsRailwayWithHighConfidence()
+    public async Task ClassifyAsync_DotNetServer_DefaultsToCoolify()
     {
         SetupRootContents(["My.Api"]);
         SetupDirectoryContents("My.Api", ["My.Api.csproj"]);
@@ -39,12 +51,24 @@ public class RepositoryClassifierTests
         Assert.Equal("high", plan.Confidence);
         Assert.Single(plan.Parts);
         Assert.Equal("server", plan.Parts[0].Role);
-        Assert.Equal("railway", plan.Parts[0].ProviderName);
+        Assert.Equal(ProviderNameValues.Coolify, plan.Parts[0].ProviderName);
         Assert.Equal("dotnet", plan.Parts[0].Framework);
     }
 
     [Fact]
-    public async Task ClassifyAsync_Monorepo_ReturnsSplitPlanWithHighConfidence()
+    public async Task ClassifyAsync_DotNetServer_UsesRailway_WhenLegacyPathRequested()
+    {
+        SetupRootContents(["My.Api"]);
+        SetupDirectoryContents("My.Api", ["My.Api.csproj"]);
+        SetupFile("My.Api/My.Api.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
+
+        var plan = await ClassifyAsync(preferVercelRailway: true);
+
+        Assert.Single(plan.Parts);
+        Assert.Equal(ProviderNameValues.Railway, plan.Parts[0].ProviderName);
+    }
+
+    private void SetupMonorepo()
     {
         SetupRootContents(["client", "My.Api"]);
         SetupDirectoryContents("client", ["angular.json", "package.json"]);
@@ -65,13 +89,33 @@ public class RepositoryClassifierTests
             """);
         SetupFile("client/package.json", """{ "dependencies": { "@angular/core": "19.0.0" } }""");
         SetupFile("My.Api/My.Api.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_Monorepo_DefaultsToCoolifyFullStack()
+    {
+        SetupMonorepo();
 
         var plan = await ClassifyAsync();
 
         Assert.Equal("high", plan.Confidence);
         Assert.Equal(2, plan.Parts.Count);
-        Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == "vercel");
-        Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == "railway");
+        Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == ProviderNameValues.Coolify);
+        Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == ProviderNameValues.Coolify);
+        Assert.Equal(DeploymentPlanKind.CoolifyFullStack, plan.PlanKind);
+    }
+
+    [Fact]
+    public async Task ClassifyAsync_Monorepo_SplitsAcrossVercelAndRailway_WhenLegacyPathRequested()
+    {
+        SetupMonorepo();
+
+        var plan = await ClassifyAsync(preferVercelRailway: true);
+
+        Assert.Equal(2, plan.Parts.Count);
+        Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == ProviderNameValues.Vercel);
+        Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == ProviderNameValues.Railway);
+        Assert.Equal(DeploymentPlanKind.Default, plan.PlanKind);
     }
 
     [Fact]
@@ -117,12 +161,12 @@ public class RepositoryClassifierTests
         Assert.Equal(2, plan.Parts.Count);
 
         var website = plan.Parts.Single(part => part.Role == "website");
-        Assert.Equal("vercel", website.ProviderName);
+        Assert.Equal(ProviderNameValues.Coolify, website.ProviderName);
         Assert.Equal("client", website.RootDirectory);
         Assert.Equal("angular", website.Framework);
 
         var server = plan.Parts.Single(part => part.Role == "server");
-        Assert.Equal("railway", server.ProviderName);
+        Assert.Equal(ProviderNameValues.Coolify, server.ProviderName);
         Assert.Equal("src", server.RootDirectory);
         Assert.Equal("src/DeployAI.Api", server.ServiceDirectory);
         Assert.Equal("dotnet", server.Framework);
@@ -206,7 +250,7 @@ public class RepositoryClassifierTests
         Assert.Contains("database", summary, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync(bool preferCoolify = false)
+    private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync(bool preferVercelRailway = false)
     {
         var websiteDiscovery = new WebsiteBuildProfileDiscovery(_gitHub.Object, _frontendDetector);
         var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector);
@@ -221,53 +265,51 @@ public class RepositoryClassifierTests
             "owner",
             "repo",
             "main",
-            preferCoolify ? new RepositoryClassificationOptions(true) : null,
+            new RepositoryClassificationOptions(preferVercelRailway),
             CancellationToken.None);
     }
 
     [Fact]
-    public async Task ClassifyAsync_WithCoolifyConnected_RecommendsCoolifyFullStackForMonorepo()
+    public async Task ClassifyAsync_Monorepo_SummaryMentionsCoolify()
     {
-        SetupRootContents(["client", "My.Api"]);
-        SetupDirectoryContents("client", ["angular.json", "package.json"]);
-        SetupDirectoryContents("My.Api", ["My.Api.csproj"]);
-        SetupFile("client/angular.json", """
-            {
-              "projects": {
-                "client": {
-                  "architect": {
-                    "build": {
-                      "builder": "@angular-devkit/build-angular:application",
-                      "options": { "outputPath": "dist/client" }
-                    }
-                  }
-                }
-              }
-            }
-            """);
-        SetupFile("client/package.json", """{ "dependencies": { "@angular/core": "19.0.0" } }""");
-        SetupFile("My.Api/My.Api.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
+        SetupMonorepo();
 
-        var plan = await ClassifyAsync(preferCoolify: true);
+        var plan = await ClassifyAsync();
 
-        Assert.Equal(DeploymentPlanKind.CoolifyFullStack, plan.PlanKind);
-        Assert.Contains(plan.Parts, part => part.Role == "website" && part.ProviderName == ProviderNameValues.Coolify);
-        Assert.Contains(plan.Parts, part => part.Role == "server" && part.ProviderName == ProviderNameValues.Coolify);
         Assert.Contains("Coolify", plan.PlainSummary, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task ClassifyAsync_WithCoolifyConnected_RecommendsCoolifyForDockerServer()
+    public async Task ClassifyAsync_DockerServer_ResolvesToCoolifySingle()
     {
         SetupRootContents(["api"]);
         SetupDirectoryContents("api", ["Dockerfile"]);
         SetupFile("api/Dockerfile", "FROM node:20");
 
-        var plan = await ClassifyAsync(preferCoolify: true);
+        var plan = await ClassifyAsync();
 
         Assert.Equal(DeploymentPlanKind.CoolifySingle, plan.PlanKind);
         Assert.Single(plan.Parts);
         Assert.Equal(ProviderNameValues.Coolify, plan.Parts[0].ProviderName);
+    }
+
+    /// <summary>
+    /// A Dockerfile routes the server to Coolify even on the legacy path, because neither
+    /// Vercel nor Railway is the right home for it. The plan kind must reflect what was
+    /// actually chosen — it previously short-circuited to Default here.
+    /// </summary>
+    [Fact]
+    public async Task ClassifyAsync_DockerServer_StillResolvesToCoolify_OnLegacyPath()
+    {
+        SetupRootContents(["api"]);
+        SetupDirectoryContents("api", ["Dockerfile"]);
+        SetupFile("api/Dockerfile", "FROM node:20");
+
+        var plan = await ClassifyAsync(preferVercelRailway: true);
+
+        Assert.Single(plan.Parts);
+        Assert.Equal(ProviderNameValues.Coolify, plan.Parts[0].ProviderName);
+        Assert.Equal(DeploymentPlanKind.CoolifySingle, plan.PlanKind);
     }
 
     private void SetupRootContents(IReadOnlyList<string> entries)

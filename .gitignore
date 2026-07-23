@@ -23,6 +23,10 @@ artifacts/
 **/appsettings.*.local.json
 **/secrets.json
 
+# Local-only Docker Compose overrides (host port conflicts, etc.)
+docker-compose.override.yml
+client/proxy.conf.local.json
+
 # Angular / Node (client)
 client/node_modules/
 client/dist/

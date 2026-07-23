@@ -42,7 +42,8 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         RepositoryClassificationOptions? options,
         CancellationToken cancellationToken)
     {
-        var preferCoolify = options?.PreferCoolify == true;
+        // Coolify is the default target; Vercel/Railway only when explicitly opted into.
+        var preferCoolify = options?.PreferVercelRailway != true;
         var websiteProfile = await _websiteDiscovery.DiscoverAsync(
             accessToken, owner, repo, string.Empty, gitRef, cancellationToken);
         var serverProfile = await _serverDiscovery.DiscoverAsync(
@@ -59,17 +60,17 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         if (hasWebsite && hasServer &&
             string.Equals(websiteRoot, serverRoot, StringComparison.OrdinalIgnoreCase))
         {
-            return BuildSameRootAmbiguousPlan(websiteProfile!, serverProfile);
+            return BuildSameRootAmbiguousPlan(websiteProfile!, serverProfile, preferCoolify);
         }
 
         if (!hasWebsite && !hasServer)
         {
-            return BuildLowConfidencePlan();
+            return BuildLowConfidencePlan(preferCoolify);
         }
 
         if (hasWebsite && !hasServer && websiteProfile is not null && IsAmbiguousFrontendOnly(websiteProfile))
         {
-            return BuildAmbiguousFrontendPlan(websiteProfile);
+            return BuildAmbiguousFrontendPlan(websiteProfile, preferCoolify);
         }
 
         var databaseProfile = hasServer
@@ -89,11 +90,9 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         bool hasServer,
         bool preferCoolify)
     {
-        if (!preferCoolify)
-        {
-            return DeploymentPlanKind.Default;
-        }
-
+        // Deliberately keyed off the resolved parts rather than the preference: a repo with a
+        // Dockerfile routes its server to Coolify even on the legacy path, and the plan kind
+        // must reflect what was actually chosen.
         if (hasWebsite && hasServer &&
             parts.Any(part => part.Role == "website" && IsCoolifyProvider(part.ProviderName)) &&
             parts.Any(part => part.Role == "server" && IsCoolifyProvider(part.ProviderName)))
@@ -114,10 +113,11 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
 
     private static DeploymentPlan BuildSameRootAmbiguousPlan(
         FrontendBuildProfile websiteProfile,
-        ServerBuildProfile serverProfile)
+        ServerBuildProfile serverProfile,
+        bool preferCoolify)
     {
-        var websitePart = ToWebsitePart(websiteProfile, preferCoolify: false);
-        var serverPart = ToServerPart(serverProfile, preferCoolify: false);
+        var websitePart = ToWebsitePart(websiteProfile, preferCoolify);
+        var serverPart = ToServerPart(serverProfile, preferCoolify);
 
         var question = new ClarifyingQuestion(
             "Does your app need to run code on a server, or is it just pages?",
@@ -209,11 +209,11 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         !string.IsNullOrWhiteSpace(profile.DockerfilePath) ||
         string.Equals(profile.Framework, "docker", StringComparison.OrdinalIgnoreCase);
 
-    private static DeploymentPlan BuildLowConfidencePlan()
+    private static DeploymentPlan BuildLowConfidencePlan(bool preferCoolify)
     {
         var websitePart = new DeploymentPlanPart(
             "website",
-            "vercel",
+            preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Vercel,
             RootDirectory: string.Empty,
             BuildCommand: "npm run build",
             InstallCommand: "npm install",
@@ -222,7 +222,7 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
 
         var serverPart = new DeploymentPlanPart(
             "server",
-            "railway",
+            preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Railway,
             RootDirectory: string.Empty,
             ServiceDirectory: string.Empty,
             Framework: null);
@@ -249,12 +249,14 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
             question);
     }
 
-    private static DeploymentPlan BuildAmbiguousFrontendPlan(FrontendBuildProfile websiteProfile)
+    private static DeploymentPlan BuildAmbiguousFrontendPlan(
+        FrontendBuildProfile websiteProfile,
+        bool preferCoolify)
     {
-        var websitePart = ToWebsitePart(websiteProfile, preferCoolify: false);
+        var websitePart = ToWebsitePart(websiteProfile, preferCoolify);
         var serverPart = new DeploymentPlanPart(
             "server",
-            "railway",
+            preferCoolify ? ProviderNameValues.Coolify : ProviderNameValues.Railway,
             RootDirectory: string.Empty,
             ServiceDirectory: string.Empty,
             Framework: null);

@@ -106,16 +106,17 @@ public sealed class GitHubController : ControllerBase
         CancellationToken cancellationToken)
     {
         var token = await GetGitHubTokenAsync(cancellationToken);
-        var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
-        var hasCoolify = await _db.ProviderCredentials.AnyAsync(
-            c => c.UserId == userId && c.ProviderName == ProviderNameValues.Coolify,
-            cancellationToken);
+        _ = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
+
+        // Coolify is the default target regardless of which credentials exist yet — the wizard
+        // prompts for the connection afterwards. Previously this silently fell back to
+        // Vercel/Railway whenever no Coolify credential was connected.
         var plan = await _repositoryClassifier.ClassifyAsync(
             token,
             owner,
             repo,
             @ref,
-            new RepositoryClassificationOptions(hasCoolify),
+            new RepositoryClassificationOptions(),
             cancellationToken);
 
         return Ok(new
