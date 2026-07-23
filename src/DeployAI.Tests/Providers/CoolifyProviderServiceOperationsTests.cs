@@ -19,6 +19,45 @@ public class CoolifyProviderServiceOperationsTests
         return new CoolifyProvider(client);
     }
 
+    // A default production target needs more than "redeploy and hope" — stopping a misbehaving
+    // app is often the first thing you want.
+    [Theory]
+    [InlineData("start")]
+    [InlineData("stop")]
+    [InlineData("restart")]
+    public async Task LifecycleActions_CallTheMatchingCoolifyEndpoint(string action)
+    {
+        var handler = new MockHttpMessageHandler();
+        var called = handler.Expect(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/{action}")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "message": "ok" }""");
+
+        IProviderLifecycleOperations provider = CreateProvider(handler);
+        Task task = action switch
+        {
+            "start" => provider.StartApplicationAsync(Credentials, "app-1", CancellationToken.None),
+            "stop" => provider.StopApplicationAsync(Credentials, "app-1", CancellationToken.None),
+            _ => provider.RestartApplicationAsync(Credentials, "app-1", CancellationToken.None)
+        };
+        await task;
+
+        handler.VerifyNoOutstandingExpectation();
+        Assert.NotNull(called);
+    }
+
+    [Fact]
+    public async Task LifecycleActions_SurfaceCoolifyErrors()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/stop")
+            .Respond(HttpStatusCode.InternalServerError, "application/json", """{ "message": "Server unreachable." }""");
+
+        IProviderLifecycleOperations provider = CreateProvider(handler);
+        var error = await Assert.ThrowsAsync<DeployAI.Core.Exceptions.DeployAIException>(
+            () => provider.StopApplicationAsync(Credentials, "app-1", CancellationToken.None));
+
+        Assert.Contains("Server unreachable.", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task GetServiceStatusAsync_ReturnsRunning_WhenApplicationHasFqdn()
     {

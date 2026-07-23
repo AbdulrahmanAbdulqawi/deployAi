@@ -636,6 +636,11 @@ export class ApiService {
       framework?: string;
       dockerfilePath?: string;
       serviceDirectory?: string;
+      /** Path to the compose file; its presence is what selects the compose build pack. */
+      composeFileLocation?: string;
+      customDomain?: string;
+      /** Compose service the domain attaches to — the rest stay internal. */
+      domainServiceName?: string;
     }
   ) {
     return this.http.post<{ project: ProviderProject }>('/api/credentials/coolify/projects', {
@@ -656,7 +661,10 @@ export class ApiService {
       startCommand: options?.startCommand,
       framework: options?.framework,
       dockerfilePath: options?.dockerfilePath,
-      serviceDirectory: options?.serviceDirectory
+      serviceDirectory: options?.serviceDirectory,
+      composeFileLocation: options?.composeFileLocation,
+      customDomain: options?.customDomain,
+      domainServiceName: options?.domainServiceName
     });
   }
 

@@ -1,0 +1,261 @@
+using System.Net;
+using System.Text.Json;
+using DeployAI.Core.Exceptions;
+using DeployAI.Core.Providers;
+using DeployAI.Providers.Coolify;
+using RichardSzalay.MockHttp;
+
+namespace DeployAI.Tests.Providers;
+
+public class CoolifyProviderComposeTests
+{
+    private const string InstanceUrl = "https://coolify.example.com";
+    private static readonly ProviderCredentials Credentials =
+        new(CoolifyCredentialStorage.Serialize(InstanceUrl, "coolify-token"));
+
+    [Fact]
+    public async Task CreateProjectAsync_UsesComposeEndpoint_AndPassesComposeLocation()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        var createBody = CaptureJson(
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            HttpStatusCode.Created,
+            """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.CreateProjectAsync(Credentials, ComposeRequest(), CancellationToken.None);
+
+        // Not the default docker-compose.yml — that is usually the repo's local dev stack.
+        Assert.Equal("docker-compose.coolify.yml", createBody.Value.GetProperty("docker_compose_location").GetString());
+        Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_ForCompose_OmitsExposedPortAndSingleAppBuildFields()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        var createBody = CaptureJson(
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            HttpStatusCode.Created,
+            """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.CreateProjectAsync(
+            Credentials,
+            ComposeRequest() with
+            {
+                OutputDirectory = "dist/app/browser",
+                BuildCommand = "npm run build",
+                DockerfilePath = "client/Dockerfile"
+            },
+            CancellationToken.None);
+
+        var body = createBody.Value;
+        // The compose file declares its own ports; a single number would be meaningless.
+        Assert.False(body.TryGetProperty("ports_exposes", out _));
+        // Compose builds its own images, so these describe a build Coolify is not running.
+        Assert.False(body.TryGetProperty("publish_directory", out _));
+        Assert.False(body.TryGetProperty("is_static", out _));
+        Assert.False(body.TryGetProperty("build_command", out _));
+        Assert.False(body.TryGetProperty("dockerfile_location", out _));
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_AttachesDomainToTheNamedComposeService()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose")
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.CreateProjectAsync(
+            Credentials,
+            ComposeRequest() with { CustomDomain = "breeze.example.com", DomainServiceName = "web" },
+            CancellationToken.None);
+
+        // Without this Traefik has no rule to route on and no certificate is issued: the
+        // deploy reports success and the site is unreachable.
+        var domains = patchBody.Value.GetProperty("docker_compose_domains");
+        Assert.Equal(
+            "https://breeze.example.com",
+            domains.GetProperty("web").GetProperty("domain").GetString());
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_WithCustomDomain_DoesNotAlsoAutogenerateOne()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        var createBody = CaptureJson(
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            HttpStatusCode.Created,
+            """{ "uuid": "app-compose" }""");
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.CreateProjectAsync(
+            Credentials,
+            ComposeRequest() with { CustomDomain = "breeze.example.com" },
+            CancellationToken.None);
+
+        Assert.False(createBody.Value.TryGetProperty("autogenerate_domain", out _));
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_DefersFirstDeploy_SoDomainAndEnvLandFirst()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        var createBody = CaptureJson(
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            HttpStatusCode.Created,
+            """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.CreateProjectAsync(Credentials, ComposeRequest(), CancellationToken.None);
+
+        Assert.False(createBody.Value.GetProperty("instant_deploy").GetBoolean());
+        Assert.True(createBody.Value.GetProperty("is_auto_deploy_enabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_FailsLoudly_WhenTheDomainCannotBeAttached()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose")
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
+            .Respond(HttpStatusCode.UnprocessableEntity, "application/json", """{ "message": "Domain already in use." }""");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.CreateProjectAsync(
+            Credentials,
+            ComposeRequest() with { CustomDomain = "breeze.example.com" },
+            CancellationToken.None));
+
+        Assert.Equal("coolify_domain_failed", error.ErrorCode);
+        Assert.Contains("Domain already in use.", error.Message, StringComparison.Ordinal);
+    }
+
+    // Deploying into whichever project Coolify listed first is a silent way to put an app
+    // somewhere the user never chose.
+    [Fact]
+    public async Task CreateProjectAsync_RefusesToGuess_WhenSeveralProjectsExist()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "proj-1", "name": "Staging" }, { "uuid": "proj-2", "name": "Production" }]
+            """);
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.CreateProjectAsync(
+            Credentials, ComposeRequest(), CancellationToken.None));
+
+        Assert.Equal("coolify_project_ambiguous", error.ErrorCode);
+        Assert.Contains("Staging", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Production", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_RefusesToGuess_WhenSeveralServersExist()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "srv-1", "name": "hetzner-1" }, { "uuid": "srv-2", "name": "hetzner-2" }]
+            """);
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.CreateProjectAsync(
+            Credentials, ComposeRequest(), CancellationToken.None));
+
+        Assert.Equal("coolify_server_ambiguous", error.ErrorCode);
+        Assert.Contains("hetzner-2", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_UsesComposePrivateEndpoint_ForPrivateRepos()
+    {
+        var handler = new MockHttpMessageHandler();
+        StubInfrastructure(handler);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/github-apps")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "gh-1", "name": "Deploy" }]""");
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose-private-github-app")
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
+        StubApplication(handler, "app-compose");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        var project = await provider.CreateProjectAsync(
+            Credentials,
+            ComposeRequest() with { IsPrivateRepository = true },
+            CancellationToken.None);
+
+        Assert.Equal("app-compose", project.Id);
+    }
+
+    private static CreateProviderProjectRequest ComposeRequest() =>
+        new(
+            "yemeni-breeze",
+            "acme/yemeni-breeze",
+            "angular",
+            GitBranch: "main",
+            ComposeFileLocation: "docker-compose.coolify.yml");
+
+    private static void StubInfrastructure(MockHttpMessageHandler handler)
+    {
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "srv-1", "name": "hetzner-1" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
+    }
+
+    private static void StubApplication(MockHttpMessageHandler handler, string uuid)
+    {
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/{uuid}")
+            .Respond(HttpStatusCode.OK, "application/json", $$"""
+            { "uuid": "{{uuid}}", "name": "yemeni-breeze", "fqdn": "https://breeze.example.com", "git_branch": "main" }
+            """);
+    }
+
+    private sealed class JsonCapture
+    {
+        public JsonElement Value { get; set; }
+    }
+
+    private static JsonCapture CaptureJson(
+        MockedRequest request,
+        HttpStatusCode status,
+        string responseJson)
+    {
+        var capture = new JsonCapture();
+        request.Respond(async httpRequest =>
+        {
+            var body = await httpRequest.Content!.ReadAsStringAsync();
+            capture.Value = JsonDocument.Parse(body).RootElement.Clone();
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(responseJson, System.Text.Encoding.UTF8, "application/json")
+            };
+        });
+        return capture;
+    }
+}

@@ -4,8 +4,49 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider : IProviderServiceOperations
+public sealed partial class CoolifyProvider : IProviderServiceOperations, IProviderLifecycleOperations
 {
+    public Task StartApplicationAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken) =>
+        SendLifecycleActionAsync(credentials, providerProjectId, "start", cancellationToken);
+
+    public Task StopApplicationAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken) =>
+        SendLifecycleActionAsync(credentials, providerProjectId, "stop", cancellationToken);
+
+    public Task RestartApplicationAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken) =>
+        SendLifecycleActionAsync(credentials, providerProjectId, "restart", cancellationToken);
+
+    private async Task SendLifecycleActionAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            session,
+            $"applications/{providerProjectId}/{action}");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not {action} the Coolify application ({(int)response.StatusCode}).");
+        }
+    }
+
     public async Task<ProviderServiceStatus> GetServiceStatusAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -49,13 +90,16 @@ public sealed partial class CoolifyProvider : IProviderServiceOperations
         CancellationToken cancellationToken) =>
         DeleteProjectAsync(credentials, providerProjectId, cancellationToken);
 
+    // Coolify has no "promote this old deployment" API — a rollback means redeploying an
+    // earlier commit. Point at what does work rather than leaving a bare "unsupported".
     public Task RollbackDeploymentAsync(
         ProviderCredentials credentials,
         string providerDeploymentId,
         CancellationToken cancellationToken) =>
         throw new DeployAIException(
             "unsupported_provider",
-            "Coolify does not support deployment rollback through DeployAI yet.");
+            "Coolify can't promote a previous deployment. Redeploy the commit you want, or stop " +
+            "the app while you sort the problem out.");
 
     private static string MapApplicationStatus(string? status, string? deployUrl)
     {

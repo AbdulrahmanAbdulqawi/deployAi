@@ -88,6 +88,19 @@ public sealed class ProviderServiceOperationsFactory : IProviderServiceOperation
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderLifecycleOperationsFactory : IProviderLifecycleOperationsFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderLifecycleOperations> _providers;
+
+    public ProviderLifecycleOperationsFactory(IEnumerable<IProviderLifecycleOperations> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderLifecycleOperations? GetLifecycleOperations(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceInspectionFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDataServiceInspection> _providers;
@@ -145,6 +158,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderLifecycleOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         // Object storage is a separate capability: registered only as IObjectStorageProvider,
         // never as IDeploymentProvider, so it stays out of deploy-target pickers.
         // No AddHttpClient — the AWS SDK manages its own transport.

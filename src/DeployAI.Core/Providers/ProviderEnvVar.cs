@@ -25,10 +25,47 @@ public sealed record CreateProviderProjectRequest(
     string? CoolifyServerUuid = null,
     string? CoolifyEnvironmentName = null,
     string? CoolifyGithubAppUuid = null,
-    string? CoolifyBuildPack = null);
+    string? CoolifyBuildPack = null,
+    /// <summary>
+    /// Path to the compose file, relative to the repo root. First-class rather than assumed,
+    /// because the file we generate is docker-compose.coolify.yml and Coolify otherwise looks
+    /// for docker-compose.yml — which in most repos is the local dev stack.
+    /// </summary>
+    string? ComposeFileLocation = null,
+    /// <summary>
+    /// Domain to attach after creation. Without one, Coolify only autogenerates a sslip.io
+    /// hostname; with a compose app it may route nothing at all.
+    /// </summary>
+    string? CustomDomain = null,
+    /// <summary>
+    /// Compose service the domain attaches to (e.g. <c>web</c>). The other services stay
+    /// internal and are reached over the compose network.
+    /// </summary>
+    string? DomainServiceName = null);
 
 public sealed record UpsertProviderEnvVarRequest(
     string Key,
     string Value,
     string Type,
     IReadOnlyList<string> Targets);
+
+public static class ProviderEnvVarTypes
+{
+    public const string Plain = "plain";
+
+    /// <summary>
+    /// A value that must not be echoed back or logged. Coolify keeps these write-only.
+    /// </summary>
+    public const string Secret = "secret";
+
+    /// <summary>
+    /// Needed at image-build time, not just at runtime — a frontend bundle bakes these in.
+    /// </summary>
+    public const string BuildTime = "build";
+
+    public static bool IsSecret(string? type) =>
+        string.Equals(type, Secret, StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsBuildTime(string? type) =>
+        string.Equals(type, BuildTime, StringComparison.OrdinalIgnoreCase);
+}

@@ -116,6 +116,75 @@ public class CoolifyProviderManagementTests
         Assert.Equal("env-1", envVar.Id);
     }
 
+    // Type and Targets used to be accepted and silently dropped, so a secret landed in Coolify
+    // as a readable plain value and a build-time variable was never available to the build.
+    [Fact]
+    public async Task UpsertEnvVarAsync_SendsSecretAndPreviewFlags()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        var sent = CaptureEnvVarPost(handler, "env-1", "JWT_KEY");
+
+        var provider = CreateProvider(handler);
+        await provider.UpsertEnvVarAsync(
+            Credentials,
+            "app-1",
+            new UpsertProviderEnvVarRequest("JWT_KEY", "s3cret-value", ProviderEnvVarTypes.Secret, ["preview"]),
+            CancellationToken.None);
+
+        var body = System.Text.Json.JsonDocument.Parse(sent.Body!).RootElement;
+        Assert.True(body.GetProperty("is_shown_once").GetBoolean());
+        Assert.True(body.GetProperty("is_preview").GetBoolean());
+        // Coolify interpolates unescaped values; literal keeps $ and {} intact in generated keys.
+        Assert.True(body.GetProperty("is_literal").GetBoolean());
+        Assert.False(body.GetProperty("is_multiline").GetBoolean());
+    }
+
+    [Fact]
+    public async Task UpsertEnvVarAsync_MarksBuildTimeVariables()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        var sent = CaptureEnvVarPost(handler, "env-2", "API_BASE_URL");
+
+        var provider = CreateProvider(handler);
+        await provider.UpsertEnvVarAsync(
+            Credentials,
+            "app-1",
+            new UpsertProviderEnvVarRequest(
+                "API_BASE_URL", "https://api.example.com", ProviderEnvVarTypes.BuildTime, []),
+            CancellationToken.None);
+
+        var body = System.Text.Json.JsonDocument.Parse(sent.Body!).RootElement;
+        Assert.True(body.GetProperty("is_build_time").GetBoolean());
+        Assert.False(body.TryGetProperty("is_shown_once", out _));
+    }
+
+    private sealed class SentBody
+    {
+        public string? Body { get; set; }
+    }
+
+    private static SentBody CaptureEnvVarPost(MockHttpMessageHandler handler, string uuid, string key)
+    {
+        var sent = new SentBody();
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond(async request =>
+            {
+                sent.Body = await request.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        $$"""{ "uuid": "{{uuid}}", "key": "{{key}}" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+        return sent;
+    }
+
     [Fact]
     public async Task ListInfrastructureAsync_ReturnsProjectsServersAndGithubApps()
     {

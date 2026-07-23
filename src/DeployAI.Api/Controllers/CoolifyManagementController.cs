@@ -95,7 +95,10 @@ public sealed class CoolifyManagementController : ControllerBase
                 request.CoolifyServerUuid,
                 request.CoolifyEnvironmentName,
                 request.CoolifyGithubAppUuid,
-                request.BuildPack),
+                request.BuildPack,
+                request.ComposeFileLocation,
+                request.CustomDomain,
+                request.DomainServiceName),
             cancellationToken);
 
         return Ok(new { project });
@@ -138,5 +141,8 @@ public sealed class CoolifyManagementController : ControllerBase
         string? CoolifyServerUuid,
         string? CoolifyEnvironmentName,
         string? CoolifyGithubAppUuid,
-        string? BuildPack);
+        string? BuildPack,
+        string? ComposeFileLocation = null,
+        string? CustomDomain = null,
+        string? DomainServiceName = null);
 }
