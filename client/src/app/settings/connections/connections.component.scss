@@ -97,6 +97,24 @@
   color: #5cdb5c;
 }
 
+.provider-card__icon--storage {
+  background: #1a2333;
+  color: #7aa7ff;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+// Vercel and Railway still work; they are just no longer the path we lead with.
+.legacy-providers {
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  .providers {
+    margin-top: var(--space-4);
+  }
+}
+
 .provider-card__header h2 {
   margin: 0;
   font-weight: 600;

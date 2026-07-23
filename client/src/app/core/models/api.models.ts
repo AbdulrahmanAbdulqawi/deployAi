@@ -423,3 +423,23 @@ export interface DeploymentSetupMergeResult {
   railwayKeysApplied: string[];
   vercelKeysApplied: string[];
 }
+
+export interface StorageConnectionSummary {
+  id: string;
+  providerName: string;
+  label: string;
+  isValid: boolean;
+  lastValidatedAt?: string | null;
+  endpoint?: string | null;
+  region?: string | null;
+}
+
+export interface StorageProviderInfo {
+  name: string;
+  displayName: string;
+}
+
+export interface StorageBucket {
+  name: string;
+  createdAt?: string | null;
+}

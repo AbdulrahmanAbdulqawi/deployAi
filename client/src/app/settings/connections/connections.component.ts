@@ -2,7 +2,7 @@ import { Component, OnInit, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
-import { CredentialSummary, ProviderName } from '../../core/models/api.models';
+import { CredentialSummary, ProviderName, StorageConnectionSummary } from '../../core/models/api.models';
 import { ConnectionsStore } from '../../core/stores/connections.store';
 import { ButtonComponent } from '../../shared/ui/button/button.component';
 import { InputComponent } from '../../shared/ui/input/input.component';
@@ -29,6 +29,11 @@ export class ConnectionsComponent implements OnInit {
   readonly showAdvancedCoolify = signal(false);
   readonly savingRailway = signal(false);
   readonly savingCoolify = signal(false);
+  readonly showAdvancedStorage = signal(false);
+  readonly savingStorage = signal(false);
+  readonly storageConnections = signal<StorageConnectionSummary[]>([]);
+  /** Vercel and Railway are the legacy path now — kept, but folded away by default. */
+  readonly showLegacyProviders = signal(false);
   readonly providerHealth = signal<{ name: string; status: string; message?: string | null }[]>([]);
 
   readonly healthAlert = computed(() =>
@@ -51,6 +56,11 @@ export class ConnectionsComponent implements OnInit {
   coolifyInstanceUrl = '';
   coolifyToken = '';
   coolifyLabel = 'Homelab';
+  storageEndpoint = '';
+  storageRegion = '';
+  storageAccessKey = '';
+  storageSecretKey = '';
+  storageLabel = 'Hetzner';
   private returnUrl: string | null = null;
 
   constructor(
@@ -85,24 +95,84 @@ export class ConnectionsComponent implements OnInit {
     }
 
     this.store.load();
+    this.loadStorageConnections();
+  }
+
+  loadStorageConnections(): void {
+    this.api.listStorageConnections().subscribe({
+      next: (response) => this.storageConnections.set(response.connections),
+      error: () => this.storageConnections.set([])
+    });
+  }
+
+  toggleStorageForm(): void {
+    this.showAdvancedStorage.update(open => !open);
+  }
+
+  toggleLegacyProviders(): void {
+    this.showLegacyProviders.update(open => !open);
+  }
+
+  connectStorage(): void {
+    this.savingStorage.set(true);
+    this.api.createStorageConnection({
+      endpoint: this.storageEndpoint,
+      region: this.storageRegion,
+      accessKey: this.storageAccessKey,
+      secretKey: this.storageSecretKey,
+      label: this.storageLabel
+    }).subscribe({
+      next: () => {
+        this.savingStorage.set(false);
+        this.showAdvancedStorage.set(false);
+        // Never keep the secret in memory after it has been persisted.
+        this.storageAccessKey = '';
+        this.storageSecretKey = '';
+        this.toast.success('Object storage connected');
+        this.loadStorageConnections();
+      },
+      error: (err) => {
+        this.savingStorage.set(false);
+        this.toast.error(err?.error?.error?.message ?? 'Could not connect that storage account.');
+      }
+    });
+  }
+
+  async removeStorage(id: string): Promise<void> {
+    const confirmed = await this.confirm.ask({
+      title: 'Remove storage connection?',
+      message: 'Apps wired to this connection will fall back to local disk on their next deploy.',
+      confirmLabel: 'Remove'
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.api.deleteStorageConnection(id).subscribe({
+      next: () => {
+        this.toast.success('Storage connection removed');
+        this.loadStorageConnections();
+      },
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not remove that connection.')
+    });
   }
 
   introMessage(): string {
+    // Coolify first: it is the default deploy target, so the copy should not open by
+    // offering the platforms we now treat as the legacy path.
     const connected = [
+      this.coolifyConnected() ? 'Coolify' : null,
+      this.storageConnections().length > 0 ? 'object storage' : null,
       this.vercelConnected() ? 'Vercel' : null,
-      this.railwayConnected() ? 'Railway' : null,
-      this.coolifyConnected() ? 'Coolify' : null
+      this.railwayConnected() ? 'Railway' : null
     ].filter((name): name is string => name !== null);
 
     if (connected.length === 0) {
-      return 'Connect Vercel, Railway, or your self-hosted Coolify instance to deploy your apps.';
+      return 'Connect your Coolify server to deploy, and object storage if your app stores files.';
     }
 
-    if (connected.length === 3) {
-      return 'Vercel, Railway, and Coolify are connected. Reconnect anytime to refresh access.';
-    }
-
-    return `${connected.join(' and ')} connected. Add more providers anytime.`;
+    return `${connected.join(', ').replace(/, ([^,]*)$/, ' and $1')} connected.`;
   }
 
   statusFor(credential: CredentialSummary | undefined): { status: string; label: string } {

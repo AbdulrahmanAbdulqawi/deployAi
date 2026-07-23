@@ -1199,8 +1199,8 @@ export class ProjectWizardComponent implements OnInit {
     this.api.listCoolifyInfrastructure(this.selectedCoolifyCredentialId).subscribe({
       next: (response) => {
         this.coolifyInfrastructure.set(response);
-        if (!this.selectedCoolifyProjectUuid && response.projects.length > 0) {
-          this.selectedCoolifyProjectUuid = response.projects[0].id;
+        if (!this.selectedCoolifyProjectUuid) {
+          this.selectedCoolifyProjectUuid = this.pickCoolifyProject(response.projects);
         }
         if (!this.selectedCoolifyServerUuid && response.servers.length > 0) {
           this.selectedCoolifyServerUuid = response.servers[0].id;
@@ -1217,6 +1217,21 @@ export class ProjectWizardComponent implements OnInit {
         this.error.set(err?.error?.error?.message ?? 'Could not load your Coolify infrastructure.');
       }
     });
+  }
+
+  /**
+   * Taking projects[0] drops the app into whichever project Coolify listed first — for a repo
+   * called `yemeni-breeze` on an instance that also hosts `tickethub-coolify`, that is the wrong
+   * one and nothing says so. Prefer a project named after the repo, and pick nothing at all when
+   * there are several and none match, so the choice stays visible instead of being guessed.
+   */
+  private pickCoolifyProject(projects: { id: string; name: string }[]): string {
+    if (projects.length === 0) return '';
+    if (projects.length === 1) return projects[0].id;
+
+    const repoName = (this.selectedRepo()?.fullName ?? '').split('/').pop()?.toLowerCase() ?? '';
+    const byName = projects.find(p => p.name.toLowerCase() === repoName);
+    return byName?.id ?? '';
   }
 
   onCoolifyProjectUuidChange(): void {

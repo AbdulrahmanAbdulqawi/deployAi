@@ -37,7 +37,9 @@ import {
   CoolifyInfrastructureResource,
   CoolifyBuildPack,
   TriggerDeploymentResponse,
-  UseBranchDeployResult
+  UseBranchDeployResult,
+  StorageConnectionSummary,
+  StorageBucket
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -688,6 +690,38 @@ export class ApiService {
   deleteProjectEnvVar(credentialId: string, projectId: string, envVarId: string) {
     return this.http.delete(
       `/api/credentials/${credentialId}/projects/${encodeURIComponent(projectId)}/env/${envVarId}`
+    );
+  }
+
+  // Object storage lives under /api/storage rather than /api/credentials: a bucket is not a
+  // deploy target, and the two are kept apart so storage can never reach a deploy-target picker.
+  listStorageConnections() {
+    return this.http.get<{ connections: StorageConnectionSummary[] }>('/api/storage/connections');
+  }
+
+  createStorageConnection(payload: {
+    providerName?: string;
+    endpoint: string;
+    region?: string;
+    accessKey: string;
+    secretKey: string;
+    label?: string;
+  }) {
+    return this.http.post<StorageConnectionSummary>('/api/storage/connections', payload);
+  }
+
+  deleteStorageConnection(id: string) {
+    return this.http.delete(`/api/storage/connections/${id}`);
+  }
+
+  listStorageBuckets(id: string) {
+    return this.http.get<{ buckets: StorageBucket[] }>(`/api/storage/connections/${id}/buckets`);
+  }
+
+  createStorageBucket(id: string, name: string) {
+    return this.http.post<{ bucket: StorageBucket }>(
+      `/api/storage/connections/${id}/buckets`,
+      { name }
     );
   }
 }
