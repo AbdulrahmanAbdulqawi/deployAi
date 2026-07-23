@@ -101,6 +101,24 @@ public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceI
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ObjectStorageProviderFactory : IObjectStorageProviderFactory
+{
+    private readonly IReadOnlyDictionary<string, IObjectStorageProvider> _providers;
+
+    public ObjectStorageProviderFactory(IEnumerable<IObjectStorageProvider> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IObjectStorageProvider? GetObjectStorage(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+
+    public IReadOnlyList<ObjectStorageProviderInfo> GetAvailableProviders() =>
+        _providers.Values
+            .Select(p => new ObjectStorageProviderInfo(p.ProviderName, p.DisplayName))
+            .ToList();
+}
+
 public static class ProviderDependencyInjection
 {
     public static IServiceCollection AddDeploymentProviders(this IServiceCollection services)
@@ -127,6 +145,12 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        // Object storage is a separate capability: registered only as IObjectStorageProvider,
+        // never as IDeploymentProvider, so it stays out of deploy-target pickers.
+        // No AddHttpClient — the AWS SDK manages its own transport.
+        services.AddSingleton(_ => new HetznerStorage.HetznerStorageProvider());
+        services.AddSingleton<IObjectStorageProvider>(sp => sp.GetRequiredService<HetznerStorage.HetznerStorageProvider>());
+        services.AddSingleton<IObjectStorageProviderFactory, ObjectStorageProviderFactory>();
         services.AddSingleton<IProviderApplicationUrlResolverFactory, ProviderApplicationUrlResolverFactory>();
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();

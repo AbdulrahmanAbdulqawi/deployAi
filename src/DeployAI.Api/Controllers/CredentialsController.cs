@@ -39,8 +39,10 @@ public sealed class CredentialsController : ControllerBase
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
         var userId = RequireUserId();
+        // Deployment credentials only — this list feeds deploy-target pickers, so
+        // object-storage connections must not appear here (see StorageController).
         var stored = await _db.ProviderCredentials
-            .Where(c => c.UserId == userId)
+            .Where(c => c.UserId == userId && c.Kind == CredentialKind.Deployment)
             .OrderBy(c => c.ProviderName)
             .ToListAsync(cancellationToken);
 

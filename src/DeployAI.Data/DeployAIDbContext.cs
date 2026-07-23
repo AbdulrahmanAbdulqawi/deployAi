@@ -35,6 +35,12 @@ public class DeployAIDbContext : DbContext
             entity.ToTable("provider_credentials");
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.UserId, e.ProviderName, e.Label }).IsUnique();
+            // Stored as a string so the column stays readable and new kinds can be added
+            // without renumbering; existing rows default to Deployment.
+            entity.Property(e => e.Kind)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasDefaultValue(CredentialKind.Deployment);
             entity.HasOne(e => e.User).WithMany(u => u.ProviderCredentials).HasForeignKey(e => e.UserId);
         });
 
