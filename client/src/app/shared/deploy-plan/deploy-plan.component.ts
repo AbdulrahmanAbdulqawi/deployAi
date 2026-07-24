@@ -30,9 +30,15 @@ export class DeployPlanComponent {
   /** Only offered for shapes where the domain has to be attached explicitly. */
   @Input() showDomainField = false;
   @Input() customDomain = '';
+  /** GitHub Apps configured in Coolify — needed to grant it access to a private repo. */
+  @Input() githubApps: { id: string; name: string }[] = [];
+  @Input() selectedGithubAppId = '';
+  /** True when the target repo is private and Coolify therefore needs a GitHub App picked. */
+  @Input() requireGithubApp = false;
 
   @Output() customDomainChange = new EventEmitter<string>();
   @Output() destinationChange = new EventEmitter<string>();
+  @Output() githubAppChange = new EventEmitter<string>();
   @Output() accept = new EventEmitter<void>();
   @Output() override = new EventEmitter<void>();
   @Output() selectOption = new EventEmitter<string>();
@@ -70,7 +76,11 @@ export class DeployPlanComponent {
 
     switch (role) {
       case 'website':
-        return this.isCoolifyFullStackPlan() ? 'Static site on Coolify' : 'Fast global hosting';
+        if (!this.isCoolifyFullStackPlan()) {
+          return 'Fast global hosting';
+        }
+        // A Next.js/Nuxt/etc. app runs a Node server on Coolify, not a static bundle.
+        return this.isServerRenderedWebsite() ? 'Web app on Coolify' : 'Static site on Coolify';
       case 'server':
         return this.isCoolifyFullStackPlan() ? 'API on Coolify' : 'Always-on server';
       case 'database':
@@ -78,6 +88,13 @@ export class DeployPlanComponent {
       default:
         return '';
     }
+  }
+
+  private isServerRenderedWebsite(): boolean {
+    const website = this.plan?.parts.find(part => part.role === 'website');
+    const framework = website?.framework?.trim().toLowerCase();
+    return framework === 'next' || framework === 'nextjs' || framework === 'nuxt'
+      || framework === 'sveltekit' || framework === 'remix';
   }
 
   isSingleOriginComposePlan(): boolean {

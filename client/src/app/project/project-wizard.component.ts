@@ -292,6 +292,17 @@ export class ProjectWizardComponent implements OnInit {
     return this.deploymentMode === 'coolify-fullstack';
   }
 
+  /** A private repo deployed to Coolify needs a GitHub App picked so Coolify can read the code. */
+  requiresCoolifyGithubApp(): boolean {
+    if (!this.selectedRepo()?.private) {
+      return false;
+    }
+    const kind = this.deploymentPlan()?.planKind;
+    return kind === DeploymentPlanKind.CoolifyFullStack
+      || kind === DeploymentPlanKind.CoolifyCompose
+      || kind === DeploymentPlanKind.CoolifySingle;
+  }
+
   /**
    * Reads the plan rather than assuming a shape. The hint used to promise "two Coolify
    * applications" unconditionally, which contradicted the single-origin compose plan the
@@ -1479,6 +1490,12 @@ export class ProjectWizardComponent implements OnInit {
     return null;
   }
 
+  private isServerRenderedFramework(framework?: string): boolean {
+    const normalized = framework?.trim().toLowerCase();
+    return normalized === 'next' || normalized === 'nextjs' || normalized === 'nuxt'
+      || normalized === 'sveltekit' || normalized === 'remix';
+  }
+
   private buildCoolifyCreateOptions(isPrivateRepository: boolean, role: 'website' | 'server' = 'server') {
     const serverProfile = role === 'server' ? this.serverBuildProfile() : null;
     const websiteProfile = role === 'website' ? this.websiteBuildProfile() : null;
@@ -1511,9 +1528,12 @@ export class ProjectWizardComponent implements OnInit {
       coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
       coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
       coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
+      // An SSR framework (Next, Nuxt, SvelteKit, Remix) has an output dir (.next, .output,
+      // build) but ships a Node server, so it builds with Nixpacks — serving that output as
+      // static files renders a blank page. Only a genuinely static bundle uses Static.
       buildPack: dockerfilePath || profile?.framework === 'docker'
         ? CoolifyBuildPack.Dockerfile
-        : outputDirectory
+        : outputDirectory && !this.isServerRenderedFramework(profile?.framework)
           ? CoolifyBuildPack.Static
           : CoolifyBuildPack.Nixpacks,
       rootDirectory: profile?.rootDirectory,

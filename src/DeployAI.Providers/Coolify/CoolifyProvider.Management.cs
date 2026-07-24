@@ -69,9 +69,12 @@ public sealed partial class CoolifyProvider
             body["base_directory"] = $"/{request.RootDirectory.Trim().Replace('\\', '/').TrimStart('/')}";
         }
 
-        // Compose builds its own images from per-service Dockerfiles, so publish_directory and
-        // is_static describe a build Coolify is not running.
-        if (!string.IsNullOrWhiteSpace(request.OutputDirectory) && !isCompose)
+        // publish_directory / is_static only apply to the static build pack. An SSR framework
+        // (Next, Nuxt…) also reports an output directory (.next), but it builds with Nixpacks
+        // and runs a Node server — sending publish_directory then fails Coolify validation
+        // ("publish directory field format is invalid") and would be wrong even if accepted.
+        if (!string.IsNullOrWhiteSpace(request.OutputDirectory) &&
+            string.Equals(buildPack, CoolifyBuildPackValues.Static, StringComparison.OrdinalIgnoreCase))
         {
             body["publish_directory"] = request.OutputDirectory;
             body["is_static"] = true;

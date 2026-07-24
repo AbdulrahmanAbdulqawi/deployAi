@@ -123,6 +123,34 @@
       </div>
     }
 
+    <!--
+      A private repo needs a Coolify GitHub App to grant read access, chosen here rather than
+      only in the advanced panel — without it the deploy silently blocks on the plan card.
+    -->
+    @if (requireGithubApp) {
+      <div class="plan-card__config">
+        <div class="plan-card__config-header">
+          <span class="u-label-caps">GitHub App</span>
+        </div>
+        @if (githubApps.length === 0) {
+          <p class="plan-card__hint">This is a private repo. Add a GitHub App in Coolify so it can read the code, then try again.</p>
+        } @else {
+          <label class="plan-card__destination">
+            <span class="u-visually-hidden">GitHub App for this private repository</span>
+            <select
+              [ngModel]="selectedGithubAppId"
+              (ngModelChange)="githubAppChange.emit($event)">
+              <option value="">Choose…</option>
+              @for (app of githubApps; track app.id) {
+                <option [value]="app.id">{{ app.name }}</option>
+              }
+            </select>
+          </label>
+          <p class="plan-card__hint">Private repository — pick the Coolify GitHub App that can access it.</p>
+        }
+      </div>
+    }
+
     @if (missingConnections.length > 0) {
       <p class="plan-card__notice">Connect {{ missingConnections.join(' and ') }} first to deploy.</p>
     }
