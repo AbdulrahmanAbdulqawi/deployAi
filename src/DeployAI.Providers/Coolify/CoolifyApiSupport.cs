@@ -128,13 +128,21 @@ internal static class CoolifyApiSupport
             return CoolifyBuildPackValues.Dockerfile;
         }
 
-        if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
+        // An output directory only means "static" for a framework that produces a servable
+        // bundle. An SSR framework (Next, Nuxt, SvelteKit, Remix) also has an output dir
+        // (.next, .output, build) but ships a Node server, so it must build with Nixpacks —
+        // serving .next as static files gets a blank page and no server-rendered routes.
+        if (!string.IsNullOrWhiteSpace(request.OutputDirectory) &&
+            !IsServerRenderedFrontend(request.Framework))
         {
             return CoolifyBuildPackValues.Static;
         }
 
         return CoolifyBuildPackValues.Nixpacks;
     }
+
+    private static bool IsServerRenderedFrontend(string? framework) =>
+        framework?.Trim().ToLowerInvariant() is "next" or "nextjs" or "nuxt" or "sveltekit" or "remix";
 
     internal static bool IsComposeBuildPack(string buildPack) =>
         string.Equals(buildPack, CoolifyBuildPackValues.DockerCompose, StringComparison.OrdinalIgnoreCase);

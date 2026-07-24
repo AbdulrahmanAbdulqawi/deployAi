@@ -34,6 +34,23 @@ public class CoolifyBuildPackTests
         Assert.Equal(CoolifyBuildPackValues.Static, CoolifyApiSupport.ResolveBuildPack(request));
     }
 
+    // Next.js has a .next output dir but is an SSR app — serving it as static files gives a
+    // blank page. It must build with Nixpacks so Coolify runs `next start`.
+    [Theory]
+    [InlineData("next", ".next")]
+    [InlineData("nuxt", ".output")]
+    [InlineData("sveltekit", "build")]
+    public void ResolveBuildPack_UsesNixpacksForServerRenderedFrontends(string framework, string outputDirectory)
+    {
+        var request = new CreateProviderProjectRequest(
+            "app",
+            "owner/repo",
+            framework,
+            OutputDirectory: outputDirectory);
+
+        Assert.Equal(CoolifyBuildPackValues.Nixpacks, CoolifyApiSupport.ResolveBuildPack(request));
+    }
+
     // Compose is checked before the Dockerfile branch: a compose app's services have their own
     // Dockerfiles, but compose is what Coolify actually deploys.
     [Fact]
