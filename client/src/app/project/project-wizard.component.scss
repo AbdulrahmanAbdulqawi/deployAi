@@ -270,3 +270,62 @@
   font-size: var(--font-size-sm);
   color: var(--status-accent-strong);
 }
+
+// ---- Env collection step -------------------------------------------------------------------
+.wizard__env-field {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.wizard__env-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  margin-bottom: var(--space-1);
+
+  em {
+    font-style: normal;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    padding: 0 var(--space-1);
+    border-radius: 4px;
+    background: rgba(255, 180, 84, 0.15);
+    color: #ffb454;
+  }
+}
+
+.wizard__env-row {
+  display: flex;
+  gap: var(--space-2);
+
+  input {
+    flex: 1;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font: inherit;
+  }
+}
+
+.wizard__env-generate {
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.wizard__hint--error {
+  color: #ff7a7a;
+}

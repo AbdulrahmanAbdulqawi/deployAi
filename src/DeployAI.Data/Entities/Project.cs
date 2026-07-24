@@ -16,6 +16,14 @@ public class Project
     public long? GitHubWebhookId { get; set; }
     public string? HealthJson { get; set; }
 
+    /// <summary>
+    /// The project's environment variables as an encrypted JSON blob
+    /// ({ name: { value, isSecret, isBuildTime } }), same discipline as
+    /// ProviderCredential.TokenEncrypted. Values are also pushed to the deploy target;
+    /// this copy exists so a redeploy or re-sync doesn't require retyping secrets.
+    /// </summary>
+    public byte[]? EnvironmentVariablesEncrypted { get; set; }
+
     public User User { get; set; } = null!;
     public ICollection<DeployTarget> DeployTargets { get; set; } = [];
     public ICollection<Deployment> Deployments { get; set; } = [];

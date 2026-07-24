@@ -23,6 +23,8 @@ public sealed class GitHubController : ControllerBase
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
     private readonly IServerBuildProfileDiscovery _serverBuildProfileDiscovery;
     private readonly IRepositoryClassifier _repositoryClassifier;
+    private readonly IEnvVarDetector _envVarDetector;
+    private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IEncryptionService _encryption;
 
     public GitHubController(
@@ -33,6 +35,8 @@ public sealed class GitHubController : ControllerBase
         IDatabaseRequirementDetector databaseRequirementDetector,
         IServerBuildProfileDiscovery serverBuildProfileDiscovery,
         IRepositoryClassifier repositoryClassifier,
+        IEnvVarDetector envVarDetector,
+        IObjectStorageProviderFactory storageFactory,
         IEncryptionService encryption)
     {
         _db = db;
@@ -42,6 +46,8 @@ public sealed class GitHubController : ControllerBase
         _databaseRequirementDetector = databaseRequirementDetector;
         _serverBuildProfileDiscovery = serverBuildProfileDiscovery;
         _repositoryClassifier = repositoryClassifier;
+        _envVarDetector = envVarDetector;
+        _storageFactory = storageFactory;
         _encryption = encryption;
     }
     [HttpGet("repos")]
@@ -165,6 +171,225 @@ public sealed class GitHubController : ControllerBase
                     })
                 }
         });
+    }
+
+    /// <summary>
+    /// Detects the env vars this repo needs (from compose, .env.example, appsettings, README)
+    /// and pairs each with a suggestion where the server knows a good value: generated secrets,
+    /// the account email, and the connected storage account's details. Values for detected
+    /// secrets are suggestions to *set*, never echoes of anything stored.
+    /// </summary>
+    [HttpGet("repos/{owner}/{repo}/env-schema")]
+    public async Task<IActionResult> GetEnvSchema(
+        string owner,
+        string repo,
+        [FromQuery] string? @ref,
+        [FromQuery] string? composePath,
+        [FromQuery] string? serverPath,
+        CancellationToken cancellationToken)
+    {
+        var token = await GetGitHubTokenAsync(cancellationToken);
+        var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
+
+        var compose = await ReadFirstExistingFileAsync(
+            token, owner, repo,
+            [
+                string.IsNullOrWhiteSpace(composePath) ? "docker-compose.coolify.yml" : composePath.Trim().TrimStart('/'),
+                "docker-compose.coolify.yml",
+                "docker-compose.yml"
+            ],
+            @ref, cancellationToken);
+        var dotEnv = await ReadFirstExistingFileAsync(
+            token, owner, repo, [".env.example", ".env.sample"], @ref, cancellationToken);
+        var normalizedServerPath = string.IsNullOrWhiteSpace(serverPath) ? null : serverPath.Trim().Trim('/');
+        var appsettings = await ReadFirstExistingFileAsync(
+            token, owner, repo,
+            normalizedServerPath is null
+                ? ["appsettings.json"]
+                : [$"{normalizedServerPath}/appsettings.json", "appsettings.json"],
+            @ref, cancellationToken);
+        var readme = await _gitHubService.GetFileContentAsync(token, owner, repo, "README.md", @ref, cancellationToken);
+
+        var detected = _envVarDetector.Detect(new EnvScanInputs(
+            ComposeContent: compose,
+            DotEnvExampleContent: dotEnv,
+            AppsettingsContent: appsettings,
+            ReadmeContent: readme));
+
+        var suggestions = await BuildEnvSuggestionsAsync(userId, detected, cancellationToken);
+
+        return Ok(new
+        {
+            vars = detected.Select(env => new
+            {
+                name = env.Name,
+                isSecret = env.IsSecret,
+                hasDefault = env.HasDefault,
+                defaultValue = env.DefaultValue,
+                category = env.Category.ToString().ToLowerInvariant(),
+                sources = env.SeenIn,
+                suggestedValue = suggestions.GetValueOrDefault(env.Name)
+            })
+        });
+    }
+
+    private async Task<Dictionary<string, string>> BuildEnvSuggestionsAsync(
+        Guid userId,
+        IReadOnlyList<Core.Deployments.Graph.DetectedEnvVar> detected,
+        CancellationToken cancellationToken)
+    {
+        var suggestions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var env in detected.Where(e => e.IsSecret && !e.HasDefault))
+        {
+            // Long enough for JWT signing keys; users shouldn't have to invent secrets.
+            // Passwords get every character class — ASP.NET Identity's default policy
+            // rejects alphanumeric-only values ("at least one non alphanumeric character"),
+            // and a generated password that can't boot the app is worse than none.
+            var isPassword = env.Name.Contains("PASSWORD", StringComparison.OrdinalIgnoreCase);
+            suggestions[env.Name] = isPassword ? GeneratePassword(20) : GenerateSecret(48);
+        }
+
+        if (detected.Any(e => e.Category == Core.Deployments.Graph.EnvVarCategory.AdminEmail))
+        {
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(user?.Email))
+            {
+                foreach (var env in detected.Where(e => e.Category == Core.Deployments.Graph.EnvVarCategory.AdminEmail))
+                {
+                    suggestions[env.Name] = user.Email;
+                }
+            }
+        }
+
+        var storageVars = detected.Where(e => e.Category == Core.Deployments.Graph.EnvVarCategory.Storage).ToList();
+        if (storageVars.Count > 0)
+        {
+            await FillStorageSuggestionsAsync(userId, storageVars, suggestions, cancellationToken);
+        }
+
+        return suggestions;
+    }
+
+    /// <summary>
+    /// Maps a connected storage account onto STORAGE_*/S3_* vars by suffix. Secret values are
+    /// only ever suggested server→client over this authenticated response so the user can
+    /// submit them back; nothing is written anywhere until they confirm the form.
+    /// </summary>
+    private async Task FillStorageSuggestionsAsync(
+        Guid userId,
+        IReadOnlyList<Core.Deployments.Graph.DetectedEnvVar> storageVars,
+        Dictionary<string, string> suggestions,
+        CancellationToken cancellationToken)
+    {
+        var credentials = await _db.ProviderCredentials
+            .Where(c => c.UserId == userId && c.Kind == Data.Entities.CredentialKind.ObjectStorage)
+            .ToListAsync(cancellationToken);
+
+        // Only when unambiguous: guessing between two storage accounts is how keys for the
+        // wrong bucket end up on an app.
+        if (credentials.Count != 1)
+        {
+            return;
+        }
+
+        var payload = Core.Providers.StorageCredentialStorage.TryParse(_encryption.Decrypt(credentials[0].TokenEncrypted));
+        if (payload is null)
+        {
+            return;
+        }
+
+        string? bucket = null;
+        var provider = _storageFactory.GetObjectStorage(credentials[0].ProviderName);
+        if (provider is not null)
+        {
+            try
+            {
+                var buckets = await provider.ListBucketsAsync(
+                    new Core.Providers.ProviderCredentials(_encryption.Decrypt(credentials[0].TokenEncrypted)),
+                    cancellationToken);
+                bucket = buckets.Count == 1 ? buckets[0].Name : null;
+            }
+            catch
+            {
+                // Suggestion only — a flaky storage endpoint must not break schema detection.
+            }
+        }
+
+        foreach (var env in storageVars)
+        {
+            var value = env.Name.ToUpperInvariant() switch
+            {
+                var n when n.EndsWith("ENDPOINT") => payload.Endpoint,
+                var n when n.EndsWith("REGION") => payload.Region,
+                var n when n.EndsWith("BUCKET") => bucket,
+                var n when n.EndsWith("ACCESS_KEY") || n.EndsWith("ACCESSKEY") => payload.AccessKey,
+                var n when n.EndsWith("SECRET_KEY") || n.EndsWith("SECRETKEY") => payload.SecretKey,
+                _ => null
+            };
+
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                suggestions[env.Name] = value;
+            }
+        }
+    }
+
+    private static string GenerateSecret(int length)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+        return string.Create(length, alphabet, static (span, chars) =>
+        {
+            Span<byte> bytes = stackalloc byte[span.Length];
+            System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+            for (var i = 0; i < span.Length; i++)
+            {
+                span[i] = chars[bytes[i] % chars.Length];
+            }
+        });
+    }
+
+    /// <summary>
+    /// A password satisfying the strictest common policy: upper, lower, digit, and symbol.
+    /// Symbols exclude anything docker compose / .env files treat specially ($, #, quotes,
+    /// backslash) so the value survives Coolify's env interpolation verbatim.
+    /// Public so tests can hold the policy in place — an alphanumeric-only password
+    /// crash-looped a live deploy (ASP.NET Identity rejects it at seed time).
+    /// </summary>
+    public static string GeneratePassword(int length)
+    {
+        const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const string lower = "abcdefghijklmnopqrstuvwxyz";
+        const string digits = "0123456789";
+        const string symbols = "!@^*-_+=?.";
+        const string all = upper + lower + digits + symbols;
+
+        Span<byte> bytes = stackalloc byte[length + 4];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
+
+        var result = new char[length];
+        for (var i = 0; i < length; i++)
+        {
+            result[i] = all[bytes[i] % all.Length];
+        }
+
+        // Guarantee one of each class at random-but-distinct positions.
+        result[bytes[length] % length] = upper[bytes[length] % upper.Length];
+        var positions = new HashSet<int> { bytes[length] % length };
+        var classSets = new[] { lower, digits, symbols };
+        for (var c = 0; c < classSets.Length; c++)
+        {
+            var pos = bytes[length + 1 + c] % length;
+            while (positions.Contains(pos))
+            {
+                pos = (pos + 1) % length;
+            }
+
+            positions.Add(pos);
+            result[pos] = classSets[c][bytes[length + 1 + c] % classSets[c].Length];
+        }
+
+        return new string(result);
     }
 
     [HttpGet("repos/{owner}/{repo}/build-profile")]

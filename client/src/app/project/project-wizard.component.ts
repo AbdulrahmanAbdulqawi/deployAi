@@ -8,6 +8,7 @@ import {
   DatabaseRequirementProfile,
   DeploymentPlan,
   DeploymentPlanKind,
+  EnvSchemaVar,
   DeploymentPlanPart,
   DeploymentReadinessResult,
   FrontendBuildProfile,
@@ -455,6 +456,15 @@ export class ProjectWizardComponent implements OnInit {
     }
 
     this.applyPlanParts(parts);
+
+    // A compose app boots straight into its env, so the env is collected *before* the first
+    // deploy — the ordering proven live: without it the API crash-loops and nginx answers 502.
+    if (this.isSingleOriginComposePlan()) {
+      this.loadEnvSchema();
+      this.showEnvStep.set(true);
+      return;
+    }
+
     this.deployFromPlan();
   }
 
@@ -516,6 +526,9 @@ export class ProjectWizardComponent implements OnInit {
 
     this.ensureProviderProjects().pipe(
       switchMap(() => this.createProjectFromPlanRequest()),
+      // Env lands between create and the first deploy — the planner's proven ordering — so a
+      // compose app boots configured instead of crash-looping on missing secrets.
+      switchMap(project => this.pushEnvironmentIfCollected(project.id).pipe(map(() => project))),
       switchMap(project =>
         this.api.triggerDeployment(project.id).pipe(
           map(response => ({ project, response }))
@@ -532,6 +545,22 @@ export class ProjectWizardComponent implements OnInit {
         this.error.set(err?.error?.error?.message ?? err?.message ?? 'Could not deploy your app.');
       }
     });
+  }
+
+  private pushEnvironmentIfCollected(projectId: string): Observable<unknown> {
+    const variables = this.envSchema()
+      .map(schema => ({
+        key: schema.name,
+        value: (this.envValues[schema.name] ?? '').trim(),
+        isSecret: schema.isSecret
+      }))
+      .filter(variable => variable.value.length > 0);
+
+    if (variables.length === 0) {
+      return of(undefined);
+    }
+
+    return this.api.setComposeEnvironment(projectId, variables);
   }
 
   private ensureProviderProjects(): Observable<void> {
@@ -1274,6 +1303,110 @@ export class ProjectWizardComponent implements OnInit {
 
   /** Domain to attach to the web service. Blank means let the server autogenerate one. */
   customDomain = '';
+
+  // ---- Env collection step (compose plans) -------------------------------------------------
+  readonly showEnvStep = signal(false);
+  readonly loadingEnvSchema = signal(false);
+  readonly envSchema = signal<EnvSchemaVar[]>([]);
+  /** Working values keyed by var name; prefilled from suggestions/defaults, user-editable. */
+  envValues: Record<string, string> = {};
+
+  requiredEnvVars(): EnvSchemaVar[] {
+    return this.envSchema().filter(v => !v.hasDefault);
+  }
+
+  optionalEnvVars(): EnvSchemaVar[] {
+    return this.envSchema().filter(v => v.hasDefault);
+  }
+
+  missingRequiredEnv(): string[] {
+    return this.requiredEnvVars()
+      .filter(v => !(this.envValues[v.name] ?? '').trim())
+      .map(v => v.name);
+  }
+
+  regenerateSecret(name: string): void {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    const digits = '0123456789';
+    // Passwords need a symbol too — ASP.NET Identity's default policy rejects
+    // alphanumeric-only values, and a generated password must boot the app.
+    // Symbol set avoids $ # quotes and backslash so .env interpolation can't mangle it.
+    const symbols = '!@^*-_+=?.';
+    const isPassword = name.toUpperCase().includes('PASSWORD');
+    const alphabet = upper + lower + digits + (isPassword ? symbols : '');
+    const length = isPassword ? 20 : 48;
+    const bytes = new Uint8Array(length + 4);
+    crypto.getRandomValues(bytes);
+    const chars = Array.from(bytes.slice(0, length), b => alphabet[b % alphabet.length]);
+    if (isPassword) {
+      // Guarantee one of each class at distinct positions.
+      const classes = [upper, lower, digits, symbols];
+      const used = new Set<number>();
+      classes.forEach((set, c) => {
+        let pos = bytes[length + c] % length;
+        while (used.has(pos)) {
+          pos = (pos + 1) % length;
+        }
+        used.add(pos);
+        chars[pos] = set[bytes[length + c] % set.length];
+      });
+    }
+    this.envValues[name] = chars.join('');
+  }
+
+  private loadEnvSchema(): void {
+    const owner = this.repoOwner();
+    const name = this.repoName();
+    const branch = this.selectedBranch();
+    if (!owner || !name || !branch) {
+      return;
+    }
+
+    this.loadingEnvSchema.set(true);
+    const serverPart = this.activePlanParts().find(p => p.role === 'server');
+    this.api.getEnvSchema(owner, name, branch, serverPart?.serviceDirectory ?? serverPart?.rootDirectory ?? undefined)
+      .subscribe({
+        next: (response) => {
+          this.envSchema.set(response.vars);
+          for (const variable of response.vars) {
+            if (this.envValues[variable.name]) {
+              continue; // don't clobber what the user already typed
+            }
+
+            // Smart-fill order: the domain the user chose beats any server suggestion for
+            // domain-category vars; otherwise suggestion, then declared default.
+            if (variable.category === 'domain' && this.customDomain.trim()) {
+              this.envValues[variable.name] = `https://${this.customDomain.trim().replace(/^https?:\/\//, '')}`;
+            } else if (variable.suggestedValue) {
+              this.envValues[variable.name] = variable.suggestedValue;
+            } else if (variable.defaultValue) {
+              this.envValues[variable.name] = variable.defaultValue;
+            }
+          }
+          this.loadingEnvSchema.set(false);
+        },
+        error: () => {
+          // Detection failing must not block deploying — the step just shows nothing to fill.
+          this.envSchema.set([]);
+          this.loadingEnvSchema.set(false);
+        }
+      });
+  }
+
+  backToPlanFromEnv(): void {
+    this.showEnvStep.set(false);
+  }
+
+  confirmEnvAndDeploy(): void {
+    if (this.missingRequiredEnv().length > 0) {
+      this.error.set(`Fill in: ${this.missingRequiredEnv().join(', ')}`);
+      return;
+    }
+
+    this.error.set(null);
+    this.deployFromPlan();
+  }
 
   isSingleOriginComposePlan(): boolean {
     return this.deploymentPlan()?.planKind === DeploymentPlanKind.CoolifyCompose;

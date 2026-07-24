@@ -97,6 +97,85 @@
         <app-app-logo-picker [(selectedLogoKey)]="selectedLogoKey" [compact]="true" />
       </div>
 
+      @if (showEnvStep()) {
+        <!--
+          Env collection sits between accepting the plan and deploying, because a compose app
+          boots straight into its env — deployed without it, the API crash-loops on missing
+          secrets and the proxy answers 502.
+        -->
+        <div class="wizard__panel u-glass-panel wizard__env">
+          <div class="wizard__section-header">
+            <app-ui-icon name="settings" size="sm" statusClass="accent" />
+            <h2>App settings</h2>
+          </div>
+          <p class="wizard__hint">
+            We read your app's configuration and found the settings it needs to run. Secrets
+            were generated for you — change anything you like.
+          </p>
+
+          @if (loadingEnvSchema()) {
+            <p class="wizard__hint">Reading your app's configuration…</p>
+          } @else if (envSchema().length === 0) {
+            <p class="wizard__hint">No settings detected — your app should run as-is.</p>
+          } @else {
+            @if (requiredEnvVars().length > 0) {
+              <p class="u-label-caps">Required</p>
+              @for (variable of requiredEnvVars(); track variable.name) {
+                <label class="wizard__env-field">
+                  <span class="wizard__env-name">
+                    {{ variable.name }}
+                    @if (variable.isSecret) { <em>secret</em> }
+                  </span>
+                  <span class="wizard__env-row">
+                    <input
+                      [type]="variable.isSecret ? 'password' : 'text'"
+                      [(ngModel)]="envValues[variable.name]"
+                      [name]="variable.name"
+                      autocomplete="off" />
+                    @if (variable.isSecret) {
+                      <button type="button" class="wizard__env-generate" (click)="regenerateSecret(variable.name)">
+                        Generate
+                      </button>
+                    }
+                  </span>
+                </label>
+              }
+            }
+
+            @if (optionalEnvVars().length > 0) {
+              <p class="u-label-caps">Optional — defaults applied</p>
+              @for (variable of optionalEnvVars(); track variable.name) {
+                <label class="wizard__env-field">
+                  <span class="wizard__env-name">{{ variable.name }}</span>
+                  <span class="wizard__env-row">
+                    <input
+                      [type]="variable.isSecret ? 'password' : 'text'"
+                      [(ngModel)]="envValues[variable.name]"
+                      [name]="variable.name"
+                      [placeholder]="variable.defaultValue ?? ''"
+                      autocomplete="off" />
+                  </span>
+                </label>
+              }
+            }
+          }
+
+          <div class="wizard__actions">
+            <app-ui-button variant="secondary" icon="arrow-left" (click)="backToPlanFromEnv()">Back</app-ui-button>
+            <app-ui-button
+              variant="primary"
+              icon="arrow-right"
+              [disabled]="saving() || loadingEnvSchema()"
+              [loading]="saving()"
+              (click)="confirmEnvAndDeploy()">
+              Save settings & deploy
+            </app-ui-button>
+          </div>
+          @if (error(); as message) {
+            <p class="wizard__hint wizard__hint--error">{{ message }}</p>
+          }
+        </div>
+      } @else {
       <app-deploy-plan
         [loading]="loadingDeploymentPlan()"
         [plan]="deploymentPlan()"
@@ -247,6 +326,7 @@
           </div>
         </div>
       </app-deploy-plan>
+      }
     }
     @case (4) {
       <div class="wizard__panel u-glass-panel">

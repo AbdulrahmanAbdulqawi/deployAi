@@ -39,7 +39,8 @@ import {
   TriggerDeploymentResponse,
   UseBranchDeployResult,
   StorageConnectionSummary,
-  StorageBucket
+  StorageBucket,
+  EnvSchemaVar
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -716,6 +717,26 @@ export class ApiService {
 
   listStorageBuckets(id: string) {
     return this.http.get<{ buckets: StorageBucket[] }>(`/api/storage/connections/${id}/buckets`);
+  }
+
+  /** Detected env vars for a repo, with server-side suggestions (generated secrets, storage keys). */
+  getEnvSchema(owner: string, repo: string, gitRef: string, serverPath?: string) {
+    const params: Record<string, string> = { ref: gitRef };
+    if (serverPath) {
+      params['serverPath'] = serverPath;
+    }
+    return this.http.get<{ vars: EnvSchemaVar[] }>(
+      `/api/github/repos/${owner}/${repo}/env-schema`,
+      { params }
+    );
+  }
+
+  /** Persists env vars (encrypted) and pushes them onto the project's Coolify app. */
+  setComposeEnvironment(projectId: string, variables: { key: string; value: string; isSecret: boolean }[]) {
+    return this.http.post<{ applied: string[] }>(
+      `/api/projects/${projectId}/environment/compose`,
+      { variables }
+    );
   }
 
   /**

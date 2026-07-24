@@ -447,3 +447,14 @@ export interface StorageBucket {
   name: string;
   createdAt?: string | null;
 }
+
+/** One env var the repo was detected to need, with an optional server-suggested value. */
+export interface EnvSchemaVar {
+  name: string;
+  isSecret: boolean;
+  hasDefault: boolean;
+  defaultValue?: string | null;
+  category: 'generic' | 'domain' | 'storage' | 'database' | 'adminemail';
+  sources: string[];
+  suggestedValue?: string | null;
+}
