@@ -1,4 +1,6 @@
+using DeployAI.Core.Deployments.Adapters;
 using DeployAI.Core.Security;
+using DeployAI.Infrastructure.Adapters;
 using DeployAI.Infrastructure.Auth;
 using DeployAI.Infrastructure.Email;
 using DeployAI.Infrastructure.GitHub;
@@ -35,6 +37,13 @@ public static class DependencyInjection
         services.AddScoped<IServerBuildProfileDiscovery, ServerBuildProfileDiscovery>();
         services.AddScoped<IWebsiteBuildProfileDiscovery, WebsiteBuildProfileDiscovery>();
         services.AddScoped<IRepositoryClassifier, RepositoryClassifier>();
+
+        // Framework adapters: everything framework-specific lives behind IFrameworkAdapter, so
+        // adding a stack is one class plus one line here — shapes/planner/generators unchanged.
+        services.AddSingleton<IFrameworkAdapter, AngularAdapter>();
+        services.AddSingleton<IFrameworkAdapter, DotnetAdapter>();
+        services.AddSingleton<IFrameworkAdapter, NodeExpressAdapter>();
+        services.AddSingleton<IFrameworkAdapterFactory, FrameworkAdapterFactory>();
 
         return services;
     }
