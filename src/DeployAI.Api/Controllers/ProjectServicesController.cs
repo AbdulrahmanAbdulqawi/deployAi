@@ -20,6 +20,8 @@ public sealed class ProjectServicesController : ControllerBase
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
+    private readonly IProviderRuntimeLogsFactory _runtimeLogsFactory;
+    private readonly IProviderLifecycleOperationsFactory _lifecycleFactory;
     private readonly IDataServiceInspectionService _dataServiceInspection;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
 
@@ -29,6 +31,8 @@ public sealed class ProjectServicesController : ControllerBase
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IProviderCredentialTokenService tokens,
         IProviderServiceOperationsFactory serviceOperationsFactory,
+        IProviderRuntimeLogsFactory runtimeLogsFactory,
+        IProviderLifecycleOperationsFactory lifecycleFactory,
         IDataServiceInspectionService dataServiceInspection,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring)
     {
@@ -37,6 +41,8 @@ public sealed class ProjectServicesController : ControllerBase
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _tokens = tokens;
         _serviceOperationsFactory = serviceOperationsFactory;
+        _runtimeLogsFactory = runtimeLogsFactory;
+        _lifecycleFactory = lifecycleFactory;
         _dataServiceInspection = dataServiceInspection;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
     }
@@ -70,6 +76,62 @@ public sealed class ProjectServicesController : ControllerBase
             deployUrl = status.DeployUrl,
             lastDeployedAt = status.LastDeployedAt
         });
+    }
+
+    /// <summary>
+    /// Runtime container output (docker logs), the missing piece when an app builds fine
+    /// but its container crash-loops — build logs and status can't say why, stdout can.
+    /// </summary>
+    [HttpGet("{targetId:guid}/runtime-logs")]
+    public async Task<IActionResult> GetRuntimeLogs(
+        Guid projectId,
+        Guid targetId,
+        [FromQuery] int lines = 200,
+        CancellationToken cancellationToken = default)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var runtimeLogs = _runtimeLogsFactory.GetRuntimeLogs(target.ProviderName)
+            ?? throw new DeployAIException("unsupported_provider", "Runtime logs are not available for this provider.");
+
+        var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+        var logs = await runtimeLogs.GetRuntimeLogsAsync(
+            new ProviderCredentials(token),
+            target.ProviderProjectId,
+            lines,
+            cancellationToken);
+
+        return Ok(new { logs });
+    }
+
+    /// <summary>
+    /// Start/stop/restart the deployed containers without rebuilding — a crash-looped
+    /// stack that hit its restart limit needs a start, not a full redeploy.
+    /// </summary>
+    [HttpPost("{targetId:guid}/lifecycle/{operation}")]
+    public async Task<IActionResult> Lifecycle(
+        Guid projectId,
+        Guid targetId,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        var project = await GetOwnedProjectAsync(projectId, cancellationToken);
+        var target = GetTarget(project, targetId);
+        var lifecycle = _lifecycleFactory.GetLifecycleOperations(target.ProviderName)
+            ?? throw new DeployAIException("unsupported_provider", "Start/stop/restart is not available for this provider.");
+
+        var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+        var credentials = new ProviderCredentials(token);
+        Task pending = operation.ToLowerInvariant() switch
+        {
+            "start" => lifecycle.StartApplicationAsync(credentials, target.ProviderProjectId, cancellationToken),
+            "stop" => lifecycle.StopApplicationAsync(credentials, target.ProviderProjectId, cancellationToken),
+            "restart" => lifecycle.RestartApplicationAsync(credentials, target.ProviderProjectId, cancellationToken),
+            _ => throw new DeployAIException("invalid_action", "Use start, stop, or restart.")
+        };
+        await pending;
+
+        return Ok(new { message = $"Requested {operation.ToLowerInvariant()}." });
     }
 
     [HttpPost("{targetId:guid}/redeploy")]

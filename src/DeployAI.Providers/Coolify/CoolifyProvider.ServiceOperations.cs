@@ -1,11 +1,57 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider : IProviderServiceOperations, IProviderLifecycleOperations
+public sealed partial class CoolifyProvider : IProviderServiceOperations, IProviderLifecycleOperations, IProviderRuntimeLogs
 {
+    /// <summary>
+    /// Container stdout via <c>GET applications/{uuid}/logs</c> — Coolify runs
+    /// <c>docker logs</c> server-side, so this works for stopped/crash-looped containers
+    /// that the UI's live log stream (running containers only) can't show.
+    /// </summary>
+    public async Task<string> GetRuntimeLogsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        int lines,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        using var request = CreateRequest(
+            HttpMethod.Get,
+            session,
+            $"applications/{providerProjectId}/logs?lines={Math.Clamp(lines, 1, 1000)}");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not read the Coolify application logs ({(int)response.StatusCode}).");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("logs", out var logs) &&
+                logs.ValueKind == JsonValueKind.String)
+            {
+                return logs.GetString() ?? string.Empty;
+            }
+        }
+        catch (JsonException)
+        {
+            // Fall through — some versions return the raw text body.
+        }
+
+        return responseBody;
+    }
+
     public Task StartApplicationAsync(
         ProviderCredentials credentials,
         string providerProjectId,

@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "client",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["ng", "serve", "--proxy-config", "proxy.conf.local.json"],
+      "cwd": "client",
+      "port": 4200,
+      "autoPort": false
+    }
+  ]
+}

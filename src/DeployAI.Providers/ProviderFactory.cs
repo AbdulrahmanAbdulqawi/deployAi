@@ -101,6 +101,19 @@ public sealed class ProviderLifecycleOperationsFactory : IProviderLifecycleOpera
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderRuntimeLogsFactory : IProviderRuntimeLogsFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderRuntimeLogs> _providers;
+
+    public ProviderRuntimeLogsFactory(IEnumerable<IProviderRuntimeLogs> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderRuntimeLogs? GetRuntimeLogs(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceInspectionFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDataServiceInspection> _providers;
@@ -159,6 +172,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderLifecycleOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderRuntimeLogs>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         // Object storage is a separate capability: registered only as IObjectStorageProvider,
         // never as IDeploymentProvider, so it stays out of deploy-target pickers.
         // No AddHttpClient — the AWS SDK manages its own transport.
@@ -168,6 +182,8 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderApplicationUrlResolverFactory, ProviderApplicationUrlResolverFactory>();
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
+        services.AddSingleton<IProviderRuntimeLogsFactory, ProviderRuntimeLogsFactory>();
+        services.AddSingleton<IProviderLifecycleOperationsFactory, ProviderLifecycleOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
