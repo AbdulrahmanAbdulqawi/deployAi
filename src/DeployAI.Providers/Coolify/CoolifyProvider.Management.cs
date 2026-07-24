@@ -693,10 +693,53 @@ public sealed partial class CoolifyProvider
 
     private sealed class CoolifyEnvironmentOption
     {
+        [JsonPropertyName("id")]
+        public int? Id { get; set; }
+
         [JsonPropertyName("uuid")]
         public string Uuid { get; set; } = string.Empty;
 
         [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
+    }
+
+    // Coolify's GET /applications/{uuid} does not return project_uuid/server_uuid/environment_name
+    // as flat fields — only a numeric environment_id and a destination. Resolving the app's
+    // project + environment therefore means matching that environment_id against the environments
+    // listed under each project.
+    internal async Task<(string ProjectUuid, string EnvironmentName, string EnvironmentUuid)?>
+        ResolveProjectEnvironmentByEnvironmentIdAsync(
+            CoolifyApiSupport.CoolifySession session,
+            int environmentId,
+            CancellationToken cancellationToken)
+    {
+        var projects = await ListCoolifyProjectsAsync(session, cancellationToken);
+        foreach (var project in projects)
+        {
+            using var request = CreateRequest(HttpMethod.Get, session, $"projects/{project.Uuid}/environments");
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                continue;
+            }
+
+            var environments = await response.Content.ReadFromJsonAsync<List<CoolifyEnvironmentOption>>(cancellationToken) ?? [];
+            var match = environments.FirstOrDefault(env =>
+                env.Id == environmentId && !string.IsNullOrWhiteSpace(env.Uuid) && !string.IsNullOrWhiteSpace(env.Name));
+            if (match is not null)
+            {
+                return (project.Uuid, match.Name, match.Uuid);
+            }
+        }
+
+        return null;
+    }
+
+    internal async Task<string?> ResolveSingleServerUuidAsync(
+        CoolifyApiSupport.CoolifySession session,
+        CancellationToken cancellationToken)
+    {
+        var servers = await ListCoolifyServersAsync(session, cancellationToken);
+        return servers.Count == 1 ? servers[0].Uuid : null;
     }
 }

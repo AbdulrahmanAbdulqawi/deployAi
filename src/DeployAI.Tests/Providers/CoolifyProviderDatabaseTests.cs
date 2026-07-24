@@ -52,6 +52,61 @@ public class CoolifyProviderDatabaseTests
     }
 
     [Fact]
+    // Real Coolify (v4) does not return project_uuid/server_uuid/environment_name on the
+    // application payload — only a numeric environment_id and a destination. The provider must
+    // resolve the project/environment by matching that id against each project's environments,
+    // and fall back to the single server. Without this, DB provisioning silently no-ops.
+    public async Task EnsurePostgresAsync_ResolvesProjectAndServer_FromEnvironmentId_WhenFlatFieldsMissing()
+    {
+        string? createBody = null;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "uuid": "app-api",
+              "name": "yemenconnect-api",
+              "environment_id": 6,
+              "build_pack": "dockerfile"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "homelab" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "smoke" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "id": 6, "uuid": "env-uuid-6", "name": "production" }]
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/databases/postgresql")
+            .Respond(async req =>
+            {
+                createBody = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""{ "uuid": "db-new" }""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        var result = await provider.EnsurePostgresAsync(
+            Credentials,
+            "app-api",
+            "yemenhub",
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("db-new", result!.ServiceId);
+        Assert.NotNull(createBody);
+        // The create must target the resolved project / environment / server, not blanks.
+        Assert.Contains("\"project_uuid\":\"proj-1\"", createBody);
+        Assert.Contains("\"server_uuid\":\"server-1\"", createBody);
+        Assert.Contains("\"environment_name\":\"production\"", createBody);
+        Assert.Contains("\"environment_uuid\":\"env-uuid-6\"", createBody);
+    }
+
+    [Fact]
     public async Task ResolveApplicationUrlAsync_ReturnsNormalizedFqdn()
     {
         var handler = new MockHttpMessageHandler();

@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Providers.Coolify;
 
@@ -374,15 +375,46 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         var response = await _httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogWarning("DB-PROVISION: GET applications/{Uuid} -> {Status}. Body: {Body}",
+                applicationUuid, (int)response.StatusCode, body[..Math.Min(300, body.Length)]);
             return null;
         }
 
         var application = await response.Content.ReadFromJsonAsync<CoolifyApplicationContext>(cancellationToken);
-        if (application is null ||
-            string.IsNullOrWhiteSpace(application.Uuid) ||
-            string.IsNullOrWhiteSpace(application.ProjectUuid) ||
+        if (application is null || string.IsNullOrWhiteSpace(application.Uuid))
+        {
+            _logger.LogWarning("DB-PROVISION: application {Uuid} returned no uuid.", applicationUuid);
+            return null;
+        }
+
+        // Coolify's application payload does not carry project_uuid / server_uuid / environment_name
+        // directly — only a numeric environment_id and a destination. Resolve the rest so we can
+        // create databases in the same project/environment/server as the app.
+        if (string.IsNullOrWhiteSpace(application.ServerUuid))
+        {
+            application.ServerUuid = await ResolveSingleServerUuidAsync(session, cancellationToken);
+        }
+
+        if ((string.IsNullOrWhiteSpace(application.ProjectUuid) ||
+             string.IsNullOrWhiteSpace(application.EnvironmentName)) &&
+            application.EnvironmentId is int environmentId)
+        {
+            var resolved = await ResolveProjectEnvironmentByEnvironmentIdAsync(session, environmentId, cancellationToken);
+            if (resolved is not null)
+            {
+                application.ProjectUuid = resolved.Value.ProjectUuid;
+                application.EnvironmentName = resolved.Value.EnvironmentName;
+                application.EnvironmentUuid = resolved.Value.EnvironmentUuid;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(application.ProjectUuid) ||
             string.IsNullOrWhiteSpace(application.ServerUuid))
         {
+            _logger.LogWarning(
+                "DB-PROVISION: could not resolve project/server for app {Uuid} (env_id={EnvId} project={Project} server={Server}). Skipping DB provisioning.",
+                applicationUuid, application.EnvironmentId, application.ProjectUuid, application.ServerUuid);
             return null;
         }
 
@@ -436,6 +468,9 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
 
         [JsonPropertyName("server_uuid")]
         public string? ServerUuid { get; set; }
+
+        [JsonPropertyName("environment_id")]
+        public int? EnvironmentId { get; set; }
 
         [JsonPropertyName("environment_name")]
         public string? EnvironmentName { get; set; }

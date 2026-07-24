@@ -5,6 +5,7 @@ using DeployAI.Data;
 using DeployAI.Data.Entities;
 using DeployAI.Infrastructure.GitHub;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Api.Services;
 
@@ -49,6 +50,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
     private readonly IGitHubService _gitHubService;
     private readonly IEncryptionService _encryption;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+    private readonly ILogger<RailwayDatabaseProvisioningService> _logger;
 
     public RailwayDatabaseProvisioningService(
         DeployAIDbContext db,
@@ -58,7 +60,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         IProviderCredentialTokenService tokens,
         IGitHubService gitHubService,
         IEncryptionService encryption,
-        IDatabaseRequirementDetector databaseRequirementDetector)
+        IDatabaseRequirementDetector databaseRequirementDetector,
+        ILogger<RailwayDatabaseProvisioningService> logger)
     {
         _db = db;
         _provisioningFactory = provisioningFactory;
@@ -68,6 +71,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         _gitHubService = gitHubService;
         _encryption = encryption;
         _databaseRequirementDetector = databaseRequirementDetector;
+        _logger = logger;
     }
 
     public Task<DatabaseRequirementProfile> DetectRequirementsAsync(
@@ -85,10 +89,15 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
     {
         if (_provisioningFactory.GetProvisioning(serverTarget.ProviderName) is null)
         {
+            _logger.LogWarning("DB-PROVISION: no provisioning registered for provider {Provider}; skipping.", serverTarget.ProviderName);
             return;
         }
 
         var profile = await DetectRequirementsInternalAsync(project, serverTarget, branch, cancellationToken);
+        _logger.LogInformation(
+            "DB-PROVISION: detection for target {TargetId} on branch {Branch}: postgres={Pg} redis={Redis} keys=[{Keys}] pgName={PgName}",
+            serverTarget.Id, branch, profile.RequiresPostgres, profile.RequiresRedis,
+            string.Join(",", profile.ConnectionStringKeys ?? []), profile.PostgresDatabaseName);
         if (!profile.RequiresPostgres && !profile.RequiresRedis)
         {
             return;
@@ -209,9 +218,16 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 cancellationToken);
         }
 
+        _logger.LogInformation(
+            "DB-PROVISION: provider {Provider} project {ProjectId} ensured postgres={Pg} redis={Redis}",
+            serverTarget.ProviderName, serverTarget.ProviderProjectId,
+            postgres is null ? "<null>" : postgres.ServiceId, redis is null ? "<null>" : redis.ServiceId);
+
         var links = string.Equals(serverTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
             ? BuildCoolifyVariableLinks(postgres, redis, request.ConnectionStringKeys)
             : BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
+        _logger.LogInformation("DB-PROVISION: built {Count} variable links: [{Keys}]",
+            links.Count, string.Join(",", links.Select(l => l.Key)));
         if (links.Count > 0)
         {
             await provisioning.LinkDatabaseVariablesAsync(

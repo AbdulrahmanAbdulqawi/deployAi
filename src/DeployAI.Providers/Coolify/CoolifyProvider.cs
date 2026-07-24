@@ -4,16 +4,20 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace DeployAI.Providers.Coolify;
 
 public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderManagement
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<CoolifyProvider> _logger;
 
-    public CoolifyProvider(HttpClient httpClient)
+    public CoolifyProvider(HttpClient httpClient, ILogger<CoolifyProvider>? logger = null)
     {
         _httpClient = httpClient;
+        _logger = logger ?? NullLogger<CoolifyProvider>.Instance;
     }
 
     public string ProviderName => ProviderNameValues.Coolify;
