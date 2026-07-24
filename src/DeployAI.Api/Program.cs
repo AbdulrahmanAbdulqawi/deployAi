@@ -38,6 +38,7 @@ builder.Services.AddSingleton<IOAuthStateStore, InMemoryOAuthStateStore>();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IProviderCredentialTokenService, ProviderCredentialTokenService>();
 builder.Services.AddScoped<IFrontendEnvironmentWiringService, FrontendEnvironmentWiringService>();
+builder.Services.AddScoped<IServerDockerfileProvisioner, ServerDockerfileProvisioner>();
 builder.Services.AddScoped<IDeploymentVerificationService, DeploymentVerificationService>();
 builder.Services.AddScoped<IDeploymentReadinessService, DeploymentReadinessService>();
 builder.Services.AddScoped<IDeploymentSetupService, DeploymentSetupService>();

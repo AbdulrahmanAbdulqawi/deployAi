@@ -20,17 +20,20 @@ public sealed class CoolifyManagementController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly CoolifyProvider _coolifyProvider;
     private readonly IEncryptionService _encryption;
+    private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
 
     public CoolifyManagementController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         CoolifyProvider coolifyProvider,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IServerDockerfileProvisioner serverDockerfileProvisioner)
     {
         _db = db;
         _currentUser = currentUser;
         _coolifyProvider = coolifyProvider;
         _encryption = encryption;
+        _serverDockerfileProvisioner = serverDockerfileProvisioner;
     }
 
     [HttpGet("{credentialId:guid}/coolify/infrastructure")]
@@ -76,17 +79,50 @@ public sealed class CoolifyManagementController : ControllerBase
         var credential = await GetCoolifyCredentialAsync(request.CredentialId, cancellationToken);
         var token = _encryption.Decrypt(credential.TokenEncrypted);
 
+        var dockerfilePath = request.DockerfilePath;
+        var rootDirectory = request.RootDirectory;
+        var buildPack = request.BuildPack;
+
+        // Nixpacks can't build a .NET modular monolith (it runs `dotnet restore` where there is
+        // no project, and ships an SDK older than net10.0). For a .NET server with no Dockerfile
+        // yet, generate one and commit it, then create the app with the Dockerfile build pack.
+        if (string.Equals(request.Framework, "dotnet", StringComparison.OrdinalIgnoreCase) &&
+            string.IsNullOrWhiteSpace(request.DockerfilePath) &&
+            string.IsNullOrWhiteSpace(request.ComposeFileLocation))
+        {
+            var githubToken = await ResolveGitHubTokenAsync(cancellationToken);
+            var repoParts = request.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries);
+            if (githubToken is not null && repoParts.Length == 2)
+            {
+                var provisioned = await _serverDockerfileProvisioner.EnsureDockerfileAsync(
+                    githubToken,
+                    repoParts[0],
+                    repoParts[1],
+                    request.GitBranch,
+                    request.RootDirectory ?? string.Empty,
+                    request.ServiceDirectory,
+                    cancellationToken);
+                if (provisioned is not null)
+                {
+                    dockerfilePath = provisioned.DockerfileLocation;
+                    rootDirectory = provisioned.BaseDirectory;
+                    // Let ResolveBuildPack pick Dockerfile from the path; don't force nixpacks.
+                    buildPack = null;
+                }
+            }
+        }
+
         var project = await _coolifyProvider.CreateProjectAsync(
             new ProviderCredentials(token),
             new CreateProviderProjectRequest(
                 request.Name,
                 request.GitHubRepoFullName,
                 request.Framework,
-                request.RootDirectory,
+                rootDirectory,
                 request.OutputDirectory,
                 request.BuildCommand,
                 request.InstallCommand,
-                request.DockerfilePath,
+                dockerfilePath,
                 request.ServiceDirectory,
                 request.StartCommand,
                 request.GitBranch,
@@ -95,7 +131,7 @@ public sealed class CoolifyManagementController : ControllerBase
                 request.CoolifyServerUuid,
                 request.CoolifyEnvironmentName,
                 request.CoolifyGithubAppUuid,
-                request.BuildPack,
+                buildPack,
                 request.ComposeFileLocation,
                 request.CustomDomain,
                 request.DomainServiceName),
@@ -161,6 +197,19 @@ public sealed class CoolifyManagementController : ControllerBase
             cancellationToken);
 
         return Ok(new { deleted = applicationUuid });
+    }
+
+    private async Task<string?> ResolveGitHubTokenAsync(CancellationToken cancellationToken)
+    {
+        var userId = _currentUser.UserId
+            ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user?.GitHubTokenEncrypted is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        return _encryption.Decrypt(user.GitHubTokenEncrypted);
     }
 
     private async Task<ProviderCredential> GetCoolifyCredentialAsync(Guid credentialId, CancellationToken cancellationToken)
