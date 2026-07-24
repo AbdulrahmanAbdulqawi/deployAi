@@ -68,44 +68,57 @@ public class CoolifyProviderComposeTests
         Assert.False(body.TryGetProperty("dockerfile_location", out _));
     }
 
+    // A compose domain is attached post-deploy, not at create: Coolify won't accept
+    // docker_compose_domains until the first deploy has parsed the compose file.
     [Fact]
-    public async Task CreateProjectAsync_AttachesDomainToTheNamedComposeService()
+    public async Task AssignComposeDomainAsync_AttachesDomainToTheNamedService()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            """{ "uuid": "app-compose" }""");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.AssignComposeDomainAsync(
+            Credentials, "app-compose", "breeze.example.com", "web", CancellationToken.None);
+
+        var web = patchBody.Value.GetProperty("docker_compose_domains").GetProperty("web");
+        Assert.Equal("https://breeze.example.com", web.GetProperty("domain").GetString());
+        // Coolify rejects the entry without the service named inside it as well as keyed by it.
+        Assert.Equal("web", web.GetProperty("name").GetString());
+        // A compose app must not carry a top-level domains/fqdn field.
+        Assert.False(patchBody.Value.TryGetProperty("domains", out _));
+        Assert.False(patchBody.Value.TryGetProperty("fqdn", out _));
+    }
+
+    [Fact]
+    public async Task AssignComposeDomainAsync_DefaultsToTheWebService()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            """{ "uuid": "app-compose" }""");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.AssignComposeDomainAsync(
+            Credentials, "app-compose", "breeze.example.com", serviceName: null, CancellationToken.None);
+
+        Assert.True(patchBody.Value.GetProperty("docker_compose_domains").TryGetProperty("web", out _));
+    }
+
+    // The compose domain is deferred until after the first deploy, so create must not PATCH it.
+    [Fact]
+    public async Task CreateProjectAsync_DoesNotAttachTheComposeDomain()
     {
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
             .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
-        var patchBody = CaptureJson(
-            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
-            HttpStatusCode.OK,
-            """{ "uuid": "app-compose" }""");
-        StubApplication(handler, "app-compose");
-
-        var provider = new CoolifyProvider(handler.ToHttpClient());
-        await provider.CreateProjectAsync(
-            Credentials,
-            ComposeRequest() with { CustomDomain = "breeze.example.com", DomainServiceName = "web" },
-            CancellationToken.None);
-
-        // Without this Traefik has no rule to route on and no certificate is issued: the
-        // deploy reports success and the site is unreachable.
-        var web = patchBody.Value.GetProperty("docker_compose_domains").GetProperty("web");
-        Assert.Equal("https://breeze.example.com", web.GetProperty("domain").GetString());
-        // Coolify rejects the entry without the service named inside it as well as keyed by it.
-        Assert.Equal("web", web.GetProperty("name").GetString());
-    }
-
-    [Fact]
-    public async Task CreateProjectAsync_WithCustomDomain_DoesNotAlsoAutogenerateOne()
-    {
-        var handler = new MockHttpMessageHandler();
-        StubInfrastructure(handler);
-        var createBody = CaptureJson(
-            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public"),
-            HttpStatusCode.Created,
-            """{ "uuid": "app-compose" }""");
+        var patched = false;
         handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
-            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-compose" }""");
+            .Respond(_ => { patched = true; return new HttpResponseMessage(HttpStatusCode.OK); });
         StubApplication(handler, "app-compose");
 
         var provider = new CoolifyProvider(handler.ToHttpClient());
@@ -114,7 +127,7 @@ public class CoolifyProviderComposeTests
             ComposeRequest() with { CustomDomain = "breeze.example.com" },
             CancellationToken.None);
 
-        Assert.False(createBody.Value.TryGetProperty("autogenerate_domain", out _));
+        Assert.False(patched);
     }
 
     [Fact]
@@ -136,20 +149,15 @@ public class CoolifyProviderComposeTests
     }
 
     [Fact]
-    public async Task CreateProjectAsync_FailsLoudly_WhenTheDomainCannotBeAttached()
+    public async Task AssignComposeDomainAsync_FailsLoudly_WhenRejected()
     {
         var handler = new MockHttpMessageHandler();
-        StubInfrastructure(handler);
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
         handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
             .Respond(HttpStatusCode.UnprocessableEntity, "application/json", """{ "message": "Domain already in use." }""");
 
         var provider = new CoolifyProvider(handler.ToHttpClient());
-        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.CreateProjectAsync(
-            Credentials,
-            ComposeRequest() with { CustomDomain = "breeze.example.com" },
-            CancellationToken.None));
+        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.AssignComposeDomainAsync(
+            Credentials, "app-compose", "breeze.example.com", "web", CancellationToken.None));
 
         Assert.Equal("coolify_domain_failed", error.ErrorCode);
         Assert.Contains("Domain already in use.", error.Message, StringComparison.Ordinal);

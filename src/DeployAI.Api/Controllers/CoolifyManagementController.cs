@@ -104,6 +104,30 @@ public sealed class CoolifyManagementController : ControllerBase
         return Ok(new { project });
     }
 
+    /// <summary>
+    /// Attaches a compose app's domain to its web service. Separate from creation because a
+    /// compose domain can only be set after the first deploy has parsed the compose file;
+    /// callers deploy once, then call this, then redeploy.
+    /// </summary>
+    [HttpPost("coolify/applications/{applicationUuid}/compose-domain")]
+    public async Task<IActionResult> AssignComposeDomain(
+        string applicationUuid,
+        [FromBody] AssignComposeDomainRequest request,
+        CancellationToken cancellationToken)
+    {
+        var credential = await GetCoolifyCredentialAsync(request.CredentialId, cancellationToken);
+        var token = _encryption.Decrypt(credential.TokenEncrypted);
+
+        await _coolifyProvider.AssignComposeDomainAsync(
+            new ProviderCredentials(token),
+            applicationUuid,
+            request.Domain,
+            request.ServiceName,
+            cancellationToken);
+
+        return Ok(new { assigned = true });
+    }
+
     private async Task<ProviderCredential> GetCoolifyCredentialAsync(Guid credentialId, CancellationToken cancellationToken)
     {
         var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
@@ -145,4 +169,9 @@ public sealed class CoolifyManagementController : ControllerBase
         string? ComposeFileLocation = null,
         string? CustomDomain = null,
         string? DomainServiceName = null);
+
+    public sealed record AssignComposeDomainRequest(
+        Guid CredentialId,
+        string Domain,
+        string? ServiceName);
 }

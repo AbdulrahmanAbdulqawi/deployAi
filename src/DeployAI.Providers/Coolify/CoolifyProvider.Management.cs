@@ -53,6 +53,9 @@ public sealed partial class CoolifyProvider
         if (isCompose)
         {
             body["docker_compose_location"] = NormalizeComposeLocation(request.ComposeFileLocation);
+            // docker_compose_raw is not accepted on create ("This field is not allowed") — only
+            // on the update. The domain PATCH below supplies it so per-service domains can be set
+            // before the first deploy has had a chance to populate it.
         }
 
         // Pushes to the deployment branch redeploy on their own. Without this the app only ever
@@ -136,9 +139,13 @@ public sealed partial class CoolifyProvider
                 "Coolify did not return an application id.");
         }
 
-        if (!string.IsNullOrWhiteSpace(request.CustomDomain))
+        // A compose app's domain can only be attached after its first deploy has populated
+        // docker_compose_raw — Coolify rejects docker_compose_domains before then, and the raw
+        // field is not settable through the API. So the domain is deferred to a post-deploy step
+        // (see AssignComposeDomainAsync). A single-app (fqdn) domain has no such dependency.
+        if (!string.IsNullOrWhiteSpace(request.CustomDomain) && !isCompose)
         {
-            await AssignDomainAsync(session, created.Uuid, request, isCompose, cancellationToken);
+            await AssignDomainAsync(session, created.Uuid, request.CustomDomain!, request.DomainServiceName, isCompose: false, cancellationToken);
         }
 
         var application = await TryGetApplicationAsync(session, created.Uuid, cancellationToken);
@@ -150,6 +157,23 @@ public sealed partial class CoolifyProvider
     }
 
     /// <summary>
+    /// Attaches a compose app's domain to its browser-facing service, after the first deploy has
+    /// populated docker_compose_raw. Call this post-deploy, then redeploy for the route to take
+    /// effect. Attaching it earlier fails — Coolify won't accept per-service domains until the
+    /// compose file has been parsed, and there is no API to set the raw compose directly.
+    /// </summary>
+    public async Task AssignComposeDomainAsync(
+        ProviderCredentials credentials,
+        string applicationUuid,
+        string domain,
+        string? serviceName,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        await AssignDomainAsync(session, applicationUuid, domain, serviceName, isCompose: true, cancellationToken);
+    }
+
+    /// <summary>
     /// Attaches the domain to the application, and for compose to a specific service. Without
     /// this, Traefik has no rule to route on and no certificate is issued — the deploy succeeds
     /// and the site is unreachable.
@@ -157,11 +181,12 @@ public sealed partial class CoolifyProvider
     private async Task AssignDomainAsync(
         CoolifyApiSupport.CoolifySession session,
         string applicationUuid,
-        CreateProviderProjectRequest request,
+        string customDomain,
+        string? domainServiceName,
         bool isCompose,
         CancellationToken cancellationToken)
     {
-        var domain = NormalizeUrl(request.CustomDomain!)!;
+        var domain = NormalizeUrl(customDomain)!;
         var body = new Dictionary<string, object?>();
 
         if (isCompose)
@@ -169,9 +194,9 @@ public sealed partial class CoolifyProvider
             // Only docker_compose_domains: Coolify rejects a compose app that also carries a
             // top-level `domains`, because a compose resource routes per service rather than
             // as a whole.
-            var serviceName = string.IsNullOrWhiteSpace(request.DomainServiceName)
+            var serviceName = string.IsNullOrWhiteSpace(domainServiceName)
                 ? "web"
-                : request.DomainServiceName.Trim();
+                : domainServiceName.Trim();
 
             // Compose apps route per service: the domain belongs to the one service that faces
             // the browser, and everything else stays on the internal network. Coolify wants the
