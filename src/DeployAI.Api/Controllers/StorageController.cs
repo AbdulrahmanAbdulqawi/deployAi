@@ -1,4 +1,5 @@
 using DeployAI.Api.Services;
+using DeployAI.Core.Deployments;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 using DeployAI.Core.Security;
@@ -29,6 +30,7 @@ public sealed class StorageController : ControllerBase
     private readonly ICurrentUserService _currentUser;
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IObjectStorageProvisioningService _provisioning;
+    private readonly IProviderManagementFactory _managementFactory;
     private readonly IEncryptionService _encryption;
 
     public StorageController(
@@ -36,12 +38,14 @@ public sealed class StorageController : ControllerBase
         ICurrentUserService currentUser,
         IObjectStorageProviderFactory storageFactory,
         IObjectStorageProvisioningService provisioning,
+        IProviderManagementFactory managementFactory,
         IEncryptionService encryption)
     {
         _db = db;
         _currentUser = currentUser;
         _storageFactory = storageFactory;
         _provisioning = provisioning;
+        _managementFactory = managementFactory;
         _encryption = encryption;
     }
 
@@ -136,6 +140,106 @@ public sealed class StorageController : ControllerBase
         await _db.SaveChangesAsync(cancellationToken);
 
         return Created($"/api/storage/connections/{credential.Id}", ToSummary(credential));
+    }
+
+    /// <summary>
+    /// Imports a storage connection from a deployed app that already has one wired up.
+    ///
+    /// Hetzner only issues S3 credentials through their Console, so a connection can never be
+    /// created from nothing. Copying it from an app that is already using it is the closest
+    /// thing to automatic — and it keeps the secret key server-side instead of routing it
+    /// through a form.
+    /// </summary>
+    [HttpPost("connections/import")]
+    public async Task<IActionResult> ImportConnection(
+        [FromBody] ImportStorageConnectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+
+        var deploymentCredential = await _db.ProviderCredentials.FirstOrDefaultAsync(
+            c => c.Id == request.CredentialId
+                 && c.UserId == userId
+                 && c.Kind == CredentialKind.Deployment,
+            cancellationToken)
+            ?? throw new DeployAIException("not_found", "We couldn't find that connection.");
+
+        var management = _managementFactory.GetManagement(deploymentCredential.ProviderName)
+            ?? throw new DeployAIException(
+                "unsupported_provider",
+                $"We can't read environment variables from {deploymentCredential.ProviderName}.");
+
+        var envVars = await management.ListEnvVarsAsync(
+            new ProviderCredentials(_encryption.Decrypt(deploymentCredential.TokenEncrypted)),
+            request.ProviderProjectId,
+            cancellationToken);
+
+        var import = ObjectStorageConnectionImport.FromEnvironment(
+            envVars.Select(env => (env.Key, env.Value)).ToList());
+
+        if (!import.Succeeded)
+        {
+            throw new DeployAIException(
+                "storage_import_incomplete",
+                "That app doesn't have a complete storage setup to copy. Missing: " +
+                string.Join(", ", import.MissingKeys));
+        }
+
+        var connection = import.Connection!;
+        var providerName = ObjectStorageProviderNames.Hetzner;
+        var provider = _storageFactory.GetObjectStorage(providerName)
+            ?? throw new DeployAIException(
+                "storage_provider_unknown",
+                $"'{providerName}' is not a supported storage provider.");
+
+        var tokenToStore = StorageCredentialStorage.Serialize(
+            connection.Endpoint, connection.Region, connection.AccessKey, connection.SecretKey);
+
+        // Same rule as a hand-entered connection: prove the keys work before persisting them,
+        // so an import can't leave a broken connection behind.
+        if (!await provider.ValidateCredentialsAsync(new ProviderCredentials(tokenToStore), cancellationToken))
+        {
+            throw new DeployAIException(
+                "storage_credentials_invalid",
+                "Those keys came across but the storage endpoint rejected them. They may have been rotated.");
+        }
+
+        var label = string.IsNullOrWhiteSpace(request.Label) ? "Imported" : request.Label.Trim();
+        var existing = await _db.ProviderCredentials.FirstOrDefaultAsync(
+            c => c.UserId == userId
+                 && c.ProviderName == providerName
+                 && c.Label == label
+                 && c.Kind == CredentialKind.ObjectStorage,
+            cancellationToken);
+
+        if (existing is not null)
+        {
+            existing.TokenEncrypted = _encryption.Encrypt(tokenToStore);
+            existing.IsValid = true;
+            existing.LastValidatedAt = DateTimeOffset.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+            return Ok(new { connection = ToSummary(existing), bucket = connection.Bucket });
+        }
+
+        var credential = new ProviderCredential
+        {
+            Id = Guid.NewGuid(),
+            UserId = userId,
+            ProviderName = providerName,
+            Kind = CredentialKind.ObjectStorage,
+            Label = label,
+            TokenEncrypted = _encryption.Encrypt(tokenToStore),
+            IsValid = true,
+            LastValidatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        _db.ProviderCredentials.Add(credential);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        // The bucket name comes back so the caller can offer it as the app's bucket; the keys
+        // deliberately do not.
+        return Ok(new { connection = ToSummary(credential), bucket = connection.Bucket });
     }
 
     [HttpDelete("connections/{id:guid}")]
@@ -315,4 +419,9 @@ public sealed class StorageController : ControllerBase
     public sealed record DeleteObjectsRequest(IReadOnlyList<string> Keys);
 
     public sealed record CreateBucketRequest(string Name);
+
+    public sealed record ImportStorageConnectionRequest(
+        Guid CredentialId,
+        string ProviderProjectId,
+        string? Label);
 }

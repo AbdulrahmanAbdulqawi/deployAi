@@ -32,6 +32,10 @@ export class ConnectionsComponent implements OnInit {
   readonly showAdvancedStorage = signal(false);
   readonly savingStorage = signal(false);
   readonly storageConnections = signal<StorageConnectionSummary[]>([]);
+  readonly showImportPanel = signal(false);
+  readonly importCandidates = signal<{ id: string; name: string }[]>([]);
+  readonly loadingImportCandidates = signal(false);
+  readonly importingFrom = signal<string | null>(null);
   /** Vercel and Railway are the legacy path now — kept, but folded away by default. */
   readonly showLegacyProviders = signal(false);
   readonly providerHealth = signal<{ name: string; status: string; message?: string | null }[]>([]);
@@ -107,6 +111,65 @@ export class ConnectionsComponent implements OnInit {
 
   toggleStorageForm(): void {
     this.showAdvancedStorage.update(open => !open);
+  }
+
+  /**
+   * Hetzner issues S3 credentials only through their Console, so a connection can't be created
+   * from nothing. It can be copied out of an app that is already using one — which spares
+   * retyping a secret key, and keeps it server-side rather than routing it through a form.
+   */
+  toggleImportPanel(): void {
+    const opening = !this.showImportPanel();
+    this.showImportPanel.set(opening);
+
+    if (opening && this.importCandidates().length === 0) {
+      this.loadImportCandidates();
+    }
+  }
+
+  loadImportCandidates(): void {
+    const coolify = this.coolifyCredentials()[0];
+    if (!coolify) {
+      this.toast.error('Connect Coolify first — that is where we read the settings from.');
+      return;
+    }
+
+    this.loadingImportCandidates.set(true);
+    this.api.listProviderProjects(coolify.id).subscribe({
+      next: (response) => {
+        this.importCandidates.set(response.projects.map(p => ({ id: p.id, name: p.name })));
+        this.loadingImportCandidates.set(false);
+      },
+      error: (err) => {
+        this.loadingImportCandidates.set(false);
+        this.toast.error(err?.error?.error?.message ?? 'Could not list your apps.');
+      }
+    });
+  }
+
+  importFrom(app: { id: string; name: string }): void {
+    const coolify = this.coolifyCredentials()[0];
+    if (!coolify) {
+      return;
+    }
+
+    this.importingFrom.set(app.id);
+    this.api.importStorageConnection({
+      credentialId: coolify.id,
+      providerProjectId: app.id,
+      label: 'Hetzner'
+    }).subscribe({
+      next: (response) => {
+        this.importingFrom.set(null);
+        this.showImportPanel.set(false);
+        this.toast.success(`Storage connected — found bucket "${response.bucket}"`);
+        this.loadStorageConnections();
+      },
+      error: (err) => {
+        this.importingFrom.set(null);
+        this.toast.error(err?.error?.error?.message ?? 'Could not read storage settings from that app.');
+      }
+    });
   }
 
   toggleLegacyProviders(): void {

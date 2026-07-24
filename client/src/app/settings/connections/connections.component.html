@@ -153,6 +153,12 @@
         </app-ui-button>
 
         <div class="provider-card__links">
+          @if (coolifyCredentials().length > 0) {
+            <app-ui-button variant="quiet" (click)="toggleImportPanel()">
+              {{ showImportPanel() ? 'Cancel' : 'Copy from a deployed app' }}
+            </app-ui-button>
+          }
+
           @for (connection of storageConnections(); track connection.id) {
             <app-ui-button variant="quiet" icon="trash" (click)="removeStorage(connection.id)">
               Remove {{ connection.label }}
@@ -160,6 +166,34 @@
           }
         </div>
       </div>
+
+      @if (showImportPanel()) {
+        <div class="token-panel">
+          <p class="token-panel__help">
+            If one of your apps already stores files, we can read its storage settings straight
+            from your server — no keys to retype.
+          </p>
+
+          @if (loadingImportCandidates()) {
+            <p class="token-panel__help">Looking at your apps…</p>
+          } @else if (importCandidates().length === 0) {
+            <p class="token-panel__help">No apps found on your Coolify server yet.</p>
+          } @else {
+            <div class="import-candidates">
+              @for (app of importCandidates(); track app.id) {
+                <app-ui-button
+                  variant="secondary"
+                  icon="link"
+                  [disabled]="importingFrom() !== null"
+                  [loading]="importingFrom() === app.id"
+                  (click)="importFrom(app)">
+                  {{ app.name }}
+                </app-ui-button>
+              }
+            </div>
+          }
+        </div>
+      }
 
       @if (showAdvancedStorage()) {
         <div class="token-panel">

@@ -718,6 +718,17 @@ export class ApiService {
     return this.http.get<{ buckets: StorageBucket[] }>(`/api/storage/connections/${id}/buckets`);
   }
 
+  /**
+   * Copies a storage connection out of an app that already has one. Hetzner only issues S3
+   * credentials through their Console, so this is as close to automatic as the connection gets.
+   */
+  importStorageConnection(payload: { credentialId: string; providerProjectId: string; label?: string }) {
+    return this.http.post<{ connection: StorageConnectionSummary; bucket: string }>(
+      '/api/storage/connections/import',
+      payload
+    );
+  }
+
   createStorageBucket(id: string, name: string) {
     return this.http.post<{ bucket: StorageBucket }>(
       `/api/storage/connections/${id}/buckets`,

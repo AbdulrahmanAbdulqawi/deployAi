@@ -239,6 +239,7 @@ public class StorageControllerTests
             currentUser.Object,
             factory.Object,
             Mock.Of<IObjectStorageProvisioningService>(),
+            Mock.Of<IProviderManagementFactory>(),
             encryption);
     }
 }

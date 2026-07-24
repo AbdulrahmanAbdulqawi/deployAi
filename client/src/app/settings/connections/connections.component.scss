@@ -97,6 +97,13 @@
   color: #5cdb5c;
 }
 
+.import-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
 .provider-card__icon--storage {
   background: #1a2333;
   color: #7aa7ff;
