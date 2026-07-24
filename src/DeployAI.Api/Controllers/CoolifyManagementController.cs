@@ -128,6 +128,41 @@ public sealed class CoolifyManagementController : ControllerBase
         return Ok(new { assigned = true });
     }
 
+    /// <summary>
+    /// Deletes a Coolify application that DeployAI no longer tracks — the orphans left
+    /// behind when a wizard re-run created a fresh app and repointed the project at it.
+    /// Refuses anything that is still a deploy target of one of the user's projects, so
+    /// the live app can never be swept up with the strays.
+    /// </summary>
+    [HttpDelete("coolify/applications/{applicationUuid}")]
+    public async Task<IActionResult> DeleteOrphanApplication(
+        string applicationUuid,
+        [FromQuery] Guid credentialId,
+        CancellationToken cancellationToken)
+    {
+        var credential = await GetCoolifyCredentialAsync(credentialId, cancellationToken);
+
+        var userId = _currentUser.UserId!.Value;
+        var isTracked = await _db.DeployTargets
+            .AnyAsync(
+                t => t.Project.UserId == userId && t.ProviderProjectId == applicationUuid,
+                cancellationToken);
+        if (isTracked)
+        {
+            throw new DeployAIException(
+                "target_in_use",
+                "That application belongs to one of your apps. Remove the app in DeployAI instead of deleting it here.");
+        }
+
+        var token = _encryption.Decrypt(credential.TokenEncrypted);
+        await _coolifyProvider.DeleteProjectAsync(
+            new ProviderCredentials(token),
+            applicationUuid,
+            cancellationToken);
+
+        return Ok(new { deleted = applicationUuid });
+    }
+
     private async Task<ProviderCredential> GetCoolifyCredentialAsync(Guid credentialId, CancellationToken cancellationToken)
     {
         var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
