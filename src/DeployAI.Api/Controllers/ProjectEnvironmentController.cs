@@ -47,7 +47,8 @@ public sealed class ProjectEnvironmentController : ControllerBase
     public async Task<IActionResult> SetComposeEnvironment(
         Guid projectId,
         [FromBody] SetComposeEnvironmentRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] Guid? targetId = null)
     {
         if (request.Variables.Count == 0)
         {
@@ -56,7 +57,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
 
         var userId = RequireUserId();
         var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
-        var (target, management, providerCredentials) = await ResolveEnvironmentTargetAsync(project, userId, cancellationToken);
+        var (target, management, providerCredentials) = await ResolveEnvironmentTargetAsync(project, userId, targetId, cancellationToken);
 
         var applied = new List<string>();
         foreach (var variable in request.Variables)
@@ -120,7 +121,8 @@ public sealed class ProjectEnvironmentController : ControllerBase
     public async Task<IActionResult> DeleteEnvironmentVariable(
         Guid projectId,
         string key,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery] Guid? targetId = null)
     {
         var trimmedKey = key.Trim();
         if (string.IsNullOrWhiteSpace(trimmedKey))
@@ -130,7 +132,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
 
         var userId = RequireUserId();
         var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
-        var (target, management, providerCredentials) = await ResolveEnvironmentTargetAsync(project, userId, cancellationToken);
+        var (target, management, providerCredentials) = await ResolveEnvironmentTargetAsync(project, userId, targetId, cancellationToken);
 
         var existing = await management.ListEnvVarsAsync(
             providerCredentials,
@@ -167,16 +169,31 @@ public sealed class ProjectEnvironmentController : ControllerBase
         ?? throw new DeployAIException("not_found", "We couldn't find that app.");
 
     private async Task<(DeployTarget Target, IProviderManagement Management, ProviderCredentials Credentials)>
-        ResolveEnvironmentTargetAsync(Data.Entities.Project project, Guid userId, CancellationToken cancellationToken)
+        ResolveEnvironmentTargetAsync(Data.Entities.Project project, Guid userId, Guid? targetId, CancellationToken cancellationToken)
     {
-        // Role-keyed, not provider-keyed: under a compose plan every target shares "coolify".
-        var target = project.DeployTargets
+        var deployable = project.DeployTargets
             .Select(t => (Target: t, Config: DeployTargetConfig.Parse(t.ConfigJson)))
             .Where(t => t.Config.IsDeployableTarget && !string.IsNullOrWhiteSpace(t.Target.ProviderProjectId))
-            .OrderByDescending(t => DeploymentPartRoles.Is(t.Config.Role, DeploymentPartRoles.Website))
-            .Select(t => t.Target)
-            .FirstOrDefault()
-            ?? throw new DeployAIException("no_target", "This app has no deploy target to receive environment variables.");
+            .ToList();
+
+        // A split deploy has two deployable apps (website + server); server-side config belongs on
+        // the server, not the website. When the caller names a target, honour it; otherwise fall
+        // back to the single-origin default of the website (which, for a compose plan, is the one app).
+        DeployTarget? target;
+        if (targetId is { } requestedId)
+        {
+            target = deployable.FirstOrDefault(t => t.Target.Id == requestedId).Target
+                ?? throw new DeployAIException("no_target", "The requested deploy target was not found on this app.");
+        }
+        else
+        {
+            // Role-keyed, not provider-keyed: under a compose plan every target shares "coolify".
+            target = deployable
+                .OrderByDescending(t => DeploymentPartRoles.Is(t.Config.Role, DeploymentPartRoles.Website))
+                .Select(t => t.Target)
+                .FirstOrDefault()
+                ?? throw new DeployAIException("no_target", "This app has no deploy target to receive environment variables.");
+        }
 
         var management = _managementFactory.GetManagement(target.ProviderName);
         var credential = await _db.ProviderCredentials
