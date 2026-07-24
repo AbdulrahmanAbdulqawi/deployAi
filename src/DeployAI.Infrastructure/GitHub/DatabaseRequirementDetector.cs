@@ -64,7 +64,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
         try
         {
-            using var document = JsonDocument.Parse(appsettingsContent);
+            using var document = JsonDocument.Parse(StripBom(appsettingsContent));
             if (!document.RootElement.TryGetProperty("ConnectionStrings", out var connectionStrings) ||
                 connectionStrings.ValueKind != JsonValueKind.Object)
             {
@@ -128,7 +128,7 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
         try
         {
-            using var document = JsonDocument.Parse(appsettingsContent);
+            using var document = JsonDocument.Parse(StripBom(appsettingsContent));
             if (!document.RootElement.TryGetProperty("ConnectionStrings", out var connectionStrings) ||
                 connectionStrings.ValueKind != JsonValueKind.Object)
             {
@@ -197,6 +197,12 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
         var match = DatabaseNameRegex().Match(connectionString);
         return match.Success ? match.Groups[1].Value.Trim() : null;
     }
+
+    // appsettings.json written by Visual Studio / PowerShell often carries a UTF-8 BOM. Read as a
+    // string it becomes a leading U+FEFF, and JsonDocument.Parse(string) rejects it — which silently
+    // turned "needs Postgres + Redis" into "needs nothing". Strip it before parsing.
+    private static string StripBom(string content) =>
+        content.Length > 0 && content[0] == '﻿' ? content[1..] : content;
 
     private static string? ReadConnectionStringValue(JsonElement element) =>
         element.ValueKind switch

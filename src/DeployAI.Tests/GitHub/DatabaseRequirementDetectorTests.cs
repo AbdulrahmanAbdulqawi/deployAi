@@ -36,6 +36,29 @@ public class DatabaseRequirementDetectorTests
     }
 
     [Fact]
+    // yemenConnect's appsettings.json carries a UTF-8 BOM and names its connection strings
+    // "Postgres"/"Redis" rather than "DefaultConnection". The BOM made JsonDocument.Parse throw,
+    // silently reporting "no database" — so its Postgres + Redis needs went undetected.
+    public void Detect_FindsPostgresAndRedis_FromBomPrefixedAppsettingsWithCustomKeys()
+    {
+        const string appsettings = "﻿" + """
+            {
+              "ConnectionStrings": {
+                "Postgres": "Host=localhost;Port=5432;Database=yemenhub;Username=postgres;Password=postgres",
+                "Redis": "localhost:6380"
+              }
+            }
+            """;
+
+        var profile = _detector.Detect(dockerComposeContent: null, appsettings);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.True(profile.RequiresRedis);
+        Assert.Equal("yemenhub", profile.PostgresDatabaseName);
+        Assert.Contains("Postgres", profile.ConnectionStringKeys);
+    }
+
+    [Fact]
     public void Detect_FindsPostgres_FromPrismaSchema()
     {
         const string prisma = """

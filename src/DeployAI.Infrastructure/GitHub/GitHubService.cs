@@ -360,7 +360,10 @@ public sealed class GitHubService : IGitHubService
         CancellationToken cancellationToken)
     {
         var metadata = await GetFileMetadataAsync(accessToken, owner, repo, path, gitRef, cancellationToken);
-        return metadata?.Content;
+        var content = metadata?.Content;
+        // Strip a leading UTF-8 BOM: files written by Visual Studio / PowerShell carry one, and it
+        // breaks every text consumer downstream (JSON parsing throws, string.StartsWith misses).
+        return content is { Length: > 0 } && content[0] == '﻿' ? content[1..] : content;
     }
 
     public async Task<GitHubFileMetadata?> GetFileMetadataAsync(
