@@ -82,6 +82,7 @@ public sealed class CoolifyManagementController : ControllerBase
         var dockerfilePath = request.DockerfilePath;
         var rootDirectory = request.RootDirectory;
         var buildPack = request.BuildPack;
+        string? exposedPort = null;
 
         // Nixpacks can't build a .NET modular monolith (it runs `dotnet restore` where there is
         // no project, and ships an SDK older than net10.0). For a .NET server with no Dockerfile
@@ -108,6 +109,9 @@ public sealed class CoolifyManagementController : ControllerBase
                     rootDirectory = provisioned.BaseDirectory;
                     // Let ResolveBuildPack pick Dockerfile from the path; don't force nixpacks.
                     buildPack = null;
+                    // Route Coolify's proxy at the port the generated Dockerfile EXPOSEs, or the
+                    // app 502s (framework is "docker" here, so port guessing can't help).
+                    exposedPort = provisioned.ExposedPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
             }
         }
@@ -134,7 +138,8 @@ public sealed class CoolifyManagementController : ControllerBase
                 buildPack,
                 request.ComposeFileLocation,
                 request.CustomDomain,
-                request.DomainServiceName),
+                request.DomainServiceName,
+                exposedPort),
             cancellationToken);
 
         return Ok(new { project });

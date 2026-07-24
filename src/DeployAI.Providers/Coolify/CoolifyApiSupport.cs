@@ -158,6 +158,14 @@ internal static class CoolifyApiSupport
             return null;
         }
 
+        // An explicit port (e.g. from the Dockerfile's EXPOSE that we generated) wins over guessing
+        // — the framework is often just "docker" for a Dockerfile build, which the switch below
+        // can't map to a real port.
+        if (!string.IsNullOrWhiteSpace(request.ExposedPort))
+        {
+            return request.ExposedPort.Trim();
+        }
+
         if (string.Equals(buildPack, CoolifyBuildPackValues.Static, StringComparison.OrdinalIgnoreCase))
         {
             return "80";

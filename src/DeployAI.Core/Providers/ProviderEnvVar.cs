@@ -41,7 +41,13 @@ public sealed record CreateProviderProjectRequest(
     /// Compose service the domain attaches to (e.g. <c>web</c>). The other services stay
     /// internal and are reached over the compose network.
     /// </summary>
-    string? DomainServiceName = null);
+    string? DomainServiceName = null,
+    /// <summary>
+    /// The container port Coolify should route to (its <c>ports_exposes</c>). When we generate the
+    /// Dockerfile we know the port it EXPOSEs (e.g. 8080 for .NET), and Coolify does not infer it —
+    /// left unset, it defaults the proxy to 3000 and a .NET app 502s. Overrides framework guessing.
+    /// </summary>
+    string? ExposedPort = null);
 
 public sealed record UpsertProviderEnvVarRequest(
     string Key,

@@ -149,8 +149,89 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             branch,
             cancellationToken);
 
+        // A .NET modular monolith's service directory is the build context (e.g. backend/src),
+        // but appsettings.json — with the connection strings — lives inside the startup project
+        // (backend/src/YemenHub.Api). When it isn't at the service root, resolve it the same
+        // recursive way the Dockerfile provisioner finds the entry .csproj, then read the
+        // appsettings.json sitting next to that project.
+        if (string.IsNullOrWhiteSpace(appsettings))
+        {
+            appsettings = await ReadNestedAppSettingsAsync(gitHubToken, parts[0], parts[1], serverPath, branch, cancellationToken);
+        }
+
         var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings);
         return profile;
+    }
+
+    private async Task<string?> ReadNestedAppSettingsAsync(
+        string gitHubToken,
+        string owner,
+        string repo,
+        string serverPath,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        // ListAllContentsAsync only returns one directory level, so walk down manually (bounded to
+        // two levels — deep enough for a .NET startup project nested under a build-context folder
+        // like backend/src/YemenHub.Api, shallow enough to stay a couple of API calls).
+        var path = await FindNestedAppSettingsPathAsync(gitHubToken, owner, repo, serverPath, branch, depth: 2, cancellationToken);
+        if (string.IsNullOrEmpty(path))
+        {
+            return null;
+        }
+
+        return await _gitHubService.GetFileContentAsync(gitHubToken, owner, repo, path, branch, cancellationToken);
+    }
+
+    private async Task<string?> FindNestedAppSettingsPathAsync(
+        string gitHubToken,
+        string owner,
+        string repo,
+        string directory,
+        string branch,
+        int depth,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<GitHubContentItem> items;
+        try
+        {
+            items = await _gitHubService.ListAllContentsAsync(gitHubToken, owner, repo, directory, branch, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "DB-PROVISION: could not list contents under '{Path}' to find nested appsettings.", directory);
+            return null;
+        }
+
+        var appsettingsHere = items.FirstOrDefault(item =>
+            string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(item.Name, "appsettings.json", StringComparison.OrdinalIgnoreCase));
+
+        // The startup project's appsettings.json sits next to a .csproj — prefer that pairing.
+        var hasCsproj = items.Any(item =>
+            string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
+            item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
+        if (appsettingsHere is not null && hasCsproj)
+        {
+            return appsettingsHere.Path;
+        }
+
+        if (depth > 0)
+        {
+            foreach (var subdirectory in items.Where(item =>
+                         string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase)))
+            {
+                var found = await FindNestedAppSettingsPathAsync(
+                    gitHubToken, owner, repo, subdirectory.Path, branch, depth - 1, cancellationToken);
+                if (!string.IsNullOrEmpty(found))
+                {
+                    return found;
+                }
+            }
+        }
+
+        // No csproj pairing found anywhere — fall back to an appsettings.json at this level.
+        return appsettingsHere?.Path;
     }
 
     private async Task<string?> ReadFirstExistingFileAsync(

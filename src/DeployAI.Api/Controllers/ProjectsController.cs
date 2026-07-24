@@ -334,13 +334,11 @@ public sealed class ProjectsController : ControllerBase
             return NotFound(new { error = new { code = "not_found", message = "We couldn't find that app." } });
         }
 
-        var serverTarget = project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
+        var serverTarget = ResolveDatabaseHostServerTarget(project);
 
         if (serverTarget is null)
         {
-            throw new DeployAIException("no_railway_target", "Connect a Railway server before adding databases.");
+            throw new DeployAIException("no_server_target", "Connect a server (Railway or Coolify) before adding databases.");
         }
 
         await _railwayDatabaseProvisioning.ProvisionAsync(
@@ -371,13 +369,11 @@ public sealed class ProjectsController : ControllerBase
             return NotFound(new { error = new { code = "not_found", message = "We couldn't find that app." } });
         }
 
-        var serverTarget = project.DeployTargets.FirstOrDefault(t =>
-            string.Equals(t.ProviderName, "railway", StringComparison.OrdinalIgnoreCase) &&
-            !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget);
+        var serverTarget = ResolveDatabaseHostServerTarget(project);
 
         if (serverTarget is null)
         {
-            throw new DeployAIException("no_railway_target", "Connect a Railway server before adding databases.");
+            throw new DeployAIException("no_server_target", "Connect a server (Railway or Coolify) before adding databases.");
         }
 
         await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
@@ -464,6 +460,21 @@ public sealed class ProjectsController : ControllerBase
         await _projectTeardown.TeardownAsync(id, userId, cancellationToken);
         return NoContent();
     }
+
+    // The app whose environment the provisioned databases wire into: the deployable server, on
+    // either Railway or Coolify. Resolving by role (not by the "railway" provider name) is what
+    // lets Coolify apps use the same database provisioning — the auto/manual endpoints were
+    // Railway-only and silently failed for Coolify before.
+    private static DeployTarget? ResolveDatabaseHostServerTarget(Project project) =>
+        project.DeployTargets.FirstOrDefault(t =>
+        {
+            var config = DeployTargetConfig.Parse(t.ConfigJson);
+            return config.IsDeployableTarget &&
+                   !config.IsDatabaseTarget &&
+                   string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase) &&
+                   (string.Equals(t.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
+        });
 
     private async Task<string?> GetPostgresDatabaseNameAsync(
         Project project,

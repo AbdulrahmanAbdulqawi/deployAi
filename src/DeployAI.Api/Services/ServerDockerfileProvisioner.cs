@@ -23,7 +23,7 @@ public interface IServerDockerfileProvisioner
 }
 
 /// <summary>The build directory (Coolify base directory) and the Dockerfile path relative to it.</summary>
-public sealed record ServerDockerfileResult(string BaseDirectory, string DockerfileLocation);
+public sealed record ServerDockerfileResult(string BaseDirectory, string DockerfileLocation, int ExposedPort);
 
 public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
 {
@@ -81,7 +81,8 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         // Coolify's dockerfile_location is relative to the base directory (the build root).
         return new ServerDockerfileResult(
             BaseDirectory: buildRoot,
-            DockerfileLocation: "/Dockerfile");
+            DockerfileLocation: "/Dockerfile",
+            ExposedPort: DotnetServerDockerfile.ContainerPort);
     }
 
     private static string Normalize(string? path) =>
