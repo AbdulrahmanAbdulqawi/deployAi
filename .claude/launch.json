@@ -8,6 +8,14 @@
       "cwd": "client",
       "port": 4200,
       "autoPort": false
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--no-build"],
+      "cwd": "src/DeployAI.Api",
+      "port": 5080,
+      "autoPort": false
     }
   ]
 }

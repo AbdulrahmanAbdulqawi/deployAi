@@ -534,18 +534,35 @@ public sealed class DeploymentJobRunner
                     }
                 }
 
-                await _frontendEnvironmentWiring.WireServerTargetAfterWebsiteDeployAsync(
-                    deployment.Id,
-                    target,
-                    cancellationToken);
+                // Post-deploy wiring and verification are advisory: the deploy itself already
+                // succeeded, and an exception here must not flip it to failed — that is
+                // exactly how a live compose deploy got reported failed after its rollout
+                // completed. Log the problem and keep the success.
+                try
+                {
+                    await _frontendEnvironmentWiring.WireServerTargetAfterWebsiteDeployAsync(
+                        deployment.Id,
+                        target,
+                        cancellationToken);
 
-                var verificationMessages = await _frontendEnvironmentWiring.VerifyWiredEndpointsAsync(
-                    deployment.Id,
-                    cancellationToken);
-                foreach (var message in verificationMessages)
+                    var verificationMessages = await _frontendEnvironmentWiring.VerifyWiredEndpointsAsync(
+                        deployment.Id,
+                        cancellationToken);
+                    foreach (var message in verificationMessages)
+                    {
+                        sequence++;
+                        await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, message, cancellationToken);
+                    }
+                }
+                catch (Exception wiringEx) when (wiringEx is not OperationCanceledException)
                 {
                     sequence++;
-                    await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, message, cancellationToken);
+                    await PersistAndBroadcastLogAsync(
+                        target,
+                        deployment.Id,
+                        sequence,
+                        $"Post-deploy check could not complete: {wiringEx.Message}",
+                        cancellationToken);
                 }
             }
         }

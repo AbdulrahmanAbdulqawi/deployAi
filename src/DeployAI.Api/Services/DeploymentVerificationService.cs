@@ -413,8 +413,10 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             return null;
         }
 
+        // The target's own provider, not a hardcoded name — asking Railway about a Coolify
+        // uuid threw "missing setup details" and failed an otherwise-successful deployment.
         var liveUrl = await ResolveLiveProviderUrlAsync(
-            "vercel",
+            websiteDeployTarget.ProviderName,
             websiteDeployTarget.Credential,
             websiteDeployTarget.ProviderProjectId,
             cancellationToken);
@@ -448,7 +450,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         }
 
         var liveUrl = await ResolveLiveProviderUrlAsync(
-            "railway",
+            serverDeployTarget.ProviderName,
             serverDeployTarget.Credential,
             serverDeployTarget.ProviderProjectId,
             cancellationToken);
