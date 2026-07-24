@@ -1131,6 +1131,77 @@ public class FrontendEnvironmentWiringServiceTests
         return projectId;
     }
 
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_SkipsSingleTargetComposeProject()
+    {
+        // Regression: a single-origin compose project has ONE coolify target wearing both
+        // hats. The provider-name fallbacks resolved it as website AND server, and the sync
+        // then ran Railway-shaped work against a Coolify uuid — throwing
+        // "This Railway connection is missing setup details" after a successful deploy and
+        // flipping the whole deployment to failed (live deployment 33e4a6ec, 2026-07-24).
+        await using var db = CreateDb();
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = credentialId,
+            UserId = userId,
+            ProviderName = "coolify",
+            Label = "Coolify",
+            TokenEncrypted = [1],
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Compose app",
+            GitHubRepoFullName = "tester/compose-app",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "poffi7lmosoe9xb9kscx3ibj",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+
+        var managementFactory = new Mock<IProviderManagementFactory>();
+        var service = CreateService(
+            db,
+            managementFactory,
+            new Mock<IProviderServiceOperationsFactory>(),
+            new Mock<IProviderCredentialTokenService>());
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(Source: "deploy"),
+            CancellationToken.None);
+
+        Assert.True(result.Skipped);
+        Assert.Contains("Single-target", result.SkipReason);
+        managementFactory.Verify(f => f.GetManagement(It.IsAny<string>()), Times.Never);
+    }
+
     private static DeployAIDbContext CreateDb()
     {
         var options = new DbContextOptionsBuilder<DeployAIDbContext>()

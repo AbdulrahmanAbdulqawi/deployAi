@@ -177,6 +177,48 @@ public class CoolifyProviderContractTests
     }
 
     [Fact]
+    public async Task StreamLogsAsync_IgnoresFailedFlagWhileLogStillGrows()
+    {
+        // The live sequence behind the false failures: Coolify flips status to "failed"
+        // mid-deploy while the log keeps growing, then the rollout completes. The stream
+        // must ride out the lying flag and finish on the completed-rollout marker instead
+        // of aborting at the first "failed" read.
+        var poll = 0;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/deployments/dep-123")
+            .Respond(_ =>
+            {
+                poll++;
+                var (status, logs) = poll switch
+                {
+                    1 => ("in_progress", """[{"output":"Building docker image."}]"""),
+                    2 => ("failed", """[{"output":"Building docker image."},{"output":"Pulling & building required images."}]"""),
+                    3 => ("failed", """[{"output":"Building docker image."},{"output":"Pulling & building required images."},{"output":"Starting new application."}]"""),
+                    _ => ("failed", """[{"output":"Building docker image."},{"output":"Pulling & building required images."},{"output":"Starting new application."},{"output":"New container started."}]""")
+                };
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{ "deployment_uuid": "dep-123", "status": "{{status}}", "logs": {{System.Text.Json.JsonSerializer.Serialize(logs)}} }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        var lines = new List<string>();
+        await foreach (var line in provider.StreamLogsAsync(Credentials, "dep-123", CancellationToken.None))
+        {
+            lines.Add(line);
+        }
+
+        Assert.Contains("New container started.", lines);
+
+        var status = await provider.GetStatusAsync(Credentials, "dep-123", CancellationToken.None);
+        Assert.Equal(DeploymentStatusKind.Success, status.Status);
+    }
+
+    [Fact]
     public async Task StreamLogsAsync_YieldsNewLogLines()
     {
         var handler = new MockHttpMessageHandler();

@@ -105,6 +105,18 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return SkippedResult(options.Source, completedAt, "Project does not have both website and server targets.");
         }
 
+        // A single-origin compose app is one target wearing both hats: the provider-name
+        // fallbacks below resolve it as website AND server, and the sync then ran
+        // Railway-shaped work against a Coolify uuid — throwing after a successful deploy
+        // and flipping the whole deployment to failed. One target has nothing to cross-wire.
+        if (websiteDeployTarget.Id == serverDeployTarget.Id)
+        {
+            return SkippedResult(
+                options.Source,
+                completedAt,
+                "Single-target app: same-origin deployments need no cross-provider wiring.");
+        }
+
         if (!IsSupportedDualProviderPair(websiteDeployTarget.ProviderName, serverDeployTarget.ProviderName))
         {
             return SkippedResult(options.Source, completedAt, "Project does not have a supported website and server provider pair.");

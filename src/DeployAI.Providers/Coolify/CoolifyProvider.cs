@@ -123,18 +123,26 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
         var session = CoolifyApiSupport.ParseSession(credentials);
         var seenEntries = 0;
         var idleRounds = 0;
+        var failedWhileSilentRounds = 0;
 
         // 2s polls → 15 minutes of allowed silence. Docker builds with large layers go
         // quiet for far longer than the old 4-minute cap, which false-timed-out mid-build;
         // a deployment that truly hangs is ended by the terminal-status check, not by this.
         const int maxIdleRounds = 450;
 
+        // How long a "failed" flag must hold with a silent log before it is believed.
+        // Coolify flips the flag to failed while a compose deployment is still running
+        // (the log kept growing and the same deployment later read "Finished"), so a
+        // failed flag over a still-growing log means "still working", not "done".
+        const int failedConfirmationRounds = 5;
+
         while (!cancellationToken.IsCancellationRequested && idleRounds < maxIdleRounds)
         {
             var deployment = await GetDeploymentAsync(session, deploymentId, cancellationToken);
             var entries = ParseLogEntries(deployment.Logs);
+            var logGrew = entries.Count > seenEntries;
 
-            if (entries.Count > seenEntries)
+            if (logGrew)
             {
                 // Counted by entry rather than by string length: the log is a JSON array, so it
                 // grows in the middle as well as at the end and a length diff yields fragments
@@ -153,9 +161,22 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
             }
 
             var mapped = MapStatus(deployment);
-            if (mapped.Status is DeploymentStatusKind.Success or DeploymentStatusKind.Failed)
+            if (mapped.Status is DeploymentStatusKind.Success)
             {
                 yield break;
+            }
+
+            if (mapped.Status is DeploymentStatusKind.Failed)
+            {
+                failedWhileSilentRounds = logGrew ? 0 : failedWhileSilentRounds + 1;
+                if (failedWhileSilentRounds >= failedConfirmationRounds)
+                {
+                    yield break;
+                }
+            }
+            else
+            {
+                failedWhileSilentRounds = 0;
             }
 
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
