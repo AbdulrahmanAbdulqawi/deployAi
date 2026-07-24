@@ -171,3 +171,43 @@ public class DeploymentFailureAnalyzerTests
         Assert.False(DeploymentFailureAnalyzer.IsWarningLine("src/app.ts:10:1 - error TS1234: something"));
     }
 }
+
+public class DeploymentFailureAnalyzerEsbuildTests
+{
+    // Taken verbatim from a Coolify log of a deployment that built and started both containers.
+    // "esbuild" used to be a bare marker, so this npm *warning* classified the whole thing as a
+    // code failure — every green Angular build reported as broken, because Angular builds with
+    // esbuild and therefore names it on success.
+    [Fact]
+    public void Analyze_NpmWarningAboutEsbuild_IsNotACodeFailure()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "npm warn allow-scripts esbuild@0.28.1 (postinstall: node install.js)",
+            "Application bundle generation complete. [21.610 seconds]",
+            "web  Built",
+            " api  Built",
+            "New container started."
+        };
+
+        var result = analyzer.Analyze("coolify", logs);
+
+        Assert.NotEqual(DeploymentFailureCategory.CodeBuild, result.Category);
+    }
+
+    [Fact]
+    public void Analyze_RealEsbuildError_IsStillACodeFailure()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "npm warn allow-scripts esbuild@0.28.1 (postinstall: node install.js)",
+            "esbuild: error: Could not resolve \"./missing-module\""
+        };
+
+        var result = analyzer.Analyze("coolify", logs);
+
+        Assert.Equal(DeploymentFailureCategory.CodeBuild, result.Category);
+    }
+}

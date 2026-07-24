@@ -405,6 +405,14 @@ export class ProjectWizardComponent implements OnInit {
         if (plan.confidence === 'high') {
           this.activePlanParts.set(plan.parts);
         }
+
+        // A Coolify plan needs a destination project before it can be accepted. Loading it here
+        // rather than only on the manual path is what lets the plan card offer the choice —
+        // otherwise accepting fails with "pick which one" and there is nowhere to pick.
+        if (plan.parts.some(part => part.providerName === ProviderName.Coolify)) {
+          this.ensureCoolifyDestinations();
+        }
+
         this.loadDeploymentReadiness();
       },
       error: (err) => {
@@ -539,11 +547,19 @@ export class ProjectWizardComponent implements OnInit {
       tasks.push(this.createCoolifyProjectRequest('server', this.newCoolifyProjectName));
     }
     if (this.isCoolifyFullStack()) {
-      if (!this.selectedCoolifyWebsiteProjectId()) {
-        tasks.push(this.createCoolifyProjectRequest('website', this.newCoolifyWebsiteProjectName));
-      }
-      if (!this.selectedCoolifyServerProjectId()) {
-        tasks.push(this.createCoolifyProjectRequest('server', this.newCoolifyServerProjectName));
+      if (this.isSingleOriginComposePlan()) {
+        // One compose resource hosts both halves, so there is one application to create —
+        // creating two would leave an orphan alongside it.
+        if (!this.selectedCoolifyWebsiteProjectId()) {
+          tasks.push(this.createCoolifyProjectRequest('website', this.newCoolifyWebsiteProjectName));
+        }
+      } else {
+        if (!this.selectedCoolifyWebsiteProjectId()) {
+          tasks.push(this.createCoolifyProjectRequest('website', this.newCoolifyWebsiteProjectName));
+        }
+        if (!this.selectedCoolifyServerProjectId()) {
+          tasks.push(this.createCoolifyProjectRequest('server', this.newCoolifyServerProjectName));
+        }
       }
     }
 
@@ -1250,6 +1266,44 @@ export class ProjectWizardComponent implements OnInit {
     return byName?.id ?? '';
   }
 
+  /**
+   * The compose file the plan deploys. Matches what the generated templates emit; the plain
+   * docker-compose.yml is usually a repo's local dev stack, so it is not the default here.
+   */
+  readonly composeFileLocation = 'docker-compose.coolify.yml';
+
+  /** Domain to attach to the web service. Blank means let the server autogenerate one. */
+  customDomain = '';
+
+  isSingleOriginComposePlan(): boolean {
+    return this.deploymentPlan()?.planKind === DeploymentPlanKind.CoolifyCompose;
+  }
+
+  /** Projects on the Coolify server — the choice of where an app lands. */
+  coolifyDestinations(): { id: string; name: string }[] {
+    return this.coolifyInfrastructure()?.projects ?? [];
+  }
+
+  private ensureCoolifyDestinations(): void {
+    const coolify = this.coolifyCredentials()[0];
+    if (!coolify) {
+      return;
+    }
+
+    if (!this.selectedCoolifyCredentialId) {
+      this.selectedCoolifyCredentialId = coolify.id;
+    }
+
+    if (this.coolifyDestinations().length === 0) {
+      this.loadCoolifyInfrastructure();
+    }
+  }
+
+  onPlanDestinationChange(projectUuid: string): void {
+    this.selectedCoolifyProjectUuid = projectUuid;
+    this.onCoolifyProjectUuidChange();
+  }
+
   onCoolifyProjectUuidChange(): void {
     this.selectedCoolifyEnvironmentName = '';
     this.loadCoolifyEnvironments();
@@ -1298,6 +1352,25 @@ export class ProjectWizardComponent implements OnInit {
     const profile = serverProfile ?? websiteProfile ?? undefined;
     const dockerfilePath = serverProfile?.dockerfilePath;
     const outputDirectory = websiteProfile?.outputDirectory;
+
+    // A single-origin plan is one compose resource, not one app per role. Sending the
+    // per-role build settings here produced a Dockerfile app with a base directory instead,
+    // which Coolify rejected outright.
+    if (this.isSingleOriginComposePlan()) {
+      return {
+        isPrivateRepository,
+        coolifyProjectUuid: this.selectedCoolifyProjectUuid || undefined,
+        coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
+        coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
+        coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
+        buildPack: CoolifyBuildPack.DockerCompose,
+        composeFileLocation: this.composeFileLocation,
+        customDomain: this.customDomain.trim() || undefined,
+        // The service that faces the browser; the api service stays on the internal network.
+        domainServiceName: 'web',
+        framework: profile?.framework
+      };
+    }
 
     return {
       isPrivateRepository,

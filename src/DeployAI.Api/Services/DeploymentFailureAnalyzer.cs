@@ -36,7 +36,11 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "Could not resolve",
         "Rollup failed to resolve",
         "Transform failed",
-        "esbuild",
+        // Deliberately not a bare "esbuild": Angular builds *with* esbuild, so it names itself
+        // in the log of every successful build. Matching the tool's name rather than an error
+        // from it classified every green Angular deployment as a code failure.
+        "esbuild: error",
+        "[esbuild] Error",
         "Command failed with exit code",
         "command not found",
         "exited with 1",

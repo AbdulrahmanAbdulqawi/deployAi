@@ -76,6 +76,53 @@
       </div>
     }
 
+    <!--
+      Shown whenever the server hosts more than one project. Without it, accepting the plan
+      failed with "pick which one" and offered nowhere to pick.
+    -->
+    @if (destinations.length > 1) {
+      <div class="plan-card__config">
+        <div class="plan-card__config-header">
+          <span class="u-label-caps">Deploy into</span>
+        </div>
+        <label class="plan-card__destination">
+          <span class="u-visually-hidden">Project on your server</span>
+          <select
+            [ngModel]="selectedDestinationId"
+            (ngModelChange)="destinationChange.emit($event)">
+            @for (destination of destinations; track destination.id) {
+              <option [value]="destination.id">{{ destination.name }}</option>
+            }
+          </select>
+        </label>
+      </div>
+    }
+
+    <!--
+      Without a domain, Coolify autogenerates one at the application level — which for a compose
+      resource attaches to no service, so the proxy answers 404 and the deployment looks broken
+      despite both containers running.
+    -->
+    @if (showDomainField) {
+      <div class="plan-card__config">
+        <div class="plan-card__config-header">
+          <span class="u-label-caps">Domain</span>
+        </div>
+        <label class="plan-card__destination">
+          <span class="u-visually-hidden">Domain for this app</span>
+          <input
+            type="text"
+            [ngModel]="customDomain"
+            (ngModelChange)="customDomainChange.emit($event)"
+            placeholder="breeze.example.com" />
+        </label>
+        <p class="plan-card__hint">
+          Point this name at your server first. Leave it blank and your server picks a temporary
+          address, which for a compose app may not route until you set a domain yourself.
+        </p>
+      </div>
+    }
+
     @if (missingConnections.length > 0) {
       <p class="plan-card__notice">Connect {{ missingConnections.join(' and ') }} first to deploy.</p>
     }

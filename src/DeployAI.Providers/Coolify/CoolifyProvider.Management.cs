@@ -61,7 +61,9 @@ public sealed partial class CoolifyProvider
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory) && !isCompose)
         {
-            body["base_directory"] = request.RootDirectory;
+            // Rooted at the repository, like docker_compose_location: a bare relative path is
+            // rejected with "The base directory field format is invalid".
+            body["base_directory"] = $"/{request.RootDirectory.Trim().Replace('\\', '/').TrimStart('/')}";
         }
 
         // Compose builds its own images from per-service Dockerfiles, so publish_directory and
@@ -160,23 +162,29 @@ public sealed partial class CoolifyProvider
         CancellationToken cancellationToken)
     {
         var domain = NormalizeUrl(request.CustomDomain!)!;
-        var body = new Dictionary<string, object?> { ["domains"] = domain };
+        var body = new Dictionary<string, object?>();
 
         if (isCompose)
         {
+            // Only docker_compose_domains: Coolify rejects a compose app that also carries a
+            // top-level `domains`, because a compose resource routes per service rather than
+            // as a whole.
             var serviceName = string.IsNullOrWhiteSpace(request.DomainServiceName)
                 ? "web"
                 : request.DomainServiceName.Trim();
 
             // Compose apps route per service: the domain belongs to the one service that faces
-            // the browser, and everything else stays on the internal network.
+            // the browser, and everything else stays on the internal network. Coolify wants the
+            // service named inside the entry as well as keyed by it — omitting `name` is
+            // rejected with "docker_compose_domains.<service>.name field is required".
             body["docker_compose_domains"] = new Dictionary<string, object?>
             {
-                [serviceName] = new { domain }
+                [serviceName] = new { name = serviceName, domain }
             };
         }
         else
         {
+            body["domains"] = domain;
             body["fqdn"] = domain;
         }
 

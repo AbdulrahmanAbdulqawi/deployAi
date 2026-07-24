@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { DeploymentPlan, DeploymentPlanKind, DeploymentPlanPart, ProviderName } from '../../core/models/api.models';
 import { isCoolifyProvider } from '../../core/utils/provider-branding';
 import { ButtonComponent } from '../ui/button/button.component';
@@ -12,7 +13,7 @@ interface BuildConfigRow {
 @Component({
   selector: 'app-deploy-plan',
   standalone: true,
-  imports: [ButtonComponent, IconComponent],
+  imports: [FormsModule, ButtonComponent, IconComponent],
   templateUrl: './deploy-plan.component.html',
   styleUrl: './deploy-plan.component.scss'
 })
@@ -23,7 +24,15 @@ export class DeployPlanComponent {
   @Input() showManualOverride = false;
   @Input() deploying = false;
   @Input() missingConnections: string[] = [];
+  /** Projects on the target server. Only surfaced when there is a genuine choice to make. */
+  @Input() destinations: { id: string; name: string }[] = [];
+  @Input() selectedDestinationId = '';
+  /** Only offered for shapes where the domain has to be attached explicitly. */
+  @Input() showDomainField = false;
+  @Input() customDomain = '';
 
+  @Output() customDomainChange = new EventEmitter<string>();
+  @Output() destinationChange = new EventEmitter<string>();
   @Output() accept = new EventEmitter<void>();
   @Output() override = new EventEmitter<void>();
   @Output() selectOption = new EventEmitter<string>();

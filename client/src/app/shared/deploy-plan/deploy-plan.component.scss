@@ -246,3 +246,24 @@
     text-decoration: underline;
   }
 }
+
+.plan-card__destination {
+  display: block;
+
+  select,
+  input {
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-primary);
+    font: inherit;
+  }
+}
+
+.plan-card__hint {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

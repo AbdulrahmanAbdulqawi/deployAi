@@ -121,23 +121,26 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        var seenLength = 0;
+        var seenEntries = 0;
         var idleRounds = 0;
 
         while (!cancellationToken.IsCancellationRequested && idleRounds < 120)
         {
             var deployment = await GetDeploymentAsync(session, deploymentId, cancellationToken);
-            var logs = deployment.Logs ?? string.Empty;
-            if (logs.Length > seenLength)
-            {
-                var chunk = logs[seenLength..];
-                seenLength = logs.Length;
-                idleRounds = 0;
+            var entries = ParseLogEntries(deployment.Logs);
 
-                foreach (var line in chunk.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (entries.Count > seenEntries)
+            {
+                // Counted by entry rather than by string length: the log is a JSON array, so it
+                // grows in the middle as well as at the end and a length diff yields fragments
+                // of JSON rather than whole lines.
+                foreach (var entry in entries.Skip(seenEntries))
                 {
-                    yield return line;
+                    yield return entry;
                 }
+
+                seenEntries = entries.Count;
+                idleRounds = 0;
             }
             else
             {
@@ -154,6 +157,66 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
         }
     }
 
+    /// <summary>
+    /// Coolify returns a deployment's logs as a JSON array of entries, not as text. Treating it
+    /// as text put the raw JSON in front of the user. Entries marked hidden are Coolify's own
+    /// bookkeeping commands, which it does not show either.
+    /// </summary>
+    internal static IReadOnlyList<string> ParseLogEntries(string? logs)
+    {
+        if (string.IsNullOrWhiteSpace(logs))
+        {
+            return [];
+        }
+
+        var trimmed = logs.TrimStart();
+        if (!trimmed.StartsWith('['))
+        {
+            // Older instances, or a plain-text error body: fall back to line splitting.
+            return logs
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToArray();
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(logs);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var lines = new List<string>();
+            foreach (var entry in document.RootElement.EnumerateArray())
+            {
+                if (entry.TryGetProperty("hidden", out var hidden) &&
+                    hidden.ValueKind == System.Text.Json.JsonValueKind.True)
+                {
+                    continue;
+                }
+
+                if (!entry.TryGetProperty("output", out var output) ||
+                    output.ValueKind != System.Text.Json.JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                foreach (var line in (output.GetString() ?? string.Empty)
+                             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    lines.Add(line);
+                }
+            }
+
+            return lines;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // A partially-written log is normal mid-deploy; the next poll gets a whole one.
+            return [];
+        }
+    }
+
     private static DeploymentStatus MapStatus(CoolifyDeployment deployment)
     {
         var status = deployment.Status?.Trim().ToLowerInvariant();
@@ -165,9 +228,9 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
             "failed" or "cancelled" or "cancelled-by-user" => new DeploymentStatus(
                 DeploymentStatusKind.Failed,
                 deployUrl,
-                deployment.Logs is { Length: > 0 } logs
-                    ? logs.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault()
-                    : "Publishing did not go through on Coolify."),
+                // Same JSON-array shape: the raw last "line" was a fragment of JSON.
+                ParseLogEntries(deployment.Logs).LastOrDefault()
+                    ?? "Publishing did not go through on Coolify."),
             "queued" or "in_progress" or "running" => new DeploymentStatus(
                 DeploymentStatusKind.InProgress,
                 deployUrl,

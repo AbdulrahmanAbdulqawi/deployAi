@@ -89,10 +89,10 @@ public class CoolifyProviderComposeTests
 
         // Without this Traefik has no rule to route on and no certificate is issued: the
         // deploy reports success and the site is unreachable.
-        var domains = patchBody.Value.GetProperty("docker_compose_domains");
-        Assert.Equal(
-            "https://breeze.example.com",
-            domains.GetProperty("web").GetProperty("domain").GetString());
+        var web = patchBody.Value.GetProperty("docker_compose_domains").GetProperty("web");
+        Assert.Equal("https://breeze.example.com", web.GetProperty("domain").GetString());
+        // Coolify rejects the entry without the service named inside it as well as keyed by it.
+        Assert.Equal("web", web.GetProperty("name").GetString());
     }
 
     [Fact]
