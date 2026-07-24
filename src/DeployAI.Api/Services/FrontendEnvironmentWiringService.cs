@@ -1062,7 +1062,18 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         IReadOnlyList<ProviderEnvVar> actualEnvVars,
         bool skipHiddenValues = false)
     {
-        var actualByKey = actualEnvVars.ToDictionary(env => env.Key, StringComparer.OrdinalIgnoreCase);
+        // Coolify can return the same key more than once (a build-time and a runtime copy, or
+        // the compose-level/per-service duplication), so a plain ToDictionary throws
+        // "same key has already been added" and aborted the whole deploy before it started.
+        // Keep the first non-blank value for each key instead.
+        var actualByKey = new Dictionary<string, ProviderEnvVar>(StringComparer.OrdinalIgnoreCase);
+        foreach (var env in actualEnvVars)
+        {
+            if (!actualByKey.TryGetValue(env.Key, out var existing) || string.IsNullOrEmpty(existing.Value))
+            {
+                actualByKey[env.Key] = env;
+            }
+        }
 
         foreach (var (key, expectedValue) in expected)
         {

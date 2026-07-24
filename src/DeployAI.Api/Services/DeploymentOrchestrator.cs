@@ -9,6 +9,7 @@ using DeployAI.Infrastructure.GitHub;
 using Hangfire;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Api.Services;
 
@@ -293,6 +294,7 @@ public sealed class DeploymentJobRunner
     private readonly IHubContext<DeploymentHub> _hub;
     private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
     private readonly IDeploymentNotificationService _deploymentNotifications;
+    private readonly ILogger<DeploymentJobRunner> _logger;
 
     public DeploymentJobRunner(
         DeployAIDbContext db,
@@ -305,7 +307,8 @@ public sealed class DeploymentJobRunner
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
         Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions,
-        IDeploymentNotificationService deploymentNotifications)
+        IDeploymentNotificationService deploymentNotifications,
+        ILogger<DeploymentJobRunner> logger)
     {
         _db = db;
         _providerFactory = providerFactory;
@@ -318,6 +321,7 @@ public sealed class DeploymentJobRunner
         _hub = hub;
         _anthropicOptions = anthropicOptions.Value;
         _deploymentNotifications = deploymentNotifications;
+        _logger = logger;
     }
 
     public async Task RunAsync(Guid deploymentTargetId, CancellationToken cancellationToken)
@@ -430,10 +434,23 @@ public sealed class DeploymentJobRunner
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
 
-                await _frontendEnvironmentWiring.WireServerTargetBeforeRailwayDeployAsync(
-                    deployment.Id,
-                    target,
-                    cancellationToken);
+                // Advisory: wiring the website's API URL onto the server is a convenience, not a
+                // prerequisite for the build. A hiccup here (e.g. drift comparison against an app
+                // whose env list has a duplicated key) must not fail the deploy before it starts.
+                try
+                {
+                    await _frontendEnvironmentWiring.WireServerTargetBeforeRailwayDeployAsync(
+                        deployment.Id,
+                        target,
+                        cancellationToken);
+                }
+                catch (Exception wiringEx) when (wiringEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        wiringEx,
+                        "Pre-deploy environment wiring failed for server target {TargetId}; continuing with the build.",
+                        target.Id);
+                }
             }
 
             var environment = new Dictionary<string, string>
@@ -570,10 +587,23 @@ public sealed class DeploymentJobRunner
         {
             target.Status = DeploymentStatuses.Failed;
             target.CompletedAt = DateTimeOffset.UtcNow;
+
+            // Previously the exception was swallowed and only "Something went wrong while
+            // publishing" was recorded, which made a pre-deploy failure (e.g. database
+            // provisioning throwing before the build even starts) impossible to diagnose.
+            // Log the full exception server-side and persist a message that names the cause.
+            _logger.LogError(
+                ex,
+                "Deploy target {TargetId} ({Provider}, {Role}) failed before or during publish for deployment {DeploymentId}.",
+                target.Id,
+                target.ProviderName,
+                DeployTargetConfig.Parse(deployTarget.ConfigJson).Role,
+                deployment.Id);
+
             var userMessage = ex switch
             {
                 DeployAIException deployAiException => deployAiException.Message,
-                _ => "Something went wrong while publishing. Try again in a moment."
+                _ => $"Publishing failed before the build started: {ex.Message}"
             };
             await PersistAndBroadcastLogAsync(
                 target,
