@@ -23,9 +23,16 @@ export function computeDeploymentProgress(deployment: DeploymentDetail | null): 
     return null;
   }
 
-  const apiTarget = findTarget(deployment.targets, ProviderName.Railway);
-  const websiteTarget = findTarget(deployment.targets, ProviderName.Vercel);
-  const coolifyTarget = findTarget(deployment.targets, ProviderName.Coolify);
+  // Role first, provider only as a fallback for targets saved before roles were recorded.
+  // Matching on provider alone collapsed a full-stack Coolify app into a single bar, because
+  // both halves report providerName 'coolify'.
+  const apiTarget = findByRole(deployment.targets, 'server')
+    ?? findTarget(deployment.targets, ProviderName.Railway);
+  const websiteTarget = findByRole(deployment.targets, 'website')
+    ?? findTarget(deployment.targets, ProviderName.Vercel);
+  const coolifyTarget = apiTarget || websiteTarget
+    ? null
+    : findTarget(deployment.targets, ProviderName.Coolify);
   const hasApi = apiTarget !== null;
   const hasWebsite = websiteTarget !== null;
   const hasCoolify = coolifyTarget !== null;
@@ -178,4 +185,8 @@ function computeSplitOriginProgress(
 
 function findTarget(targets: DeploymentTarget[], providerName: string): DeploymentTarget | null {
   return targets.find(target => target.providerName === providerName) ?? null;
+}
+
+function findByRole(targets: DeploymentTarget[], role: string): DeploymentTarget | null {
+  return targets.find(target => target.role?.toLowerCase() === role) ?? null;
 }

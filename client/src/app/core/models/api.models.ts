@@ -290,6 +290,8 @@ export interface DeploymentSummary {
   completedAt?: string;
   targets: {
     providerName: string;
+    /** 'website' | 'server' | 'database' | 'storage'. Absent on targets saved before roles were recorded. */
+    role?: string | null;
     status: string;
     deployUrl?: string;
   }[];
@@ -333,6 +335,8 @@ export interface DeploymentDetail {
     id: string;
     deployTargetId: string;
     providerName: string;
+    /** 'website' | 'server' | 'database' | 'storage'. Absent on targets saved before roles were recorded. */
+    role?: string | null;
     status: string;
     deployUrl?: string;
     startedAt?: string;

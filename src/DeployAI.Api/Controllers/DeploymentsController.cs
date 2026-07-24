@@ -95,6 +95,7 @@ public sealed class DeploymentsController : ControllerBase
         var query = _db.Deployments
             .Where(d => d.ProjectId == projectId)
             .Include(d => d.Targets)
+                .ThenInclude(t => t.DeployTarget)
             .OrderByDescending(d => d.CreatedAt);
 
         var total = await query.CountAsync(cancellationToken);
@@ -117,6 +118,7 @@ public sealed class DeploymentsController : ControllerBase
         var userId = RequireUserId();
         var deployment = await _db.Deployments
             .Include(d => d.Targets)
+                .ThenInclude(t => t.DeployTarget)
             .Include(d => d.Project)
             .FirstOrDefaultAsync(d => d.Id == id && d.Project.UserId == userId, cancellationToken);
 
@@ -176,6 +178,7 @@ public sealed class DeploymentsController : ControllerBase
         var userId = RequireUserId();
         var deployment = await _db.Deployments
             .Include(d => d.Targets)
+                .ThenInclude(t => t.DeployTarget)
             .Include(d => d.Project)
             .FirstOrDefaultAsync(d => d.Id == id && d.Project.UserId == userId, cancellationToken);
 
@@ -382,11 +385,24 @@ public sealed class DeploymentsController : ControllerBase
             targets = deployment.Targets.Select(t => new
             {
                 providerName = t.ProviderName,
+                // Role, not provider, is what the UI needs to tell two targets apart: a
+                // full-stack app on one server has both halves under the same provider name.
+                role = ResolveTargetRole(t),
                 status = t.Status,
                 deployUrl = t.DeployUrl
             })
         };
     }
+
+    /// <summary>
+    /// The role lives in the linked DeployTarget's config rather than on the deployment target
+    /// row. Null when the config predates roles being recorded — callers fall back to matching
+    /// on provider name, which is only ambiguous once two targets share a provider.
+    /// </summary>
+    private static string? ResolveTargetRole(Data.Entities.DeploymentTarget target) =>
+        target.DeployTarget is null
+            ? null
+            : DeployTargetConfig.Parse(target.DeployTarget.ConfigJson).Role;
 
     private static object MapDeploymentDetail(Data.Entities.Deployment deployment)
     {
@@ -414,6 +430,7 @@ public sealed class DeploymentsController : ControllerBase
                     id = t.Id,
                     deployTargetId = t.DeployTargetId,
                     providerName = t.ProviderName,
+                    role = ResolveTargetRole(t),
                     status = t.Status,
                     deployUrl = t.DeployUrl,
                     startedAt = t.StartedAt,

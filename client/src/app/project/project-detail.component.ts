@@ -132,8 +132,14 @@ export class ProjectDetailComponent implements OnInit {
     const sync = this.project()?.environmentSync;
     const deployment = this.latestDeployment();
 
+    // Role first: matching on provider name found only the first of two Coolify targets, so a
+    // full-stack app on one server surfaced one URL and labelled it "Coolify app".
+    const byRole = (role: string) =>
+      deployment?.targets.find(t => t.role?.toLowerCase() === role)?.deployUrl;
+
     const websiteUrl =
       sync?.resolvedWebsiteUrl ||
+      byRole('website') ||
       deployment?.targets.find(t => t.providerName === ProviderName.Vercel)?.deployUrl ||
       this.serviceDeployUrl(ProviderName.Vercel);
     if (websiteUrl) {
@@ -142,17 +148,23 @@ export class ProjectDetailComponent implements OnInit {
 
     const apiUrl =
       sync?.resolvedApiUrl ||
+      byRole('server') ||
       deployment?.targets.find(t => t.providerName === ProviderName.Railway)?.deployUrl ||
       this.serviceDeployUrl(ProviderName.Railway);
-    if (apiUrl) {
+    // Under a single-origin deployment the API has no URL of its own — it is reached through
+    // the website — so an apiUrl equal to the website URL is noise, not a second link.
+    if (apiUrl && apiUrl !== websiteUrl) {
       urls.push({ label: 'API', url: apiUrl });
     }
 
-    const coolifyUrl =
-      deployment?.targets.find(t => t.providerName === ProviderName.Coolify)?.deployUrl ||
-      this.serviceDeployUrl(ProviderName.Coolify);
-    if (coolifyUrl) {
-      urls.push({ label: 'Coolify app', url: coolifyUrl });
+    // Only when neither role resolved: an older target, or a publish-only Coolify app.
+    if (urls.length === 0) {
+      const coolifyUrl =
+        deployment?.targets.find(t => t.providerName === ProviderName.Coolify)?.deployUrl ||
+        this.serviceDeployUrl(ProviderName.Coolify);
+      if (coolifyUrl) {
+        urls.push({ label: 'Live site', url: coolifyUrl });
+      }
     }
 
     return urls;

@@ -115,32 +115,37 @@
             <h2>What to deploy</h2>
           </div>
 
+          <!--
+            Ordered and described by deployment shape rather than provider name: the same repo
+            can go to more than one platform, and leading with "Frontend on Vercel" told people
+            the tool only did that.
+          -->
           <div class="wizard__mode-grid">
+            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'coolify-fullstack'" (click)="setDeploymentMode('coolify-fullstack')">
+              <strong>Site and API together</strong>
+              <span>One deployment on your own server</span>
+            </button>
             <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'website'" (click)="setDeploymentMode('website')">
-              <strong>Website</strong>
-              <span>Frontend on Vercel</span>
+              <strong>Site only</strong>
+              <span>A website with no backend of its own</span>
             </button>
             <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'server'" (click)="setDeploymentMode('server')">
-              <strong>Server</strong>
-              <span>API on Railway</span>
+              <strong>API only</strong>
+              <span>A service with no website in this repo</span>
             </button>
             <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'both'" (click)="setDeploymentMode('both')">
-              <strong>Both</strong>
-              <span>Full-stack split origin</span>
+              <strong>Site and API separately</strong>
+              <span>Two hosts, two domains, wired together</span>
             </button>
             <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'coolify'" (click)="setDeploymentMode('coolify')">
-              <strong>Coolify</strong>
-              <span>Existing app on your server</span>
-            </button>
-            <button type="button" class="wizard__mode" [class.wizard__mode--selected]="deploymentMode === 'coolify-fullstack'" (click)="setDeploymentMode('coolify-fullstack')">
-              <strong>Coolify full-stack</strong>
-              <span>Website + API on your server</span>
+              <strong>Existing app</strong>
+              <span>Redeploy something already set up on your server</span>
             </button>
           </div>
 
           @if (isCoolifyFullStack()) {
             <p class="wizard__hint">
-              DeployAI will create two Coolify applications (website and API), wire environment variables, and provision PostgreSQL when needed.
+              {{ coolifyFullStackHint() }}
             </p>
           }
 
@@ -186,33 +191,6 @@
           @if (publishServer && !isCoolifyFullStack()) {
             <div class="wizard__folder">
               <p class="u-label-caps">Server folder</p>
-              @if (repoOwner() && repoName() && selectedBranch()) {
-                <app-repo-folder-picker
-                  [owner]="repoOwner()!"
-                  [repo]="repoName()!"
-                  [gitRef]="selectedBranch()!"
-                  [initialPath]="serverRootPath"
-                  [confirmedSelection]="serverFolderSelected ? serverRootPath : null"
-                  (pathSelected)="onServerFolderSelected($event)" />
-              }
-            </div>
-          }
-
-          @if (isCoolifyFullStack()) {
-            <div class="wizard__folder">
-              <p class="u-label-caps">Website folder</p>
-              @if (repoOwner() && repoName() && selectedBranch()) {
-                <app-repo-folder-picker
-                  [owner]="repoOwner()!"
-                  [repo]="repoName()!"
-                  [gitRef]="selectedBranch()!"
-                  [initialPath]="websiteRootPath"
-                  [confirmedSelection]="websiteFolderSelected ? websiteRootPath : null"
-                  (pathSelected)="onWebsiteFolderSelected($event)" />
-              }
-            </div>
-            <div class="wizard__folder">
-              <p class="u-label-caps">API folder</p>
               @if (repoOwner() && repoName() && selectedBranch()) {
                 <app-repo-folder-picker
                   [owner]="repoOwner()!"

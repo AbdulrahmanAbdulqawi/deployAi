@@ -291,6 +291,22 @@ export class ProjectWizardComponent implements OnInit {
     return this.deploymentMode === 'coolify-fullstack';
   }
 
+  /**
+   * Reads the plan rather than assuming a shape. The hint used to promise "two Coolify
+   * applications" unconditionally, which contradicted the single-origin compose plan the
+   * analysis step now produces for exactly this stack.
+   */
+  coolifyFullStackHint(): string {
+    if (this.deploymentPlan()?.planKind === DeploymentPlanKind.CoolifyCompose) {
+      return 'DeployAI will create one Docker Compose deployment on your server — the site is ' +
+        'served from your domain and forwards /api to the API service internally, so there is no ' +
+        'second URL and no CORS to configure.';
+    }
+
+    return 'DeployAI will create two Coolify applications (website and API), wire environment ' +
+      'variables between them, and provision PostgreSQL when needed.';
+  }
+
   missingConnections(): string[] {
     const missing: string[] = [];
     if (this.isCoolifyFullStack()) {

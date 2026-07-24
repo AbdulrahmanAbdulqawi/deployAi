@@ -158,8 +158,13 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       return 'Deployment incomplete';
     }
 
-    const apiTarget = deployment.targets.find(t => t.providerName === 'railway');
-    const siteTarget = deployment.targets.find(t => t.providerName === 'vercel');
+    // Keyed off role, with provider only as a fallback. Matching purely on 'railway'/'vercel'
+    // meant a Coolify deployment matched neither and sat on "Preparing deployment…" for its
+    // whole run, however far along it actually was.
+    const apiTarget = deployment.targets.find(t => t.role?.toLowerCase() === 'server')
+      ?? deployment.targets.find(t => t.providerName === 'railway');
+    const siteTarget = deployment.targets.find(t => t.role?.toLowerCase() === 'website')
+      ?? deployment.targets.find(t => t.providerName === 'vercel');
 
     if (apiTarget && apiTarget.status !== 'success' && apiTarget.status !== 'failed') {
       return 'Deploying your API…';
@@ -167,6 +172,14 @@ export class PublishViewComponent implements OnInit, OnDestroy {
 
     if (siteTarget && siteTarget.status !== 'success' && siteTarget.status !== 'failed') {
       return 'Deploying your site…';
+    }
+
+    // Anything still running that we could not label by role — a publish-only app, say —
+    // is better described as in progress than as still preparing.
+    const running = deployment.targets.find(
+      t => t.status !== 'success' && t.status !== 'failed' && t.status !== 'pending');
+    if (running) {
+      return 'Publishing…';
     }
 
     return 'Preparing deployment…';

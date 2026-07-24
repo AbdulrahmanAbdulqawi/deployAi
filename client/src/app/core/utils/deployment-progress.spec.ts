@@ -80,3 +80,44 @@ describe('computeDeploymentProgress', () => {
     expect(progress?.mode).toBe('failed');
   });
 });
+
+describe('computeDeploymentProgress with two targets on one provider', () => {
+  // Both halves of a full-stack app on one Coolify server report providerName 'coolify'.
+  // Matching on provider name found only the first, so the two collapsed into a single bar.
+  it('tells the website and API apart by role', () => {
+    const progress = computeDeploymentProgress(createDeployment('in_progress', [
+      { id: '1', deployTargetId: 'a', providerName: 'coolify', role: 'server', status: 'success' },
+      { id: '2', deployTargetId: 'b', providerName: 'coolify', role: 'website', status: 'in_progress' }
+    ]));
+
+    expect(progress?.stage).toBe('website_deploying');
+    expect(progress?.label).toContain('website');
+  });
+
+  it('reports the API stage while the API half is still building', () => {
+    const progress = computeDeploymentProgress(createDeployment('in_progress', [
+      { id: '1', deployTargetId: 'a', providerName: 'coolify', role: 'server', status: 'in_progress' },
+      { id: '2', deployTargetId: 'b', providerName: 'coolify', role: 'website', status: 'pending' }
+    ]));
+
+    expect(progress?.stage).toBe('api_deploying');
+  });
+
+  // Deployments saved before roles were recorded must keep working.
+  it('falls back to provider matching when no role is present', () => {
+    const progress = computeDeploymentProgress(createDeployment('in_progress', [
+      { id: '1', deployTargetId: 'a', providerName: 'railway', status: 'in_progress' },
+      { id: '2', deployTargetId: 'b', providerName: 'vercel', status: 'pending' }
+    ]));
+
+    expect(progress?.stage).toBe('api_deploying');
+  });
+
+  it('still shows one bar for a single Coolify app with no role', () => {
+    const progress = computeDeploymentProgress(createDeployment('in_progress', [
+      { id: '1', deployTargetId: 'a', providerName: 'coolify', status: 'in_progress' }
+    ]));
+
+    expect(progress?.label).toContain('Coolify');
+  });
+});
