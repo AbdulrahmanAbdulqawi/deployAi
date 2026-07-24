@@ -173,10 +173,17 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
                 continue;
             }
 
+            // ConnectionStrings__* keys land in ASP.NET configuration, where Npgsql needs
+            // keyword syntax and StackExchange.Redis needs host:port — a postgres:// or
+            // redis:// URI fails at runtime. URL-style keys (DATABASE_URL) keep the URI.
+            var value = link.Key.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase)
+                ? ConvertUriToDotnetConnectionString(connectionString)
+                : connectionString;
+
             await UpsertEnvVarAsync(
                 credentials,
                 appProviderProjectId,
-                new UpsertProviderEnvVarRequest(link.Key, connectionString, "plain", []),
+                new UpsertProviderEnvVarRequest(link.Key, value, "plain", []),
                 cancellationToken);
 
             if (string.Equals(link.Key, "DATABASE_URL", StringComparison.OrdinalIgnoreCase))
@@ -187,6 +194,52 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
                     new UpsertProviderEnvVarRequest("POSTGRES_URL", connectionString, "plain", []),
                     cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// postgres://user:pass@host:5432/db → Host=host;Port=5432;Database=db;Username=user;Password=pass
+    /// redis://:pass@host:6379 → host:6379,password=pass. Anything that isn't one of those
+    /// URIs passes through untouched — it may already be in the right shape.
+    /// </summary>
+    internal static string ConvertUriToDotnetConnectionString(string connectionString)
+    {
+        if (!Uri.TryCreate(connectionString, UriKind.Absolute, out var uri))
+        {
+            return connectionString;
+        }
+
+        switch (uri.Scheme.ToLowerInvariant())
+        {
+            case "postgres" or "postgresql":
+            {
+                var userInfo = uri.UserInfo.Split(':', 2);
+                var username = Uri.UnescapeDataString(userInfo[0]);
+                var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+                var databaseName = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/'));
+                var port = uri.Port > 0 ? uri.Port : 5432;
+                return $"Host={uri.Host};Port={port};Database={databaseName};Username={username};Password={password}";
+            }
+            case "redis" or "rediss":
+            {
+                var port = uri.Port > 0 ? uri.Port : 6379;
+                var value = $"{uri.Host}:{port}";
+                var userInfo = uri.UserInfo.Split(':', 2);
+                var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : null;
+                if (!string.IsNullOrEmpty(password))
+                {
+                    value += $",password={password}";
+                }
+
+                if (uri.Scheme.Equals("rediss", StringComparison.OrdinalIgnoreCase))
+                {
+                    value += ",ssl=true";
+                }
+
+                return value;
+            }
+            default:
+                return connectionString;
         }
     }
 

@@ -141,6 +141,57 @@ public class CoolifyProviderDatabaseTests
         handler.VerifyNoOutstandingExpectation();
     }
 
+    [Theory]
+    // Npgsql cannot parse a postgres:// URI out of ASP.NET configuration — it needs keywords.
+    [InlineData("postgres://user:pass@db:5432/app", "Host=db;Port=5432;Database=app;Username=user;Password=pass")]
+    [InlineData("postgresql://u%40x:p%3Aw@host:5433/my-db", "Host=host;Port=5433;Database=my-db;Username=u@x;Password=p:w")]
+    // StackExchange.Redis wants host:port with options, not a redis:// URI.
+    [InlineData("redis://:secret@redis:6379", "redis:6379,password=secret")]
+    [InlineData("redis://redis:6380", "redis:6380")]
+    [InlineData("rediss://:secret@redis:6379", "redis:6379,password=secret,ssl=true")]
+    // Already-keyword values and unknown schemes pass through untouched.
+    [InlineData("Host=db;Database=app;Username=u;Password=p", "Host=db;Database=app;Username=u;Password=p")]
+    [InlineData("mysql://user:pass@db:3306/app", "mysql://user:pass@db:3306/app")]
+    public void ConvertUriToDotnetConnectionString_ConvertsPerScheme(string input, string expected)
+    {
+        Assert.Equal(expected, CoolifyProvider.ConvertUriToDotnetConnectionString(input));
+    }
+
+    [Fact]
+    public async Task LinkDatabaseVariablesAsync_ConvertsUriForConnectionStringsKeys()
+    {
+        string? upsertBody = null;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases/db-1")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "postgres_connection_string": "postgres://user:pass@db:5432/app"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+            .Respond(async req =>
+            {
+                upsertBody = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""{ "uuid": "env-1", "key": "ConnectionStrings__Default" }""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.LinkDatabaseVariablesAsync(
+            Credentials,
+            "app-api",
+            [new DatabaseVariableLink("ConnectionStrings__Default", "db-1")],
+            CancellationToken.None);
+
+        Assert.NotNull(upsertBody);
+        Assert.Contains("Host=db;Port=5432;Database=app;Username=user;Password=pass", upsertBody);
+        Assert.DoesNotContain("postgres://", upsertBody);
+    }
+
     [Fact]
     public async Task LinkDatabaseVariablesAsync_UpsertsRedisConnectionString()
     {

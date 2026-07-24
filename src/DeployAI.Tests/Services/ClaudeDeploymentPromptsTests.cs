@@ -133,7 +133,11 @@ public class ClaudeDeploymentPromptsTests
         Assert.Contains("[Recommended] src/Api/Program.cs", prompt);
         Assert.Contains("github_read_file", prompt);
         Assert.Contains("submit_deployment_files", prompt);
-        Assert.Contains("## Build Validation Step", prompt);
+        // Review, not build: the setup agent has no command execution tool, so the prompt
+        // must never instruct it to run installs/builds it cannot actually run.
+        Assert.Contains("## Configuration Review Step", prompt);
+        Assert.DoesNotContain("Run {InstallCommand}", prompt);
+        Assert.DoesNotContain("Run {BuildCommand}", prompt);
         Assert.Contains("## What NOT to Do", prompt);
         Assert.Contains("### Split-Origin Angular (Vercel + Railway)", prompt);
     }

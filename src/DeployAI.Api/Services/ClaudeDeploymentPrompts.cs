@@ -763,14 +763,12 @@ internal static class ClaudeDeploymentPrompts
         builder.AppendLine("Do NOT return JSON as plain text or markdown fences. The tool will validate syntax and file paths.");
         builder.AppendLine();
 
-        builder.AppendLine("## Build Validation Step");
-        builder.AppendLine("After submit_deployment_files returns successfully:");
-        builder.AppendLine("- For each part in the deployment plan:");
-        builder.AppendLine("  - Change to {RootDirectory}");
-        builder.AppendLine("  - Run {InstallCommand} to install dependencies");
-        builder.AppendLine("  - Run {BuildCommand} to build the artifact");
-        builder.AppendLine("  - Verify the build succeeds (exit code 0)");
-        builder.AppendLine("  - Verify output lands in {OutputDirectory} (if specified)");
+        // No run-your-build instructions here: this agent has no command execution tool
+        // (only the fix agent does), so asking it to run installs/builds produced either
+        // hallucinated "build succeeded" reports or confusion — review what it can read.
+        builder.AppendLine("## Configuration Review Step");
+        builder.AppendLine("After submit_deployment_files returns successfully, review what you wrote.");
+        builder.AppendLine("You cannot run commands, so do not claim to have built anything.");
         builder.AppendLine("- Validate generated config files:");
         builder.AppendLine("  - JSON files: parse and verify no syntax errors");
         builder.AppendLine("  - YAML/TOML files: validate format");
@@ -783,14 +781,8 @@ internal static class ClaudeDeploymentPrompts
         builder.AppendLine("  - Mismatched start commands vs. framework conventions");
         builder.AppendLine("  - Hardcoded URLs or secrets");
         builder.AppendLine("- Report results:");
-        builder.AppendLine("  - List all builds that succeeded");
-        builder.AppendLine("  - If any build fails, show the error and suggest fixes");
         builder.AppendLine("  - If config validation fails, report the specific issue");
         builder.AppendLine("  - If common issues are detected, warn the user before deployment");
-        builder.AppendLine("- Stop on first critical failure:");
-        builder.AppendLine("  - If a build fails, do not proceed");
-        builder.AppendLine("  - Do not attempt to build subsequent parts until the failure is resolved");
-        builder.AppendLine("  - Provide clear error messages and context");
         builder.AppendLine();
 
         builder.AppendLine("## Workflow Example");

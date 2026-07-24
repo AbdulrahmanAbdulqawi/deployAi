@@ -124,7 +124,12 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
         var seenEntries = 0;
         var idleRounds = 0;
 
-        while (!cancellationToken.IsCancellationRequested && idleRounds < 120)
+        // 2s polls → 15 minutes of allowed silence. Docker builds with large layers go
+        // quiet for far longer than the old 4-minute cap, which false-timed-out mid-build;
+        // a deployment that truly hangs is ended by the terminal-status check, not by this.
+        const int maxIdleRounds = 450;
+
+        while (!cancellationToken.IsCancellationRequested && idleRounds < maxIdleRounds)
         {
             var deployment = await GetDeploymentAsync(session, deploymentId, cancellationToken);
             var entries = ParseLogEntries(deployment.Logs);
@@ -220,17 +225,15 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
     private static DeploymentStatus MapStatus(CoolifyDeployment deployment)
     {
         var status = deployment.Status?.Trim().ToLowerInvariant();
-        var deployUrl = NormalizeUrl(deployment.DeploymentUrl);
+        // deployment_url is an instance-relative page path ("project/.../deployment/..."),
+        // not the app's address — normalizing it produced garbage like "https://project/...".
+        // The app URL comes from the application's fqdn, resolved by callers.
+        var deployUrl = (string?)null;
 
         return status switch
         {
             "finished" => new DeploymentStatus(DeploymentStatusKind.Success, deployUrl, null),
-            "failed" or "cancelled" or "cancelled-by-user" => new DeploymentStatus(
-                DeploymentStatusKind.Failed,
-                deployUrl,
-                // Same JSON-array shape: the raw last "line" was a fragment of JSON.
-                ParseLogEntries(deployment.Logs).LastOrDefault()
-                    ?? "Publishing did not go through on Coolify."),
+            "failed" or "cancelled" or "cancelled-by-user" => MapUnsuccessfulStatus(deployment, deployUrl),
             "queued" or "in_progress" or "running" => new DeploymentStatus(
                 DeploymentStatusKind.InProgress,
                 deployUrl,
@@ -238,6 +241,33 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
             _ => new DeploymentStatus(DeploymentStatusKind.InProgress, deployUrl, null)
         };
     }
+
+    /// <summary>
+    /// Coolify's status flag lies for compose apps: a deployment read as "failed" mid-poll
+    /// showed "Finished" in the UI minutes later, with its log ending in a completed rollout
+    /// (observed repeatedly against v4.1.2). The log is the reliable witness — when it says
+    /// the rollout finished, trust it over the flag.
+    /// </summary>
+    private static DeploymentStatus MapUnsuccessfulStatus(CoolifyDeployment deployment, string? deployUrl)
+    {
+        var lines = ParseLogEntries(deployment.Logs);
+        if (lines.Any(IsRolloutCompletedMarker))
+        {
+            return new DeploymentStatus(DeploymentStatusKind.Success, deployUrl, null);
+        }
+
+        return new DeploymentStatus(
+            DeploymentStatusKind.Failed,
+            deployUrl,
+            // Same JSON-array shape: the raw last "line" was a fragment of JSON.
+            lines.LastOrDefault() ?? "Publishing did not go through on Coolify.");
+    }
+
+    // Coolify's own end-of-rollout lines. "New container started." closes a compose/rolling
+    // update; "Rolling update completed." closes a single-container one.
+    internal static bool IsRolloutCompletedMarker(string line) =>
+        line.Contains("New container started", StringComparison.OrdinalIgnoreCase) ||
+        line.Contains("Rolling update completed", StringComparison.OrdinalIgnoreCase);
 
     private async Task<CoolifyDeployment> GetDeploymentAsync(
         CoolifyApiSupport.CoolifySession session,
