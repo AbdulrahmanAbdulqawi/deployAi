@@ -449,6 +449,13 @@ export interface StorageBucket {
   createdAt?: string | null;
 }
 
+/** An environment variable DeployAI manages for an app — viewable and editable after deploy. */
+export interface EnvVariable {
+  key: string;
+  value: string;
+  isSecret: boolean;
+}
+
 /** One env var the repo was detected to need, with an optional server-suggested value. */
 export interface EnvSchemaVar {
   name: string;

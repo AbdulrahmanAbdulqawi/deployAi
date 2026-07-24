@@ -40,7 +40,8 @@ import {
   UseBranchDeployResult,
   StorageConnectionSummary,
   StorageBucket,
-  EnvSchemaVar
+  EnvSchemaVar,
+  EnvVariable
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -736,6 +737,20 @@ export class ApiService {
     return this.http.post<{ applied: string[] }>(
       `/api/projects/${projectId}/environment/compose`,
       { variables }
+    );
+  }
+
+  /** The env vars DeployAI manages for this app — for viewing and editing after deploy. */
+  getEnvironment(projectId: string) {
+    return this.http.get<{ variables: EnvVariable[] }>(
+      `/api/projects/${projectId}/environment`
+    );
+  }
+
+  /** Removes a single env var from the live app and DeployAI's store. */
+  deleteEnvironmentVariable(projectId: string, key: string) {
+    return this.http.delete<{ deleted: string }>(
+      `/api/projects/${projectId}/environment/${encodeURIComponent(key)}`
     );
   }
 

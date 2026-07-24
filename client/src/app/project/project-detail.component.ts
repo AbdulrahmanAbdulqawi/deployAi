@@ -14,7 +14,8 @@ import {
   ProjectServiceView,
   ProjectServicesResponse,
   ProviderEnvVar,
-  ProviderName
+  ProviderName,
+  EnvVariable
 } from '../core/models/api.models';
 import {
   databaseEngineLabel,
@@ -83,6 +84,17 @@ export class ProjectDetailComponent implements OnInit {
 
   newEnvKey: Record<string, string> = {};
   newEnvValue: Record<string, string> = {};
+
+  // The DeployAI-managed environment variables (the set entered in the wizard), editable here.
+  readonly managedEnv = signal<EnvVariable[]>([]);
+  readonly loadingManagedEnv = signal(false);
+  readonly savingManagedEnvKey = signal<string | null>(null);
+  readonly revealedEnv = signal<Record<string, boolean>>({});
+  // Working copy of each var's value, so edits stay local until saved.
+  managedEnvDraft: Record<string, string> = {};
+  newManagedKey = '';
+  newManagedValue = '';
+  newManagedSecret = false;
 
   projectId = '';
 
@@ -641,12 +653,115 @@ export class ProjectDetailComponent implements OnInit {
       next: (project) => {
         this.project.set(project);
         this.loadServices();
+        this.loadManagedEnv();
         if (this.aiSetup.enabled()) {
           this.loadDeploymentReadiness();
         }
         this.loadLatestDeployment();
       },
       error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not load that app.')
+    });
+  }
+
+  private loadManagedEnv(): void {
+    this.loadingManagedEnv.set(true);
+    this.api.getEnvironment(this.projectId).subscribe({
+      next: (response) => {
+        const vars = [...response.variables].sort((a, b) => a.key.localeCompare(b.key));
+        this.managedEnv.set(vars);
+        this.managedEnvDraft = Object.fromEntries(vars.map(v => [v.key, v.value]));
+        this.revealedEnv.set({});
+        this.loadingManagedEnv.set(false);
+      },
+      error: () => {
+        this.managedEnv.set([]);
+        this.loadingManagedEnv.set(false);
+      }
+    });
+  }
+
+  isEnvRevealed(key: string): boolean {
+    return this.revealedEnv()[key] ?? false;
+  }
+
+  toggleEnvReveal(key: string): void {
+    this.revealedEnv.update(state => ({ ...state, [key]: !state[key] }));
+  }
+
+  envValueChanged(item: EnvVariable): boolean {
+    return (this.managedEnvDraft[item.key] ?? '') !== item.value;
+  }
+
+  saveManagedEnv(item: EnvVariable): void {
+    const value = this.managedEnvDraft[item.key] ?? '';
+    if (!value || value === item.value) {
+      return;
+    }
+
+    this.savingManagedEnvKey.set(item.key);
+    this.api.setComposeEnvironment(this.projectId, [
+      { key: item.key, value, isSecret: item.isSecret }
+    ]).subscribe({
+      next: () => {
+        this.savingManagedEnvKey.set(null);
+        this.toast.success(`${item.key} saved. Redeploy to apply it.`);
+        this.loadManagedEnv();
+      },
+      error: (err) => {
+        this.savingManagedEnvKey.set(null);
+        this.toast.error(err?.error?.error?.message ?? 'Could not save that variable.');
+      }
+    });
+  }
+
+  addManagedEnv(): void {
+    const key = this.newManagedKey.trim();
+    const value = this.newManagedValue;
+    if (!key || !value) {
+      return;
+    }
+
+    this.savingManagedEnvKey.set(key);
+    this.api.setComposeEnvironment(this.projectId, [
+      { key, value, isSecret: this.newManagedSecret }
+    ]).subscribe({
+      next: () => {
+        this.savingManagedEnvKey.set(null);
+        this.newManagedKey = '';
+        this.newManagedValue = '';
+        this.newManagedSecret = false;
+        this.toast.success(`${key} added. Redeploy to apply it.`);
+        this.loadManagedEnv();
+      },
+      error: (err) => {
+        this.savingManagedEnvKey.set(null);
+        this.toast.error(err?.error?.error?.message ?? 'Could not add that variable.');
+      }
+    });
+  }
+
+  async deleteManagedEnv(item: EnvVariable): Promise<void> {
+    const confirmed = await this.confirm.ask({
+      title: `Remove ${item.key}?`,
+      message: 'This removes the variable from the live app and from DeployAI. Redeploy to apply.',
+      confirmLabel: 'Remove',
+      destructive: true
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    this.savingManagedEnvKey.set(item.key);
+    this.api.deleteEnvironmentVariable(this.projectId, item.key).subscribe({
+      next: () => {
+        this.savingManagedEnvKey.set(null);
+        this.toast.success(`${item.key} removed.`);
+        this.loadManagedEnv();
+      },
+      error: (err) => {
+        this.savingManagedEnvKey.set(null);
+        this.toast.error(err?.error?.error?.message ?? 'Could not remove that variable.');
+      }
     });
   }
 
