@@ -177,6 +177,57 @@ public class RepositoryClassifierTests
     }
 
     [Fact]
+    // yemenConnect's layout: a Next.js app two levels deep (apps/web) and a .NET API three
+    // levels deep (backend/src/YemenHub.Api). Detection previously collapsed to low-confidence
+    // because the scan stopped one level below the root.
+    public async Task ClassifyAsync_NestedMonorepo_DetectsNextAndDeeplyNestedDotnet()
+    {
+        SetupRootContents(["apps", "backend", "docs", "infra", "scripts"]);
+        SetupDirectorySubdirectories("apps", ["web"]);
+        SetupDirectoryContents("apps/web", ["next.config.ts", "package.json"]);
+        SetupFile("apps/web/package.json", """
+            {
+              "dependencies": { "next": "16.2.10", "react": "19.2.4" },
+              "scripts": { "build": "next build", "start": "next start" }
+            }
+            """);
+
+        SetupDirectorySubdirectories("backend", ["src", "tests"]);
+        SetupDirectorySubdirectories("backend/src", ["YemenHub.Api", "YemenHub.Modules", "YemenHub.Persistence"]);
+        SetupDirectoryContents("backend/src/YemenHub.Api", ["YemenHub.Api.csproj"]);
+        // A modular monolith: the API csproj references sibling projects, so the build context
+        // is the parent (backend/src) and the publish path is relative to it.
+        SetupFile("backend/src/YemenHub.Api/YemenHub.Api.csproj", """
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <ItemGroup>
+                <ProjectReference Include="..\YemenHub.Modules\YemenHub.Modules.csproj" />
+                <ProjectReference Include="..\YemenHub.Persistence\YemenHub.Persistence.csproj" />
+              </ItemGroup>
+            </Project>
+            """);
+
+        // Never reached (apps/backend resolve first), but kept empty so a ranking change can't NPE.
+        SetupDirectorySubdirectories("docs", []);
+        SetupDirectorySubdirectories("infra", []);
+        SetupDirectorySubdirectories("scripts", []);
+
+        var plan = await ClassifyAsync();
+
+        Assert.Equal("high", plan.Confidence);
+        Assert.Equal(2, plan.Parts.Count);
+
+        var website = plan.Parts.Single(part => part.Role == "website");
+        Assert.Equal("next", website.Framework);
+        Assert.Equal("apps/web", website.RootDirectory);
+
+        var server = plan.Parts.Single(part => part.Role == "server");
+        Assert.Equal("dotnet", server.Framework);
+        Assert.Equal("backend/src", server.RootDirectory);
+        Assert.Equal("backend/src/YemenHub.Api", server.ServiceDirectory);
+        Assert.Equal("dotnet publish YemenHub.Api/YemenHub.Api.csproj -c Release -o out", server.BuildCommand);
+    }
+
+    [Fact]
     public async Task ClassifyAsync_ServerWithPostgres_IncludesDatabasePart()
     {
         SetupRootContents(["api"]);

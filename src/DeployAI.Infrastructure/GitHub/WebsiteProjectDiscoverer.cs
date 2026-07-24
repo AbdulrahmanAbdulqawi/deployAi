@@ -10,6 +10,37 @@ public static class WebsiteProjectDiscoverer
         "app"
     ];
 
+    // Directories that hold projects rather than being one — a monorepo nests the web app
+    // under apps/web, packages/web, etc. We descend into these to find the real frontend.
+    private static readonly string[] ContainerDirectoryNames =
+    [
+        "apps",
+        "packages",
+        "projects",
+        "services",
+        "src"
+    ];
+
+    public static bool ShouldScanNestedSubdirectories(string directoryPath) =>
+        ContainerDirectoryNames.Any(container =>
+            string.Equals(LeafName(directoryPath), container, StringComparison.OrdinalIgnoreCase));
+
+    public static IReadOnlyList<string> ExpandNestedCandidates(string parentDirectory, IEnumerable<string> subdirectoryNames)
+    {
+        if (!ShouldScanNestedSubdirectories(parentDirectory))
+        {
+            return [];
+        }
+
+        var normalizedParent = parentDirectory.Trim().Trim('/');
+        return RankCandidates(subdirectoryNames)
+            .Select(name => string.IsNullOrEmpty(normalizedParent) ? name : $"{normalizedParent}/{name}")
+            .ToList();
+    }
+
+    private static string LeafName(string path) =>
+        path.Trim().Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
+
     public static IReadOnlyList<string> RankCandidates(IEnumerable<string> directoryNames)
     {
         var ranked = directoryNames

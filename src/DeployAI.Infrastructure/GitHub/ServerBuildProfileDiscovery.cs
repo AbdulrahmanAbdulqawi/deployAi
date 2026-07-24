@@ -59,12 +59,15 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
 
         foreach (var candidate in ServerProjectDiscoverer.RankCandidates(rootDirectories))
         {
+            // Depth 2 lets a nested layout like backend/src/YemenHub.Api resolve: the candidate
+            // (backend) is scanned, then its container children (src), then theirs (YemenHub.Api).
             var candidateProfile = await DiscoverAtCandidateAsync(
                 accessToken,
                 owner,
                 repo,
                 candidate,
                 gitRef,
+                nestedDepthRemaining: 2,
                 cancellationToken);
             if (candidateProfile.Framework is not null)
             {
@@ -81,6 +84,7 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
         string repo,
         string candidate,
         string? gitRef,
+        int nestedDepthRemaining,
         CancellationToken cancellationToken)
     {
         var candidateProfile = await BuildServerProfileAtPathAsync(
@@ -95,7 +99,7 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
             return candidateProfile;
         }
 
-        if (!ServerProjectDiscoverer.ShouldScanNestedSubdirectories(candidate))
+        if (nestedDepthRemaining <= 0 || !ServerProjectDiscoverer.ShouldScanNestedSubdirectories(candidate))
         {
             return candidateProfile;
         }
@@ -114,12 +118,13 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
 
         foreach (var nestedPath in ServerProjectDiscoverer.ExpandNestedCandidates(candidate, subdirectories))
         {
-            var nestedProfile = await BuildServerProfileAtPathAsync(
+            var nestedProfile = await DiscoverAtCandidateAsync(
                 accessToken,
                 owner,
                 repo,
                 nestedPath,
                 gitRef,
+                nestedDepthRemaining - 1,
                 cancellationToken);
             if (nestedProfile.Framework is not null)
             {

@@ -54,9 +54,13 @@ public static class ServerProjectDiscoverer
         FrontendDirectoryNames.Any(frontend =>
             string.Equals(name, frontend, StringComparison.OrdinalIgnoreCase));
 
-    public static bool ShouldScanNestedSubdirectories(string directoryName) =>
+    public static bool ShouldScanNestedSubdirectories(string directoryPath) =>
         ContainerDirectoryNames.Any(container =>
-            string.Equals(directoryName, container, StringComparison.OrdinalIgnoreCase));
+            string.Equals(LeafName(directoryPath), container, StringComparison.OrdinalIgnoreCase));
+
+    // The recursion passes full paths ("backend/src"); container matching is on the leaf.
+    private static string LeafName(string path) =>
+        path.Trim().Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? string.Empty;
 
     public static bool HasServerSignals(IEnumerable<GitHubContentItem> contents)
     {

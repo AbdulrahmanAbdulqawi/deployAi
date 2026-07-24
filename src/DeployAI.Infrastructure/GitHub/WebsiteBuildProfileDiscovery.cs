@@ -71,21 +71,17 @@ public sealed class WebsiteBuildProfileDiscovery : IWebsiteBuildProfileDiscovery
 
         foreach (var candidate in WebsiteProjectDiscoverer.RankCandidates(rootDirectories))
         {
-            var candidateProfile = await BuildWebsiteProfileAtPathAsync(
+            // Depth 2 lets a nested layout like apps/web resolve: the candidate (apps) has no
+            // frontend of its own, so we descend into its ranked children (web).
+            var candidateProfile = await DiscoverAtCandidateAsync(
                 accessToken,
                 owner,
                 repo,
                 candidate,
                 gitRef,
+                nestedDepthRemaining: 2,
                 cancellationToken);
-            if (candidateProfile.Framework is not null)
-            {
-                return candidateProfile;
-            }
-
-            var candidateContents = await _gitHubService.ListAllContentsAsync(
-                accessToken, owner, repo, candidate, gitRef, cancellationToken);
-            if (HasStaticSiteSignal(candidateContents))
+            if (candidateProfile?.Framework is not null)
             {
                 return candidateProfile;
             }
@@ -99,6 +95,57 @@ public sealed class WebsiteBuildProfileDiscovery : IWebsiteBuildProfileDiscovery
         }
 
         return profile.Framework is not null ? profile : null;
+    }
+
+    /// <summary>
+    /// Resolves a website at <paramref name="candidate"/> or, when it is a monorepo container
+    /// (apps, packages, src…), inside its ranked children up to <paramref name="nestedDepthRemaining"/>
+    /// more levels. Returns a profile only when a framework or static site is found.
+    /// </summary>
+    private async Task<FrontendBuildProfile?> DiscoverAtCandidateAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string candidate,
+        string? gitRef,
+        int nestedDepthRemaining,
+        CancellationToken cancellationToken)
+    {
+        var candidateProfile = await BuildWebsiteProfileAtPathAsync(
+            accessToken, owner, repo, candidate, gitRef, cancellationToken);
+        if (candidateProfile.Framework is not null)
+        {
+            return candidateProfile;
+        }
+
+        var candidateContents = await _gitHubService.ListAllContentsAsync(
+            accessToken, owner, repo, candidate, gitRef, cancellationToken);
+        if (HasStaticSiteSignal(candidateContents))
+        {
+            return candidateProfile;
+        }
+
+        if (nestedDepthRemaining <= 0 || !WebsiteProjectDiscoverer.ShouldScanNestedSubdirectories(candidate))
+        {
+            return null;
+        }
+
+        var subdirectories = candidateContents
+            .Where(item => string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.Name)
+            .ToList();
+
+        foreach (var nestedPath in WebsiteProjectDiscoverer.ExpandNestedCandidates(candidate, subdirectories))
+        {
+            var nestedProfile = await DiscoverAtCandidateAsync(
+                accessToken, owner, repo, nestedPath, gitRef, nestedDepthRemaining - 1, cancellationToken);
+            if (nestedProfile?.Framework is not null)
+            {
+                return nestedProfile;
+            }
+        }
+
+        return null;
     }
 
     private async Task<FrontendBuildProfile> BuildWebsiteProfileAtPathAsync(
