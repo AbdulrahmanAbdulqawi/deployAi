@@ -13,13 +13,16 @@ public class CoolifyProviderComposeTests
     private static readonly ProviderCredentials Credentials =
         new(CoolifyCredentialStorage.Serialize(InstanceUrl, "coolify-token"));
 
+    // Coolify has no /applications/dockercompose route — a live v4.1.2 instance 404s it while
+    // answering /applications/public. A compose app is created through the same git-backed
+    // endpoint as any other; build_pack is what makes it compose.
     [Fact]
-    public async Task CreateProjectAsync_UsesComposeEndpoint_AndPassesComposeLocation()
+    public async Task CreateProjectAsync_CreatesComposeAppThroughThePublicEndpoint()
     {
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         var createBody = CaptureJson(
-            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public"),
             HttpStatusCode.Created,
             """{ "uuid": "app-compose" }""");
         StubApplication(handler, "app-compose");
@@ -28,7 +31,8 @@ public class CoolifyProviderComposeTests
         await provider.CreateProjectAsync(Credentials, ComposeRequest(), CancellationToken.None);
 
         // Not the default docker-compose.yml — that is usually the repo's local dev stack.
-        Assert.Equal("docker-compose.coolify.yml", createBody.Value.GetProperty("docker_compose_location").GetString());
+        // Rooted at the repo: Coolify rejects a bare relative path.
+        Assert.Equal("/docker-compose.coolify.yml", createBody.Value.GetProperty("docker_compose_location").GetString());
         Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
     }
 
@@ -38,7 +42,7 @@ public class CoolifyProviderComposeTests
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         var createBody = CaptureJson(
-            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public"),
             HttpStatusCode.Created,
             """{ "uuid": "app-compose" }""");
         StubApplication(handler, "app-compose");
@@ -69,7 +73,7 @@ public class CoolifyProviderComposeTests
     {
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose")
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
             .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
         var patchBody = CaptureJson(
             handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
@@ -97,7 +101,7 @@ public class CoolifyProviderComposeTests
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         var createBody = CaptureJson(
-            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public"),
             HttpStatusCode.Created,
             """{ "uuid": "app-compose" }""");
         handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
@@ -119,7 +123,7 @@ public class CoolifyProviderComposeTests
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         var createBody = CaptureJson(
-            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose"),
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public"),
             HttpStatusCode.Created,
             """{ "uuid": "app-compose" }""");
         StubApplication(handler, "app-compose");
@@ -136,7 +140,7 @@ public class CoolifyProviderComposeTests
     {
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose")
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
             .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
         handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose")
             .Respond(HttpStatusCode.UnprocessableEntity, "application/json", """{ "message": "Domain already in use." }""");
@@ -191,14 +195,16 @@ public class CoolifyProviderComposeTests
     }
 
     [Fact]
-    public async Task CreateProjectAsync_UsesComposePrivateEndpoint_ForPrivateRepos()
+    public async Task CreateProjectAsync_UsesPrivateGithubAppEndpoint_ForPrivateComposeRepos()
     {
         var handler = new MockHttpMessageHandler();
         StubInfrastructure(handler);
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/github-apps")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "gh-1", "name": "Deploy" }]""");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/dockercompose-private-github-app")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-compose" }""");
+        var createBody = CaptureJson(
+            handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/private-github-app"),
+            HttpStatusCode.Created,
+            """{ "uuid": "app-compose" }""");
         StubApplication(handler, "app-compose");
 
         var provider = new CoolifyProvider(handler.ToHttpClient());
@@ -208,6 +214,7 @@ public class CoolifyProviderComposeTests
             CancellationToken.None);
 
         Assert.Equal("app-compose", project.Id);
+        Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
     }
 
     private static CreateProviderProjectRequest ComposeRequest() =>

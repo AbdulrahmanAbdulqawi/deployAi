@@ -95,18 +95,20 @@ public sealed partial class CoolifyProvider
             }
         }
 
+        // Compose apps are created through the same git-backed endpoints as any other; the
+        // build pack is what makes them compose. Coolify has no /applications/dockercompose
+        // route — verified against a live v4.1.2 instance, which 404s it while answering the
+        // routes below.
         string createPath;
         if (request.IsPrivateRepository)
         {
             var githubAppUuid = await ResolveGithubAppUuidAsync(session, request, cancellationToken);
             body["github_app_uuid"] = githubAppUuid;
-            createPath = isCompose
-                ? "applications/dockercompose-private-github-app"
-                : "applications/private-github-app";
+            createPath = "applications/private-github-app";
         }
         else
         {
-            createPath = isCompose ? "applications/dockercompose" : "applications/public";
+            createPath = "applications/public";
         }
 
         using var createRequest = CreateRequest(HttpMethod.Post, session, createPath);
@@ -193,12 +195,14 @@ public sealed partial class CoolifyProvider
     }
 
     /// <summary>
-    /// Coolify resolves this against the repository root and rejects a leading slash.
+    /// Coolify expects this rooted at the repository with a leading slash, and rejects a bare
+    /// relative path with "The docker compose location field format is invalid" — verified
+    /// against a live v4.1.2 instance.
     /// </summary>
     private static string NormalizeComposeLocation(string? location)
     {
         var trimmed = location?.Trim().Replace('\\', '/').TrimStart('/');
-        return string.IsNullOrWhiteSpace(trimmed) ? "docker-compose.yml" : trimmed;
+        return string.IsNullOrWhiteSpace(trimmed) ? "/docker-compose.yml" : $"/{trimmed}";
     }
 
     public async Task<IReadOnlyList<ProviderEnvVar>> ListEnvVarsAsync(

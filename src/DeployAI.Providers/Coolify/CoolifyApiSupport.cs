@@ -31,10 +31,33 @@ internal static class CoolifyApiSupport
         try
         {
             using var document = JsonDocument.Parse(responseBody);
-            if (document.RootElement.TryGetProperty("message", out var message) &&
-                message.ValueKind == JsonValueKind.String)
+            var message = document.RootElement.TryGetProperty("message", out var messageElement) &&
+                          messageElement.ValueKind == JsonValueKind.String
+                ? messageElement.GetString()
+                : null;
+
+            // Coolify answers a rejected body with a bare "Validation failed." plus a separate
+            // `errors` map naming the fields. Without the map the message says nothing at all
+            // about what to change.
+            if (document.RootElement.TryGetProperty("errors", out var errors) &&
+                errors.ValueKind == JsonValueKind.Object)
             {
-                return message.GetString();
+                var details = errors
+                    .EnumerateObject()
+                    .Select(field => $"{field.Name}: {DescribeFieldErrors(field.Value)}")
+                    .ToList();
+
+                if (details.Count > 0)
+                {
+                    return string.IsNullOrWhiteSpace(message)
+                        ? string.Join("; ", details)
+                        : $"{message} {string.Join("; ", details)}";
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                return message;
             }
         }
         catch (JsonException)
@@ -43,6 +66,18 @@ internal static class CoolifyApiSupport
         }
 
         return responseBody.Length > 300 ? responseBody[..300] : responseBody;
+    }
+
+    private static string DescribeFieldErrors(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            return string.Join(", ", value.EnumerateArray()
+                .Where(item => item.ValueKind == JsonValueKind.String)
+                .Select(item => item.GetString()));
+        }
+
+        return value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
     }
 
     internal static Uri BuildApiUri(CoolifySession session, string path)
