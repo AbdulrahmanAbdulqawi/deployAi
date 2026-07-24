@@ -44,4 +44,22 @@ public class RailwayDatabaseProvisioningServiceTests
         Assert.Contains(links, link => link.Key == "ConnectionStrings__Redis" && link.ReferenceValue == "db-redis");
         Assert.Contains(links, link => link.Key == "REDIS_URL" && link.ReferenceValue == "db-redis");
     }
+
+    [Fact]
+    // yemenConnect reads ConnectionStrings:Postgres and ConnectionStrings:Redis (not the
+    // conventional "Default"), so the provisioned databases must be wired to those exact keys or
+    // the app never sees them.
+    public void BuildCoolifyVariableLinks_WiresDetectedConnectionStringKeys()
+    {
+        var links = RailwayDatabaseProvisioningService.BuildCoolifyVariableLinks(
+            new ProvisionedDatabaseService("db-pg", "yemenhub-postgres", "proj-1", "env-1"),
+            new ProvisionedDatabaseService("db-redis", "yemenhub-redis", "proj-1", "env-1"),
+            detectedConnectionStringKeys: ["Postgres", "Redis"]);
+
+        // The app's own key gets the Postgres service; the Redis-named key gets Redis.
+        Assert.Contains(links, link => link.Key == "ConnectionStrings__Postgres" && link.ReferenceValue == "db-pg");
+        Assert.Contains(links, link => link.Key == "ConnectionStrings__Redis" && link.ReferenceValue == "db-redis");
+        // Still keyless-safe: no duplicate ConnectionStrings__Redis.
+        Assert.Single(links, link => link.Key == "ConnectionStrings__Redis");
+    }
 }

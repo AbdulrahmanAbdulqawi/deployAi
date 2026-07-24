@@ -9,7 +9,10 @@ public sealed record ProvisionedDatabaseService(
 public sealed record DatabaseProvisioningRequest(
     bool IncludePostgres,
     bool IncludeRedis,
-    string? PostgresDatabaseName = null);
+    string? PostgresDatabaseName = null,
+    // The ConnectionStrings:* keys the app actually reads (from appsettings), so the wired env
+    // vars match — an app that names its connection "Postgres" won't read "Default".
+    IReadOnlyList<string>? ConnectionStringKeys = null);
 
 public sealed record DatabaseVariableLink(
     string Key,

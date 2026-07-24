@@ -100,7 +100,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             new DatabaseProvisioningRequest(
                 profile.RequiresPostgres,
                 profile.RequiresRedis,
-                profile.PostgresDatabaseName),
+                profile.PostgresDatabaseName,
+                profile.ConnectionStringKeys),
             cancellationToken);
     }
 
@@ -209,7 +210,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         }
 
         var links = string.Equals(serverTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase)
-            ? BuildCoolifyVariableLinks(postgres, redis)
+            ? BuildCoolifyVariableLinks(postgres, redis, request.ConnectionStringKeys)
             : BuildVariableLinks(postgres?.ServiceName, redis?.ServiceName);
         if (links.Count > 0)
         {
@@ -251,20 +252,49 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
 
     internal static IReadOnlyList<DatabaseVariableLink> BuildCoolifyVariableLinks(
         ProvisionedDatabaseService? postgres,
-        ProvisionedDatabaseService? redis)
+        ProvisionedDatabaseService? redis,
+        IReadOnlyList<string>? detectedConnectionStringKeys = null)
     {
         var links = new List<DatabaseVariableLink>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string key, string value)
+        {
+            if (seen.Add(key))
+            {
+                links.Add(new DatabaseVariableLink(key, value));
+            }
+        }
+
         if (postgres is not null && !string.IsNullOrWhiteSpace(postgres.ServiceId))
         {
-            links.Add(new DatabaseVariableLink("DATABASE_URL", postgres.ServiceId));
-            links.Add(new DatabaseVariableLink("ConnectionStrings__Default", postgres.ServiceId));
-            links.Add(new DatabaseVariableLink("ConnectionStrings__DefaultConnection", postgres.ServiceId));
+            Add("DATABASE_URL", postgres.ServiceId);
+            Add("ConnectionStrings__Default", postgres.ServiceId);
+            Add("ConnectionStrings__DefaultConnection", postgres.ServiceId);
         }
 
         if (redis is not null && !string.IsNullOrWhiteSpace(redis.ServiceId))
         {
-            links.Add(new DatabaseVariableLink("ConnectionStrings__Redis", redis.ServiceId));
-            links.Add(new DatabaseVariableLink("REDIS_URL", redis.ServiceId));
+            Add("ConnectionStrings__Redis", redis.ServiceId);
+            Add("REDIS_URL", redis.ServiceId);
+        }
+
+        // Also set the ConnectionStrings key the app actually reads (from appsettings). Without
+        // this, an app that names its connection "Postgres" — not "Default" — never sees the
+        // provisioned database. Redis-named keys point at Redis; everything else at Postgres.
+        foreach (var key in detectedConnectionStringKeys ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                continue;
+            }
+
+            var isRedisKey = key.Contains("redis", StringComparison.OrdinalIgnoreCase);
+            var service = isRedisKey ? redis : postgres;
+            if (service is not null && !string.IsNullOrWhiteSpace(service.ServiceId))
+            {
+                Add($"ConnectionStrings__{key.Trim()}", service.ServiceId);
+            }
         }
 
         return links;
