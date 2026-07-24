@@ -691,7 +691,7 @@ export class ProjectDetailComponent implements OnInit {
           }
         }
 
-        if (response.hasRailwayServer) {
+        if (response.hasManagedServer) {
           this.loadDatabaseRequirements();
         }
       },

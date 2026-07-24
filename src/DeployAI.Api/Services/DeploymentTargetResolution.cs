@@ -6,6 +6,11 @@ namespace DeployAI.Api.Services;
 
 internal static class DeploymentTargetResolution
 {
+    // Role is written for every target the wizard creates, so it is the authoritative signal.
+    // The provider-name fallback exists only for legacy role-less targets — and it must never
+    // include Coolify: a single-origin compose app is one Coolify target, so matching it by
+    // provider for BOTH website and server collapsed the two roles onto the same target and
+    // then ran Railway-shaped cross-wiring against it. Coolify resolves by role or not at all.
     internal static DeploymentTarget? FindWebsiteTarget(IEnumerable<DeploymentTarget> targets)
     {
         var list = targets.ToList();
@@ -16,8 +21,7 @@ internal static class DeploymentTargetResolution
         }
 
         return list.FirstOrDefault(target =>
-            string.Equals(target.ProviderName, ProviderNameValues.Vercel, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
+            string.Equals(target.ProviderName, ProviderNameValues.Vercel, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static DeploymentTarget? FindServerTarget(IEnumerable<DeploymentTarget> targets)
@@ -30,8 +34,7 @@ internal static class DeploymentTargetResolution
         }
 
         return list.FirstOrDefault(target =>
-            string.Equals(target.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
+            string.Equals(target.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static bool IsCoolifyFullStack(IEnumerable<DeploymentTarget> targets)

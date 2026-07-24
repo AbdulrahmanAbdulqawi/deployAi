@@ -287,15 +287,9 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
             links.Add(new DatabaseVariableLink(
                 "ConnectionStrings__DefaultConnection",
                 defaultDatabaseReference));
-            links.Add(new DatabaseVariableLink(
-                "ConnectionStrings__AdminConnection",
-                $"{postgresHostReference};Database=postgres"));
-            links.Add(new DatabaseVariableLink(
-                "ConnectionStrings__TenantTemplate",
-                $"{postgresHostReference};Database=postgres"));
-            links.Add(new DatabaseVariableLink(
-                "ConnectionStrings__TestConnection",
-                $"{postgresHostReference};Database=idaara_test"));
+            // AdminConnection / TenantTemplate / TestConnection (the last hardcoded to
+            // Database=idaara_test) were app-specific to a multi-tenant project and were being
+            // written into every deployment. A generic app gets only the default connection.
         }
 
         if (!string.IsNullOrWhiteSpace(redisServiceName))

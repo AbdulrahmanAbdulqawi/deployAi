@@ -17,6 +17,8 @@ public sealed record ProjectServiceView(
 public sealed record ProjectServicesResponse(
     IReadOnlyList<ProjectServiceView> ApplicationServices,
     IReadOnlyList<ProjectServiceView> DataServices,
-    bool HasRailwayServer,
+    // True when a server target runs on a provider that can provision managed databases
+    // (Railway or Coolify) — not Railway-only, which hid Coolify's database management.
+    bool HasManagedServer,
     bool IncludePostgres,
     bool IncludeRedis);

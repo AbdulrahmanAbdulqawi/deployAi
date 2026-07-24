@@ -61,7 +61,7 @@ public class ProjectServiceMapperTests
         Assert.Single(result.ApplicationServices, service => service.Id == vercelId);
         Assert.Single(result.ApplicationServices, service => service.Id == serverId);
         Assert.Single(result.DataServices, service => service.Id == postgresId);
-        Assert.True(result.HasRailwayServer);
+        Assert.True(result.HasManagedServer);
         Assert.True(result.IncludePostgres);
         Assert.False(result.IncludeRedis);
         Assert.Equal("Postgres", result.DataServices[0].DisplayName);

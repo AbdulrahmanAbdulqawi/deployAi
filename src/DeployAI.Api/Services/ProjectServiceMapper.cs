@@ -9,7 +9,7 @@ public static class ProjectServiceMapper
     {
         var applicationServices = new List<ProjectServiceView>();
         var dataServices = new List<ProjectServiceView>();
-        var hasRailwayServer = false;
+        var hasManagedServer = false;
         var includePostgres = false;
         var includeRedis = false;
 
@@ -23,26 +23,32 @@ public static class ProjectServiceMapper
             }
 
             applicationServices.Add(MapTarget(target, config));
-            if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
+            if (SupportsManagedDatabases(target.ProviderName))
             {
-                hasRailwayServer = true;
-                includePostgres = config.IncludePostgres;
-                includeRedis = config.IncludeRedis;
+                hasManagedServer = true;
+                includePostgres = includePostgres || config.IncludePostgres;
+                includeRedis = includeRedis || config.IncludeRedis;
             }
         }
 
         return new ProjectServicesResponse(
             applicationServices,
             dataServices,
-            hasRailwayServer,
+            hasManagedServer,
             includePostgres,
             includeRedis);
     }
 
+    // Providers that can provision Postgres/Redis for an app. Coolify gained this in v8
+    // (CoolifyProvider.Database), so its database management must surface too.
+    private static bool SupportsManagedDatabases(string providerName) =>
+        string.Equals(providerName, "railway", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(providerName, "coolify", StringComparison.OrdinalIgnoreCase);
+
     private static ProjectServiceView MapTarget(DeployTarget target, DeployTargetConfig config)
     {
         var isDatabase = config.IsDatabaseTarget;
-        var canManage = string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase);
+        var canManage = !isDatabase && SupportsManagedDatabases(target.ProviderName);
         var linkedKeys = isDatabase ? GetLinkedConnectionKeys(config.DatabaseEngine) : [];
 
         return new ProjectServiceView(

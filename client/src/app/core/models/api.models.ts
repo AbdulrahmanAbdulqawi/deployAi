@@ -240,7 +240,8 @@ export interface ProjectServiceView {
 export interface ProjectServicesResponse {
   applicationServices: ProjectServiceView[];
   dataServices: ProjectServiceView[];
-  hasRailwayServer: boolean;
+  /** True when a server target runs on a provider that can provision managed databases (Railway or Coolify). */
+  hasManagedServer: boolean;
   includePostgres: boolean;
   includeRedis: boolean;
 }

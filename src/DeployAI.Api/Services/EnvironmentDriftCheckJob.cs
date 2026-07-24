@@ -18,11 +18,14 @@ public sealed class EnvironmentDriftCheckJob
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
+        // Any multi-target project, not just Railway+Vercel — a Coolify split full-stack drifts
+        // too. Roles live in ConfigJson (not SQL-queryable), so the cheap DB filter is "more
+        // than one target" and SyncCrossProviderEnvironmentAsync self-skips the rest: a
+        // single-origin compose app (one target), an app+database pair (no server role), and
+        // any unsupported provider pairing all short-circuit before doing work.
         var projectIds = await _db.Projects
             .AsNoTracking()
-            .Include(p => p.DeployTargets)
-            .Where(p => p.DeployTargets.Any(t => t.ProviderName == "railway") &&
-                        p.DeployTargets.Any(t => t.ProviderName == "vercel"))
+            .Where(p => p.DeployTargets.Count > 1)
             .Select(p => p.Id)
             .ToListAsync(cancellationToken);
 

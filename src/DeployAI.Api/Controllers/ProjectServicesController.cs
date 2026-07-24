@@ -224,7 +224,7 @@ public sealed class ProjectServicesController : ControllerBase
         {
             applicationServices = services.ApplicationServices.Select(MapService),
             dataServices = services.DataServices.Select(MapService),
-            hasRailwayServer = services.HasRailwayServer,
+            hasManagedServer = services.HasManagedServer,
             includePostgres = services.IncludePostgres,
             includeRedis = services.IncludeRedis
         };
