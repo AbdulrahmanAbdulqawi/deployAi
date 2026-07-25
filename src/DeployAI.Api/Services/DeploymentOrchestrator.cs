@@ -290,6 +290,7 @@ public sealed class DeploymentJobRunner
     private readonly IGitHubService _gitHubService;
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
+    private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
     private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
@@ -304,6 +305,7 @@ public sealed class DeploymentJobRunner
         IGitHubService gitHubService,
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
+        ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
         Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions,
@@ -317,6 +319,7 @@ public sealed class DeploymentJobRunner
         _gitHubService = gitHubService;
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
+        _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
         _anthropicOptions = anthropicOptions.Value;
@@ -401,6 +404,27 @@ public sealed class DeploymentJobRunner
                     deployment.Id,
                     target,
                     cancellationToken);
+
+                // Advisory: a framework that inlines env at build time can only see it through a
+                // Dockerfile we own, because Nixpacks builds get none of the app's environment. If
+                // this can't be arranged, deploy on the existing build pack rather than failing.
+                try
+                {
+                    await _ssrWebsiteBuildProvisioner.EnsureAsync(
+                        project,
+                        deployTarget,
+                        deployment.Branch,
+                        cancellationToken);
+                    DetachDeployTargetChanges();
+                    targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+                }
+                catch (Exception buildEx) when (buildEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        buildEx,
+                        "Could not prepare a Dockerfile build for website target {TargetId}; continuing.",
+                        target.Id);
+                }
             }
 
             var provider = _providerFactory.GetProvider(target.ProviderName);

@@ -1,0 +1,145 @@
+using System.Text.Json;
+using DeployAI.Core.Deployments;
+using DeployAI.Core.Providers;
+using DeployAI.Core.Security;
+using DeployAI.Data;
+using DeployAI.Data.Entities;
+using DeployAI.Infrastructure.Adapters;
+using Microsoft.EntityFrameworkCore;
+
+namespace DeployAI.Api.Services;
+
+/// <summary>
+/// Makes a server-rendered frontend on Coolify build from a DeployAI-generated Dockerfile instead
+/// of Nixpacks.
+/// <para>
+/// Nixpacks builds receive only Coolify's own NIXPACKS_*/COOLIFY_* variables, never the
+/// application's. Frameworks in this family compile public values into the bundle at build time —
+/// Next.js inlines NEXT_PUBLIC_*, Vite inlines VITE_* — so the build bakes in the source's
+/// fallback (usually a localhost URL) and the deployed site calls the developer's machine. Nothing
+/// about that is visible in the build log or fixable by setting an environment variable.
+/// </para>
+/// <para>
+/// This runs before the deploy so the switch applies to apps that already exist, keeping their
+/// domain, rather than requiring the app to be recreated.
+/// </para>
+/// </summary>
+public interface ISsrWebsiteBuildProvisioner
+{
+    Task EnsureAsync(Project project, DeployTarget websiteTarget, string branch, CancellationToken cancellationToken);
+}
+
+public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
+{
+    private readonly DeployAIDbContext _db;
+    private readonly IServerDockerfileProvisioner _dockerfileProvisioner;
+    private readonly Providers.Coolify.CoolifyProvider _coolifyProvider;
+    private readonly IProviderCredentialTokenService _tokens;
+    private readonly IEncryptionService _encryption;
+    private readonly ILogger<SsrWebsiteBuildProvisioner> _logger;
+
+    public SsrWebsiteBuildProvisioner(
+        DeployAIDbContext db,
+        IServerDockerfileProvisioner dockerfileProvisioner,
+        Providers.Coolify.CoolifyProvider coolifyProvider,
+        IProviderCredentialTokenService tokens,
+        IEncryptionService encryption,
+        ILogger<SsrWebsiteBuildProvisioner> logger)
+    {
+        _db = db;
+        _dockerfileProvisioner = dockerfileProvisioner;
+        _coolifyProvider = coolifyProvider;
+        _tokens = tokens;
+        _encryption = encryption;
+        _logger = logger;
+    }
+
+    public async Task EnsureAsync(
+        Project project,
+        DeployTarget websiteTarget,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        var config = DeployTargetConfig.Parse(websiteTarget.ConfigJson);
+        if (!SsrFrontendFrameworks.Inlines(config.Framework))
+        {
+            return;
+        }
+
+        var parts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2 || string.IsNullOrWhiteSpace(websiteTarget.ProviderProjectId))
+        {
+            return;
+        }
+
+        var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
+        var githubToken = _encryption.Decrypt(user.GitHubTokenEncrypted);
+        var appDirectory = config.ServiceDirectory ?? config.RootDirectory ?? string.Empty;
+
+        var provisioned = await _dockerfileProvisioner.EnsureSsrWebsiteDockerfileAsync(
+            githubToken,
+            parts[0],
+            parts[1],
+            branch,
+            appDirectory,
+            ResolveBuildTimeEnvKeys(project),
+            config.BuildCommand,
+            config.StartCommand,
+            config.InstallCommand,
+            cancellationToken);
+
+        if (provisioned is null)
+        {
+            _logger.LogInformation(
+                "No package.json under '{Directory}' for {Repo}; leaving the website on its current build pack.",
+                appDirectory,
+                project.GitHubRepoFullName);
+            return;
+        }
+
+        var token = await _tokens.GetTokenAsync(websiteTarget.Credential, cancellationToken);
+        var switched = await _coolifyProvider.ConfigureDockerfileBuildAsync(
+            new ProviderCredentials(token),
+            websiteTarget.ProviderProjectId,
+            provisioned.BaseDirectory,
+            provisioned.DockerfileLocation,
+            provisioned.ExposedPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            cancellationToken);
+
+        if (!switched)
+        {
+            return;
+        }
+
+        // Record it so the plan and the branch-mismatch warnings describe what actually builds.
+        config.DockerfilePath = provisioned.DockerfileLocation;
+        var configJson = config.ToJson();
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""UPDATE deploy_targets SET "ConfigJson" = {configJson} WHERE "Id" = {websiteTarget.Id}""",
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The keys the build has to see. Taken from what DeployAI already manages for the project;
+    /// the generator keeps only the public, bundle-inlined ones so no secret becomes a build arg.
+    /// </summary>
+    private IReadOnlyList<string> ResolveBuildTimeEnvKeys(Project project)
+    {
+        if (project.EnvironmentVariablesEncrypted is not { Length: > 0 })
+        {
+            return [];
+        }
+
+        try
+        {
+            var stored = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+                _encryption.Decrypt(project.EnvironmentVariablesEncrypted));
+            return stored?.Keys.ToList() ?? [];
+        }
+        catch (Exception ex) when (ex is JsonException or System.Security.Cryptography.CryptographicException)
+        {
+            _logger.LogWarning(ex, "Could not read stored environment variables for project {ProjectId}.", project.Id);
+            return [];
+        }
+    }
+}

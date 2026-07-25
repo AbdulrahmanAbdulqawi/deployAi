@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
+using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Providers.Coolify;
 
@@ -174,6 +175,53 @@ public sealed partial class CoolifyProvider
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
         await AssignDomainAsync(session, applicationUuid, domain, serviceName, isCompose: true, cancellationToken);
+    }
+
+    /// <summary>
+    /// Moves an existing application onto the Dockerfile build pack. Needed because Nixpacks
+    /// cannot be given the app's environment at build time, so a framework that inlines values
+    /// into its bundle builds the wrong configuration; switching an already-created app avoids
+    /// recreating it and losing its domain. Returns false when Coolify rejects the change, so the
+    /// caller can leave the existing build pack alone rather than deploy a half-configured app.
+    /// </summary>
+    public async Task<bool> ConfigureDockerfileBuildAsync(
+        ProviderCredentials credentials,
+        string applicationUuid,
+        string baseDirectory,
+        string dockerfileLocation,
+        string? exposedPort,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var body = new Dictionary<string, object?>
+        {
+            ["build_pack"] = CoolifyBuildPackValues.Dockerfile,
+            // Both are rooted at the repository with a leading slash; a bare relative path is
+            // rejected with "The base directory field format is invalid".
+            ["base_directory"] = $"/{baseDirectory.Trim().Replace('\\', '/').Trim('/')}",
+            ["dockerfile_location"] = $"/{dockerfileLocation.Trim().Replace('\\', '/').TrimStart('/')}"
+        };
+
+        if (!string.IsNullOrWhiteSpace(exposedPort))
+        {
+            body["ports_exposes"] = exposedPort.Trim();
+        }
+
+        using var request = CreateRequest(HttpMethod.Patch, session, $"applications/{applicationUuid}");
+        request.Content = JsonContent.Create(body);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        if (response.IsSuccessStatusCode)
+        {
+            return true;
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        _logger.LogWarning(
+            "Could not switch Coolify application {Uuid} to the Dockerfile build pack ({Status}): {Body}",
+            applicationUuid,
+            (int)response.StatusCode,
+            responseBody[..Math.Min(300, responseBody.Length)]);
+        return false;
     }
 
     /// <summary>
