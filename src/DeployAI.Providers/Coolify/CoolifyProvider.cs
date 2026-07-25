@@ -83,6 +83,18 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
         var body = new Dictionary<string, string> { ["uuid"] = providerProjectId };
+
+        // Frontend frameworks bake env vars into the bundle at build time (Next.js inlines
+        // NEXT_PUBLIC_*, Vite import.meta.env, Angular its environment files). Coolify reuses its
+        // build cache by default, so a freshly-changed API URL is silently ignored and the app
+        // keeps calling the old one. Force a cache-free rebuild for those, and only those —
+        // backend images read env at runtime and can keep the cache.
+        environment.TryGetValue("framework", out var framework);
+        if (CoolifyApiSupport.InlinesBuildTimeEnvironment(framework))
+        {
+            body["force"] = "true";
+        }
+
         using var request = CreateRequest(HttpMethod.Post, session, "deploy");
         request.Content = JsonContent.Create(body);
         var response = await _httpClient.SendAsync(request, cancellationToken);

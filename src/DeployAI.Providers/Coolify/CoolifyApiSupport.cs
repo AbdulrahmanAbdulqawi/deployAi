@@ -148,6 +148,17 @@ internal static class CoolifyApiSupport
         string.Equals(buildPack, CoolifyBuildPackValues.DockerCompose, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Frameworks that compile environment values into the built bundle rather than reading them
+    /// at runtime — Next.js inlines NEXT_PUBLIC_*, Vite inlines import.meta.env, Angular swaps its
+    /// environment files. For these, reusing a build cache serves the old values, so a deploy that
+    /// follows an env change has to rebuild from scratch.
+    /// </summary>
+    internal static bool InlinesBuildTimeEnvironment(string? framework) =>
+        framework?.Trim().ToLowerInvariant() is
+            "next" or "nextjs" or "nuxt" or "sveltekit" or "remix" or
+            "vite" or "react" or "vue" or "svelte" or "astro" or "angular";
+
+    /// <summary>
     /// The container port Coolify's proxy routes to. Null for compose, where the compose file
     /// declares its own ports and a single number is meaningless.
     /// </summary>
