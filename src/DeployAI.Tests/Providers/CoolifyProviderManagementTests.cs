@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using DeployAI.Core.Providers;
 using DeployAI.Providers.Coolify;
@@ -27,7 +27,10 @@ public class CoolifyProviderManagementTests
             .Respond(HttpStatusCode.OK, "application/json", """
             [{ "uuid": "proj-1", "name": "Main" }]
             """);
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+        // No pre-existing application: creating is not idempotent on Coolify, so the provider
+        // checks for one with this name and repository before adding another.
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
             .Respond(HttpStatusCode.OK, "application/json", """
             [{ "uuid": "server-1", "name": "localhost" }]
             """);
@@ -68,7 +71,10 @@ public class CoolifyProviderManagementTests
             .Respond(HttpStatusCode.OK, "application/json", "[]");
         handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/projects")
             .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "proj-new" }""");
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+        // No pre-existing application: creating is not idempotent on Coolify, so the provider
+        // checks for one with this name and repository before adding another.
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-new/environments")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
@@ -191,7 +197,10 @@ public class CoolifyProviderManagementTests
         var handler = new MockHttpMessageHandler();
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+        // No pre-existing application: creating is not idempotent on Coolify, so the provider
+        // checks for one with this name and repository before adding another.
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/github-apps")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "gh-1", "name": "GitHub" }]""");

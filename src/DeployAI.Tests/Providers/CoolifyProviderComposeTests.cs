@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
@@ -13,7 +13,7 @@ public class CoolifyProviderComposeTests
     private static readonly ProviderCredentials Credentials =
         new(CoolifyCredentialStorage.Serialize(InstanceUrl, "coolify-token"));
 
-    // Coolify has no /applications/dockercompose route — a live v4.1.2 instance 404s it while
+    // Coolify has no /applications/dockercompose route â€” a live v4.1.2 instance 404s it while
     // answering /applications/public. A compose app is created through the same git-backed
     // endpoint as any other; build_pack is what makes it compose.
     [Fact]
@@ -30,7 +30,7 @@ public class CoolifyProviderComposeTests
         var provider = new CoolifyProvider(handler.ToHttpClient());
         await provider.CreateProjectAsync(Credentials, ComposeRequest(), CancellationToken.None);
 
-        // Not the default docker-compose.yml — that is usually the repo's local dev stack.
+        // Not the default docker-compose.yml â€” that is usually the repo's local dev stack.
         // Rooted at the repo: Coolify rejects a bare relative path.
         Assert.Equal("/docker-compose.coolify.yml", createBody.Value.GetProperty("docker_compose_location").GetString());
         Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
@@ -189,7 +189,10 @@ public class CoolifyProviderComposeTests
         var handler = new MockHttpMessageHandler();
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+        // No pre-existing application: creating is not idempotent on Coolify, so the provider
+        // checks for one with this name and repository before adding another.
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
             .Respond(HttpStatusCode.OK, "application/json", """
             [{ "uuid": "srv-1", "name": "hetzner-1" }, { "uuid": "srv-2", "name": "hetzner-2" }]
             """);
@@ -237,7 +240,10 @@ public class CoolifyProviderComposeTests
     {
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+        // No pre-existing application: creating is not idempotent on Coolify, so the provider
+        // checks for one with this name and repository before adding another.
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "srv-1", "name": "hetzner-1" }]""");
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
             .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");

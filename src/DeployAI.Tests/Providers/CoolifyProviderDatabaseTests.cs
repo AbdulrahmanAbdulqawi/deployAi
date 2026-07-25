@@ -107,6 +107,102 @@ public class CoolifyProviderDatabaseTests
     }
 
     [Fact]
+    // Coolify reports the engine as `database_type: "standalone-postgresql"`, not `type:
+    // "postgresql"`. Reading the wrong field left the engine null, so this "does one already
+    // exist?" check never matched and every provisioning run created another database with the
+    // same name — a live instance ended up with six identical Redis databases.
+    public async Task EnsurePostgresAsync_ReusesExistingDatabase_WhenCoolifyReportsStandaloneDatabaseType()
+    {
+        var created = false;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "uuid": "app-api",
+              "name": "my-api",
+              "project_uuid": "proj-1",
+              "server_uuid": "server-1",
+              "environment_name": "production",
+              "environment_uuid": "env-1"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "db-existing", "name": "mydb", "database_type": "standalone-postgresql" }]
+            """);
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/databases/postgresql")
+            .Respond(_ =>
+            {
+                created = true;
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""{ "uuid": "db-duplicate" }""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        var result = await provider.EnsurePostgresAsync(Credentials, "app-api", "mydb", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("db-existing", result!.ServiceId);
+        Assert.False(created, "an existing database must be reused instead of creating a duplicate");
+    }
+
+    [Fact]
+    public async Task EnsureRedisAsync_ReusesExistingDatabase_WhenCoolifyReportsStandaloneDatabaseType()
+    {
+        var created = false;
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "uuid": "app-api",
+              "name": "my-api",
+              "project_uuid": "proj-1",
+              "server_uuid": "server-1",
+              "environment_name": "production",
+              "environment_uuid": "env-1"
+            }
+            """);
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "redis-existing", "name": "my-api-redis", "database_type": "standalone-redis" }]
+            """);
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/databases/redis")
+            .Respond(_ =>
+            {
+                created = true;
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent("""{ "uuid": "redis-duplicate" }""")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        var result = await provider.EnsureRedisAsync(Credentials, "app-api", CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("redis-existing", result!.ServiceId);
+        Assert.False(created, "an existing Redis must be reused instead of creating a duplicate");
+    }
+
+    [Fact]
+    // A retried teardown has to be able to finish: the resource deleted on the first attempt is
+    // already gone, and treating that as an error would make the delete permanently fail.
+    public async Task DeleteDatabaseAsync_TreatsAlreadyDeletedAsSuccess()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Delete, $"{InstanceUrl}/api/v1/databases/db-gone")
+            .Respond(HttpStatusCode.NotFound, "application/json", """{ "message": "Not found." }""");
+
+        var provider = CreateProvider(handler);
+        var exception = await Record.ExceptionAsync(() =>
+            provider.DeleteDatabaseAsync(Credentials, "db-gone|env-1", CancellationToken.None));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public async Task ResolveApplicationUrlAsync_ReturnsNormalizedFqdn()
     {
         var handler = new MockHttpMessageHandler();

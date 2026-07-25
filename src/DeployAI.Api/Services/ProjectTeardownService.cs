@@ -9,7 +9,10 @@ namespace DeployAI.Api.Services;
 
 public interface IProjectTeardownService
 {
-    Task TeardownAsync(Guid projectId, Guid userId, CancellationToken cancellationToken);
+    /// <param name="force">Drop DeployAI's record even if provider resources could not be removed.
+    /// Off by default: silently forgetting an app whose applications and databases are still
+    /// running is how orphans accumulate, un-billed and untracked.</param>
+    Task TeardownAsync(Guid projectId, Guid userId, bool force, CancellationToken cancellationToken);
 }
 
 public sealed class ProjectTeardownService : IProjectTeardownService
@@ -20,6 +23,7 @@ public sealed class ProjectTeardownService : IProjectTeardownService
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly ILogger<ProjectTeardownService> _logger;
+    private readonly List<string> _failures = [];
 
     public ProjectTeardownService(
         DeployAIDbContext db,
@@ -37,7 +41,7 @@ public sealed class ProjectTeardownService : IProjectTeardownService
         _logger = logger;
     }
 
-    public async Task TeardownAsync(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    public async Task TeardownAsync(Guid projectId, Guid userId, bool force, CancellationToken cancellationToken)
     {
         var project = await _db.Projects
             .Include(p => p.DeployTargets)
@@ -53,6 +57,18 @@ public sealed class ProjectTeardownService : IProjectTeardownService
 
         await CancelInFlightDeploymentsAsync(project, cancellationToken);
         await TeardownProviderResourcesAsync(project, cancellationToken);
+
+        // Removing the record while its applications and databases are still up is what leaves
+        // orphans on the server with nothing left in DeployAI pointing at them. Keep the app so the
+        // delete can be retried, and say exactly what survived.
+        if (_failures.Count > 0 && !force)
+        {
+            throw new DeployAIException(
+                "teardown_incomplete",
+                "These still exist on your server and were not removed: " +
+                string.Join("; ", _failures) +
+                ". Nothing was deleted from DeployAI, so you can try again once that is sorted.");
+        }
 
         _db.Projects.Remove(project);
         await _db.SaveChangesAsync(cancellationToken);
@@ -248,6 +264,11 @@ public sealed class ProjectTeardownService : IProjectTeardownService
         return new ProviderCredentials(token);
     }
 
+    /// <summary>
+    /// Every resource is attempted even when an earlier one fails — stopping at the first error
+    /// would strand the rest — but failures are collected so the caller can refuse to forget an
+    /// app whose resources are still running.
+    /// </summary>
     private async Task TryProviderStepAsync(string description, Func<Task> action)
     {
         try
@@ -257,6 +278,7 @@ public sealed class ProjectTeardownService : IProjectTeardownService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Provider teardown step failed: {Description}", description);
+            _failures.Add($"{description} ({ex.Message})");
         }
     }
 }

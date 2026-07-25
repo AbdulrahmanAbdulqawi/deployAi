@@ -144,6 +144,16 @@ internal static class CoolifyApiSupport
     private static bool IsServerRenderedFrontend(string? framework) =>
         framework?.Trim().ToLowerInvariant() is "next" or "nextjs" or "nuxt" or "sveltekit" or "remix";
 
+    /// <summary>
+    /// Deleting a Coolify resource leaves its volumes, generated configuration and networks behind
+    /// unless it is asked to remove them. For a database that means the data volume — and the disk
+    /// it occupies — survives the delete, so an app removed from DeployAI keeps costing storage
+    /// with nothing referencing it. Sent explicitly rather than trusting the API's defaults, which
+    /// differ between Coolify versions.
+    /// </summary>
+    internal const string ResourceCleanupQuery =
+        "?delete_configurations=true&delete_volumes=true&docker_cleanup=true&delete_connected_networks=true";
+
     internal static bool IsComposeBuildPack(string buildPack) =>
         string.Equals(buildPack, CoolifyBuildPackValues.DockerCompose, StringComparison.OrdinalIgnoreCase);
 

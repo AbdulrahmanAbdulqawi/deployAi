@@ -454,10 +454,13 @@ public sealed class ProjectsController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Delete(
+        Guid id,
+        CancellationToken cancellationToken,
+        [FromQuery] bool force = false)
     {
         var userId = RequireUserId();
-        await _projectTeardown.TeardownAsync(id, userId, cancellationToken);
+        await _projectTeardown.TeardownAsync(id, userId, force, cancellationToken);
         return NoContent();
     }
 

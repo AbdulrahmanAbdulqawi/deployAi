@@ -120,7 +120,7 @@ public class ProjectTeardownServiceTests
             tokens.Object,
             NullLogger<ProjectTeardownService>.Instance);
 
-        await service.TeardownAsync(projectId, userId, CancellationToken.None);
+        await service.TeardownAsync(projectId, userId, force: false, CancellationToken.None);
 
         Assert.False(await db.Projects.AnyAsync(p => p.Id == projectId));
         Assert.False(await db.Deployments.AnyAsync(d => d.Id == deploymentId));
@@ -150,7 +150,7 @@ public class ProjectTeardownServiceTests
             NullLogger<ProjectTeardownService>.Instance);
 
         await Assert.ThrowsAsync<DeployAIException>(() =>
-            service.TeardownAsync(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
+            service.TeardownAsync(Guid.NewGuid(), Guid.NewGuid(), force: false, CancellationToken.None));
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public class ProjectTeardownServiceTests
             tokens.Object,
             NullLogger<ProjectTeardownService>.Instance);
 
-        await service.TeardownAsync(projectId, userId, CancellationToken.None);
+        await service.TeardownAsync(projectId, userId, force: false, CancellationToken.None);
 
         Assert.False(await db.Projects.AnyAsync(p => p.Id == projectId));
         railwayProvisioning.Verify(
@@ -284,5 +284,172 @@ public class ProjectTeardownServiceTests
         coolifyOperations.Verify(
             o => o.DeleteServiceAsync(It.IsAny<ProviderCredentials>(), "app_api", It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Fact]
+    // Deleting DeployAI's record while the Coolify applications are still running is how orphans
+    // accumulate: nothing points at them any more, but they keep running and taking disk. Keep the
+    // app so the delete can be retried, and name what survived.
+    public async Task TeardownAsync_KeepsTheProject_WhenAProviderResourceCouldNotBeDeleted()
+    {
+        var (db, projectId, userId, credential) = await CreateCoolifyProjectAsync();
+
+        var coolifyOperations = new Mock<IProviderServiceOperations>();
+        coolifyOperations
+            .Setup(o => o.DeleteServiceAsync(It.IsAny<ProviderCredentials>(), "app_web", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DeployAIException("coolify_api_error", "Could not delete Coolify application (500)."));
+        coolifyOperations
+            .Setup(o => o.DeleteServiceAsync(It.IsAny<ProviderCredentials>(), "app_api", It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var service = CreateService(db, credential, coolifyOperations, out var railwayProvisioning);
+
+        var exception = await Assert.ThrowsAsync<DeployAIException>(() =>
+            service.TeardownAsync(projectId, userId, force: false, CancellationToken.None));
+
+        Assert.Equal("teardown_incomplete", exception.ErrorCode);
+        Assert.Contains("app_web", exception.Message, StringComparison.Ordinal);
+        Assert.True(await db.Projects.AnyAsync(p => p.Id == projectId), "the app must survive so the delete can be retried");
+
+        // The other resources are still attempted — stopping at the first failure would strand them.
+        coolifyOperations.Verify(
+            o => o.DeleteServiceAsync(It.IsAny<ProviderCredentials>(), "app_api", It.IsAny<CancellationToken>()),
+            Times.Once);
+        railwayProvisioning.Verify(
+            p => p.TeardownDatabaseServiceOnProviderAsync(
+                It.IsAny<Project>(),
+                It.IsAny<DeployTarget>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    // The escape hatch: when the resources are known to be gone by other means, the record has to
+    // be removable rather than permanently undeletable.
+    public async Task TeardownAsync_RemovesTheProjectAnyway_WhenForced()
+    {
+        var (db, projectId, userId, credential) = await CreateCoolifyProjectAsync();
+
+        var coolifyOperations = new Mock<IProviderServiceOperations>();
+        coolifyOperations
+            .Setup(o => o.DeleteServiceAsync(It.IsAny<ProviderCredentials>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DeployAIException("coolify_api_error", "boom"));
+
+        var service = CreateService(db, credential, coolifyOperations, out _);
+
+        await service.TeardownAsync(projectId, userId, force: true, CancellationToken.None);
+
+        Assert.False(await db.Projects.AnyAsync(p => p.Id == projectId));
+    }
+
+    private static ProjectTeardownService CreateService(
+        DeployAIDbContext db,
+        ProviderCredential credential,
+        Mock<IProviderServiceOperations> coolifyOperations,
+        out Mock<IRailwayDatabaseProvisioningService> railwayProvisioning)
+    {
+        railwayProvisioning = new Mock<IRailwayDatabaseProvisioningService>();
+        railwayProvisioning
+            .Setup(p => p.TeardownDatabaseServiceOnProviderAsync(
+                It.IsAny<Project>(), It.IsAny<DeployTarget>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        serviceOperationsFactory.Setup(f => f.GetServiceOperations("coolify")).Returns(coolifyOperations.Object);
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("coolify-token");
+
+        return new ProjectTeardownService(
+            db,
+            railwayProvisioning.Object,
+            Mock.Of<IProviderManagementFactory>(),
+            serviceOperationsFactory.Object,
+            tokens.Object,
+            NullLogger<ProjectTeardownService>.Instance);
+    }
+
+    private static async Task<(DeployAIDbContext Db, Guid ProjectId, Guid UserId, ProviderCredential Credential)>
+        CreateCoolifyProjectAsync()
+    {
+        var options = new DbContextOptionsBuilder<DeployAIDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        var db = new DeployAIDbContext(options);
+        var userId = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        var credential = new ProviderCredential
+        {
+            Id = credentialId,
+            UserId = userId,
+            ProviderName = "coolify",
+            Label = "Coolify",
+            TokenEncrypted = [1, 2, 3],
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        db.ProviderCredentials.Add(credential);
+
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Coolify stack",
+            GitHubRepoFullName = "tester/stack",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "app_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Credential = credential
+                },
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "app_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Credential = credential
+                },
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "db_pg|env_1",
+                    ConfigJson = """{"role":"database","databaseEngine":"postgres"}""",
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    Credential = credential
+                }
+            ]
+        });
+
+        await db.SaveChangesAsync();
+        return (db, projectId, userId, credential);
     }
 }

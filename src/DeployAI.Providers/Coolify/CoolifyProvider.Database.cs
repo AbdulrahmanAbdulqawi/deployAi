@@ -84,9 +84,19 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
     {
         var databaseUuid = ParseDatabaseUuid(databaseProviderProjectId);
         var session = CoolifyApiSupport.ParseSession(credentials);
-        using var request = CreateRequest(HttpMethod.Delete, session, $"databases/{databaseUuid}");
+        using var request = CreateRequest(
+            HttpMethod.Delete,
+            session,
+            // Without the cleanup flags the database's data volume outlives it.
+            $"databases/{databaseUuid}{CoolifyApiSupport.ResourceCleanupQuery}");
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        // Already deleted is success: a retried teardown must be able to finish.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -332,7 +342,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
             : SanitizeResourceName(postgresDatabaseName);
 
         var match = databases.FirstOrDefault(database =>
-            string.Equals(database.Type, "postgresql", StringComparison.OrdinalIgnoreCase) &&
+            database.IsEngine("postgresql") &&
             (string.Equals(database.Name, desiredName, StringComparison.OrdinalIgnoreCase) ||
              string.Equals(database.Uuid, desiredName, StringComparison.OrdinalIgnoreCase)));
 
@@ -357,7 +367,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         var desiredName = $"{SanitizeResourceName(application.Name)}-redis";
 
         var match = databases.FirstOrDefault(database =>
-            string.Equals(database.Type, "redis", StringComparison.OrdinalIgnoreCase) &&
+            database.IsEngine("redis") &&
             (string.Equals(database.Name, desiredName, StringComparison.OrdinalIgnoreCase) ||
              string.Equals(database.Uuid, desiredName, StringComparison.OrdinalIgnoreCase)));
 
@@ -487,8 +497,39 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         [JsonPropertyName("name")]
         public string? Name { get; set; }
 
+        /// <summary>
+        /// Coolify reports the engine as <c>database_type</c> with a driver prefix —
+        /// "standalone-postgresql", "standalone-redis". Reading a plain <c>type</c> left this null
+        /// for every database, so the "does one already exist?" check never matched and each
+        /// provisioning run created another copy of the same database.
+        /// </summary>
+        [JsonPropertyName("database_type")]
+        public string? DatabaseType { get; set; }
+
         [JsonPropertyName("type")]
         public string? Type { get; set; }
+
+        /// <summary>True when this is the given engine, whichever field and prefix Coolify used.</summary>
+        public bool IsEngine(string engine)
+        {
+            foreach (var value in new[] { DatabaseType, Type })
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                var normalized = value.Trim().ToLowerInvariant();
+                if (normalized == engine ||
+                    normalized.EndsWith($"-{engine}", StringComparison.Ordinal) ||
+                    normalized.Contains(engine, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 
     private sealed class CoolifyDatabaseDetails

@@ -17,6 +17,21 @@ public sealed partial class CoolifyProvider
         var projectUuid = await ResolveProjectUuidAsync(session, request, cancellationToken);
         var serverUuid = await ResolveServerUuidAsync(session, request, cancellationToken);
         var environment = await ResolveEnvironmentAsync(session, projectUuid, request, cancellationToken);
+
+        // Creating is not idempotent on Coolify: the same name and repository can be created over
+        // and over, each time as a separate application with its own domain. Re-running the wizard,
+        // or retrying after a failure part-way through, would leave copies behind — so an existing
+        // application for this name and repository is reused instead.
+        var existing = await FindExistingApplicationAsync(session, request, environment, cancellationToken);
+        if (existing is not null)
+        {
+            _logger.LogInformation(
+                "Reusing existing Coolify application {Uuid} for {Name}; creating another would duplicate it.",
+                existing.Id,
+                request.Name);
+            return existing;
+        }
+
         var buildPack = CoolifyApiSupport.ResolveBuildPack(request);
         var gitRepository = CoolifyApiSupport.NormalizeGitHubRepoUrl(request.GitHubRepoFullName);
         var gitBranch = string.IsNullOrWhiteSpace(request.GitBranch) ? "main" : request.GitBranch.Trim();
@@ -158,6 +173,65 @@ public sealed partial class CoolifyProvider
             application?.Name ?? request.Name.Trim(),
             NormalizeUrl(application?.Fqdn),
             gitBranch);
+    }
+
+    /// <summary>
+    /// Looks for an application that already represents this request — same name, same repository,
+    /// same environment — so a repeated create reuses it rather than adding another copy. Matching
+    /// on the environment as well as the name keeps deliberately separate staging and production
+    /// apps distinct; they share a name but not an environment.
+    /// </summary>
+    private async Task<ProviderProject?> FindExistingApplicationAsync(
+        CoolifyApiSupport.CoolifySession session,
+        CreateProviderProjectRequest request,
+        CoolifyEnvironmentOption environment,
+        CancellationToken cancellationToken)
+    {
+        using var listRequest = CreateRequest(HttpMethod.Get, session, "applications");
+        var response = await _httpClient.SendAsync(listRequest, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            // Can't tell either way — fall through to create rather than block the deploy.
+            return null;
+        }
+
+        var applications = await response.Content.ReadFromJsonAsync<List<CoolifyApplicationSummary>>(cancellationToken) ?? [];
+        var desiredName = request.Name.Trim();
+        var desiredRepository = CoolifyApiSupport.NormalizeGitHubRepoUrl(request.GitHubRepoFullName);
+
+        var match = applications.FirstOrDefault(app =>
+            !string.IsNullOrWhiteSpace(app.Uuid) &&
+            string.Equals(app.Name, desiredName, StringComparison.OrdinalIgnoreCase) &&
+            RepositoryMatches(app.GitRepository, desiredRepository) &&
+            (app.EnvironmentId is null || environment.Id is null || app.EnvironmentId == environment.Id));
+
+        if (match is null)
+        {
+            return null;
+        }
+
+        return new ProviderProject(
+            match.Uuid!,
+            match.Name ?? desiredName,
+            NormalizeUrl(match.Fqdn),
+            string.IsNullOrWhiteSpace(match.GitBranch) ? request.GitBranch : match.GitBranch);
+    }
+
+    /// <summary>Coolify may store the remote with or without a .git suffix or scheme variations.</summary>
+    private static bool RepositoryMatches(string? actual, string? desired)
+    {
+        if (string.IsNullOrWhiteSpace(actual) || string.IsNullOrWhiteSpace(desired))
+        {
+            return false;
+        }
+
+        static string Strip(string value) => value
+            .Trim()
+            .TrimEnd('/')
+            .Replace(".git", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Replace("git@github.com:", "https://github.com/", StringComparison.OrdinalIgnoreCase);
+
+        return string.Equals(Strip(actual), Strip(desired), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -444,9 +518,19 @@ public sealed partial class CoolifyProvider
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        using var request = CreateRequest(HttpMethod.Delete, session, $"applications/{providerProjectId}");
+        using var request = CreateRequest(
+            HttpMethod.Delete,
+            session,
+            $"applications/{providerProjectId}{CoolifyApiSupport.ResourceCleanupQuery}");
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        // Already gone is the outcome we wanted. Treating it as an error makes a retried teardown
+        // fail forever on the one resource that was actually cleaned up first time.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -737,6 +821,27 @@ public sealed partial class CoolifyProvider
 
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+    }
+
+    private sealed class CoolifyApplicationSummary
+    {
+        [JsonPropertyName("uuid")]
+        public string? Uuid { get; set; }
+
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+
+        [JsonPropertyName("git_repository")]
+        public string? GitRepository { get; set; }
+
+        [JsonPropertyName("git_branch")]
+        public string? GitBranch { get; set; }
+
+        [JsonPropertyName("fqdn")]
+        public string? Fqdn { get; set; }
+
+        [JsonPropertyName("environment_id")]
+        public int? EnvironmentId { get; set; }
     }
 
     private sealed class CoolifyEnvironmentOption
