@@ -91,12 +91,16 @@ rotate it.
 
 Recorded so they get closed rather than re-done by hand.
 
-- **Env var reconciliation.** `CoolifyProvider.UpsertEnvVarAsync`
-  (`src/DeployAI.Providers/Coolify/CoolifyProvider.Management.cs`) does a non-atomic
-  list-then-create. Coolify's `POST /envs` does not dedupe by key, so concurrent syncs each
-  create a record. Observed in the wild: 32 records for 16 keys on one app, with duplicate
-  `DATABASE_URL` entries pointing at *different* Postgres instances. There is also no path to
-  clean up duplicates once they exist.
+- **Env var duplicates already in the wild have no cleanup path.** The write race is fixed --
+  `CoolifyProvider.UpsertEnvVarAsync` now goes through Coolify's `PATCH /envs/bulk`, which
+  resolves by key server-side, instead of the old non-atomic list-then-create. But nothing
+  detects or repairs applications that already carry duplicates from before the fix. One app was
+  observed with 32 records for 16 keys, including two `DATABASE_URL`s pointing at *different*
+  Postgres instances.
+- **Callers still upsert one key at a time.** `UpsertEnvVarsAsync` can apply a whole set in a
+  single request, but `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still
+  loop key by key. Batching would cut N round trips to one and leave no window for a concurrent
+  sync to interleave mid-set.
 - **No divergence warning.** DeployAI deploys whatever ref it is pointed at without reporting
   how that ref relates to the user's other branches.
 - **No migration-chain validation.** Nothing checks for colliding or misordered migrations

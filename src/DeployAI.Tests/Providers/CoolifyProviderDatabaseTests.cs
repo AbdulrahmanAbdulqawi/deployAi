@@ -79,10 +79,8 @@ public class CoolifyProviderDatabaseTests
               "postgres_connection_string": "postgres://user:pass@db:5432/app"
             }
             """);
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "env-1", "key": "DATABASE_URL" }""");
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """[{ "uuid": "env-1", "key": "DATABASE_URL" }]""");
 
         var provider = CreateProvider(handler);
         var exception = await Record.ExceptionAsync(() => provider.LinkDatabaseVariablesAsync(
@@ -151,10 +149,8 @@ public class CoolifyProviderDatabaseTests
               "internal_db_url": "redis://:secret@redis:6379"
             }
             """);
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "env-1", "key": "ConnectionStrings__Redis" }""");
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """[{ "uuid": "env-1", "key": "ConnectionStrings__Redis" }]""");
 
         var provider = CreateProvider(handler);
         var exception = await Record.ExceptionAsync(() => provider.LinkDatabaseVariablesAsync(

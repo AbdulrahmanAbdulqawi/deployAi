@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 using DeployAI.Providers.Coolify;
 using RichardSzalay.MockHttp;
@@ -98,11 +99,9 @@ public class CoolifyProviderManagementTests
     public async Task UpsertEnvVarAsync_CreatesWhenMissing()
     {
         var handler = new MockHttpMessageHandler();
-        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
-            .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-1/envs/bulk")
             .Respond(HttpStatusCode.Created, "application/json", """
-            { "uuid": "env-1", "key": "API_URL", "value": "https://api.example.com" }
+            [{ "uuid": "env-1", "key": "API_URL", "value": "https://api.example.com" }]
             """);
 
         var provider = CreateProvider(handler);
@@ -114,6 +113,80 @@ public class CoolifyProviderManagementTests
 
         Assert.Equal("API_URL", envVar.Key);
         Assert.Equal("env-1", envVar.Id);
+    }
+
+    [Fact]
+    public async Task UpsertEnvVarAsync_GoesThroughBulkEndpointWithoutReadingFirst()
+    {
+        // Regression: the previous implementation listed the app's env vars and then chose POST
+        // (create) or PATCH (update) from what it saw. Two syncs could both read "absent" and
+        // both create, and Coolify's create endpoint does not dedupe by key -- one application
+        // ended up with 32 records for 16 keys, including two DATABASE_URLs pointing at
+        // different Postgres instances.
+        //
+        // The list call is what makes the write non-atomic, so assert it does not happen at all:
+        // the whole upsert must be the single server-side /envs/bulk request. MockHttp throws on
+        // any request without a matching expectation, so a reintroduced GET fails here.
+        var handler = new MockHttpMessageHandler();
+        var bulk = handler.Expect(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-1/envs/bulk")
+            .WithPartialContent("\"key\":\"DATABASE_URL\"")
+            .WithPartialContent("postgres://user:pw@db:5432/app")
+            .Respond(HttpStatusCode.Created, "application/json", """
+            [{ "uuid": "env-9", "key": "DATABASE_URL", "value": "postgres://user:pw@db:5432/app" }]
+            """);
+
+        var provider = CreateProvider(handler);
+        var envVar = await provider.UpsertEnvVarAsync(
+            Credentials,
+            "app-1",
+            new UpsertProviderEnvVarRequest(
+                "DATABASE_URL", "postgres://user:pw@db:5432/app", "plain", []),
+            CancellationToken.None);
+
+        Assert.Equal("env-9", envVar.Id);
+        Assert.Equal(1, handler.GetMatchCount(bulk));
+        handler.VerifyNoOutstandingExpectation();
+    }
+
+    [Fact]
+    public async Task UpsertEnvVarAsync_SurfacesCoolifyErrorMessage()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-1/envs/bulk")
+            .Respond(HttpStatusCode.NotFound, "application/json", """
+            { "message": "Application not found." }
+            """);
+
+        var provider = CreateProvider(handler);
+        var ex = await Assert.ThrowsAsync<DeployAIException>(() => provider.UpsertEnvVarAsync(
+            Credentials,
+            "app-1",
+            new UpsertProviderEnvVarRequest("API_URL", "https://api.example.com", "plain", []),
+            CancellationToken.None));
+
+        Assert.Contains("Application not found.", ex.Message);
+    }
+
+    [Fact]
+    public async Task UpsertEnvVarAsync_TreatsUnexpectedResponseShapeAsApplied()
+    {
+        // The write has already succeeded by the time the body is parsed, so an unfamiliar shape
+        // must not fail the call -- it only costs us the uuid.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-1/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """
+            { "message": "Environment variables updated." }
+            """);
+
+        var provider = CreateProvider(handler);
+        var envVar = await provider.UpsertEnvVarAsync(
+            Credentials,
+            "app-1",
+            new UpsertProviderEnvVarRequest("API_URL", "https://api.example.com", "plain", []),
+            CancellationToken.None);
+
+        Assert.Equal("API_URL", envVar.Key);
+        Assert.Equal("API_URL", envVar.Id);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
@@ -221,64 +222,85 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        var existing = await ListEnvVarsAsync(credentials, providerProjectId, cancellationToken);
-        var match = existing.FirstOrDefault(env =>
+
+        // Coolify's bulk endpoint resolves each entry by key server-side, updating when the key
+        // exists and creating when it does not, in a single request.
+        //
+        // This used to list the app's env vars and then POST or PATCH based on what it saw. That
+        // read-then-write was not atomic: two syncs running against the same application could
+        // both observe a key as absent and both POST it, and Coolify's create endpoint does not
+        // dedupe by key. The result was applications carrying two records per key -- including
+        // two DATABASE_URLs pointing at different Postgres instances, where which one reached the
+        // container was left to chance. Going through /envs/bulk removes the client-side window
+        // entirely; see UpsertEnvVarsAsync for the batched form.
+        var applied = await UpsertEnvVarsAsync(
+            session,
+            providerProjectId,
+            [request],
+            cancellationToken);
+
+        var match = applied.FirstOrDefault(env =>
             string.Equals(env.Key, request.Key, StringComparison.OrdinalIgnoreCase));
 
-        if (match is not null)
-        {
-            using var patchRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}/envs");
-            patchRequest.Content = JsonContent.Create(new
-            {
-                key = request.Key,
-                value = request.Value
-            });
-            var patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
-            var patchBody = await patchResponse.Content.ReadAsStringAsync(cancellationToken);
-            if (!patchResponse.IsSuccessStatusCode)
-            {
-                throw new DeployAIException(
-                    "coolify_api_error",
-                    CoolifyApiSupport.ParseErrorMessage(patchBody)
-                        ?? $"Could not update Coolify environment variable ({(int)patchResponse.StatusCode}).");
-            }
-
-            var updated = await patchResponse.Content.ReadFromJsonAsync<CoolifyEnvironmentVariable>(cancellationToken);
-            return new ProviderEnvVar(
-                updated?.Uuid ?? match.Id,
-                request.Key,
-                null,
-                request.Type,
-                request.Targets.ToList(),
-                true);
-        }
-
-        using var createRequest = CreateRequest(HttpMethod.Post, session, $"applications/{providerProjectId}/envs");
-        createRequest.Content = JsonContent.Create(new
-        {
-            key = request.Key,
-            value = request.Value
-        });
-        var createResponse = await _httpClient.SendAsync(createRequest, cancellationToken);
-        var createBody = await createResponse.Content.ReadAsStringAsync(cancellationToken);
-        if (!createResponse.IsSuccessStatusCode)
-        {
-            throw new DeployAIException(
-                "coolify_api_error",
-                CoolifyApiSupport.ParseErrorMessage(createBody)
-                    ?? $"Could not create Coolify environment variable ({(int)createResponse.StatusCode}).");
-        }
-
-        var created = await createResponse.Content.ReadFromJsonAsync<CoolifyEnvironmentVariable>(cancellationToken)
-            ?? throw new InvalidOperationException("Coolify returned an empty env var response.");
-
         return new ProviderEnvVar(
-            created.Uuid ?? request.Key,
+            match?.Uuid ?? request.Key,
             request.Key,
             null,
             request.Type,
             request.Targets.ToList(),
-            created.IsShownOnce == true);
+            match?.IsShownOnce == true);
+    }
+
+    /// <summary>
+    /// Applies every supplied variable in one <c>PATCH /envs/bulk</c> call. Prefer this over
+    /// calling <see cref="UpsertEnvVarAsync"/> in a loop: it is one round trip instead of N, and
+    /// it keeps the whole set inside a single server-side upsert rather than interleaving with a
+    /// concurrent sync partway through.
+    /// </summary>
+    private async Task<IReadOnlyList<CoolifyEnvironmentVariable>> UpsertEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        IReadOnlyList<UpsertProviderEnvVarRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        if (requests.Count == 0)
+        {
+            return [];
+        }
+
+        using var bulkRequest = CreateRequest(
+            HttpMethod.Patch,
+            session,
+            $"applications/{providerProjectId}/envs/bulk");
+        bulkRequest.Content = JsonContent.Create(new
+        {
+            data = requests
+                .Select(r => new { key = r.Key, value = r.Value })
+                .ToArray()
+        });
+
+        var response = await _httpClient.SendAsync(bulkRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not set Coolify environment variables ({(int)response.StatusCode}).");
+        }
+
+        // Coolify documents a 201 carrying the updated variables, but the body is advisory here --
+        // the write already succeeded. Treat an unexpected shape as "applied, uuid unknown" rather
+        // than failing a request that went through.
+        try
+        {
+            return JsonSerializer.Deserialize<List<CoolifyEnvironmentVariable>>(responseBody) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     public async Task DeleteEnvVarAsync(
