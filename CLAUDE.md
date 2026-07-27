@@ -56,6 +56,25 @@ confident wrong answers.
 that the app works. Treat a deployment as verified only when something a user would actually do
 has been exercised.
 
+**New behaviour ships with tests — unit and integration.** Unit tests for logic that can be
+exercised in isolation; integration tests for anything that crosses a boundary (HTTP endpoint,
+database, provider API). Neither substitutes for the other: unit tests catch wrong logic,
+integration tests catch wrong wiring, and most incidents here have been wiring.
+
+For a bug fix, the test must be **shown to fail against the unfixed code** before the fix is
+committed. Run it, watch it fail, then fix. A test written after the fix and never seen red
+proves only that it agrees with the current implementation — it is decorative, and it will not
+catch the regression it was written for.
+
+Provider work cannot call real provider APIs in CI. Test at the boundary instead: assert the
+request built and the response parsed, against recorded or faked payloads. "It can't be tested
+because it talks to Coolify" means the seam is in the wrong place.
+
+This rule is weaker than the others because it depends on discipline rather than enforcement —
+by the standard above, that makes it a design smell. CI (`.github/workflows/build.yml`) runs the
+suite on every PR to `main`, but nothing yet requires a change to arrive with tests. Closing
+that is the real fix; until then, the rule is a promise we keep by hand.
+
 **Writes into a user's repository are a product surface.** Commits DeployAI authors live in
 someone's history permanently. Messages must say specifically what changed, and generated files
 must be idempotent — regenerating should produce no commit when nothing changed. Prefer opening
@@ -86,3 +105,5 @@ Recorded so they get closed rather than re-done by hand.
   fully broken API surface. See `DeploymentVerificationService.cs` / `DeploymentEndpointProbes.cs`.
 - **Generated commit messages are generic.** Dockerfile generation has produced several commits
   sharing one message, obscuring what each changed.
+- **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR
+  that adds behaviour without covering it, so the testing rule above rests on discipline alone.
