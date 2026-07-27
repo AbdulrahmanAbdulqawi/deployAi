@@ -11,6 +11,11 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Handles the Vercel OAuth "Connect Vercel" flow: builds the authorization URL for a signed-in
+/// user, then on callback exchanges the code and stores the resulting token as a provider
+/// connection (single "Default"-labeled connection per user).
+/// </summary>
 [ApiController]
 [Route("api/auth/vercel")]
 public sealed class VercelAuthController : ControllerBase
@@ -38,6 +43,11 @@ public sealed class VercelAuthController : ControllerBase
         _appOptions = appOptions.Value;
     }
 
+    /// <summary>
+    /// Builds the Vercel OAuth authorization URL for the current user as JSON, for callers that
+    /// want to navigate to it themselves (e.g. opening in a popup) rather than being redirected.
+    /// </summary>
+    /// <param name="returnUrl">Frontend path to redirect to after connecting (must start with '/').</param>
     [Authorize]
     [HttpGet("login-url")]
     public IActionResult GetLoginUrl([FromQuery] string? returnUrl)
@@ -54,6 +64,8 @@ public sealed class VercelAuthController : ControllerBase
         return Ok(new { url });
     }
 
+    /// <summary>Same as <see cref="GetLoginUrl"/> but redirects directly instead of returning JSON.</summary>
+    /// <param name="returnUrl">Frontend path to redirect to after connecting (must start with '/').</param>
     [Authorize]
     [HttpGet("login")]
     public IActionResult Login([FromQuery] string? returnUrl)
@@ -70,6 +82,14 @@ public sealed class VercelAuthController : ControllerBase
         return Redirect(url);
     }
 
+    /// <summary>
+    /// Completes Vercel OAuth: exchanges the code for a token, stores/updates the user's single
+    /// "Default" Vercel connection, then redirects back to the frontend. Redirects with an
+    /// error/invalid_state query param instead of failing outright when the flow can't complete.
+    /// </summary>
+    /// <param name="code">The Vercel OAuth authorization code.</param>
+    /// <param name="state">The anti-CSRF state value issued by <see cref="GetLoginUrl"/>/<see cref="Login"/>.</param>
+    /// <param name="error">An error code from Vercel, if the user declined/cancelled.</param>
     [HttpGet("callback")]
     public async Task<IActionResult> Callback(
         [FromQuery] string? code,

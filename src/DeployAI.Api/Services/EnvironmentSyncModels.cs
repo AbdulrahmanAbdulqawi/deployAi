@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Flags controlling what a cross-provider environment sync run actually does (drift-only vs. apply, whether to redeploy, whether to run live verification).</summary>
 public sealed record EnvironmentSyncOptions(
     bool RedeployRailwayAfterUpdate = false,
     bool RedeployVercelAfterUpdate = false,
@@ -13,6 +14,7 @@ public sealed record EnvironmentSyncOptions(
     bool RunVerification = true,
     string Source = "manual");
 
+/// <summary>The outcome of a cross-provider environment sync run - resolved URLs, which env var keys were applied, drift found, and verification results.</summary>
 public sealed record EnvironmentSyncResult(
     bool Success,
     bool DriftDetected,
@@ -27,6 +29,7 @@ public sealed record EnvironmentSyncResult(
     string Source,
     DateTimeOffset CompletedAt);
 
+/// <summary>The last environment sync result for a project, persisted as JSON on <c>Project.EnvironmentSyncJson</c> so it survives across requests without re-running the sync.</summary>
 public sealed class ProjectEnvironmentSyncState
 {
     public DateTimeOffset LastSyncedAt { get; set; }
@@ -38,6 +41,7 @@ public sealed class ProjectEnvironmentSyncState
     public List<string> VerificationMessages { get; set; } = [];
     public List<string> DriftDetails { get; set; } = [];
 
+    /// <summary>Parses a project's stored sync-state JSON, returning null if none is stored yet.</summary>
     public static ProjectEnvironmentSyncState? Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -48,6 +52,7 @@ public sealed class ProjectEnvironmentSyncState
         return JsonSerializer.Deserialize<ProjectEnvironmentSyncState>(json);
     }
 
+    /// <summary>Builds the persisted state from a fresh sync result.</summary>
     public static ProjectEnvironmentSyncState FromResult(EnvironmentSyncResult result) =>
         new()
         {

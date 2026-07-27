@@ -8,8 +8,10 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Emails the project owner when a deployment finishes, honoring their notification preferences (success/failure).</summary>
 public interface IDeploymentNotificationService
 {
+    /// <summary>Sends a completion email for a deployment if the owner's preferences call for one at this outcome.</summary>
     Task NotifyDeploymentCompletedAsync(Guid deploymentId, CancellationToken cancellationToken);
 }
 

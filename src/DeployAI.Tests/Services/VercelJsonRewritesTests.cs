@@ -203,4 +203,38 @@ public class VercelJsonRewritesTests
 
         Assert.True(VercelJsonRewrites.NeedsWriteApiEnvBuildCommand(existing, config));
     }
+
+    [Fact]
+    public void HasInvalidHeaderSourcePattern_DetectsRegexAlternation()
+    {
+        const string content = """
+        {
+          "headers": [
+            {
+              "source": "/(.*\\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp))",
+              "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+            }
+          ]
+        }
+        """;
+
+        Assert.True(VercelJsonRewrites.HasInvalidHeaderSourcePattern(content));
+    }
+
+    [Fact]
+    public void HasInvalidHeaderSourcePattern_AcceptsSimpleExtensionPattern()
+    {
+        const string content = """
+        {
+          "headers": [
+            {
+              "source": "/:path*.js",
+              "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+            }
+          ]
+        }
+        """;
+
+        Assert.False(VercelJsonRewrites.HasInvalidHeaderSourcePattern(content));
+    }
 }

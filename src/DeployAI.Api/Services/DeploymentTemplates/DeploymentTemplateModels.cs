@@ -1,15 +1,18 @@
 namespace DeployAI.Api.Services.DeploymentTemplates;
 
+/// <summary>Whether a template produces an entire file's content, or a set of patch instructions to apply to an existing file.</summary>
 internal enum DeploymentTemplateKind
 {
     FullFile,
     Patch
 }
 
+/// <summary>Whether/how prominently a template should be included as reference material in a Claude prompt.</summary>
 internal sealed record DeploymentTemplateAiReference(
     bool IncludeInPrompt,
     int Priority = 1);
 
+/// <summary>A registered template: which scenario it applies to, where its source lives, and how it should be surfaced to Claude.</summary>
 internal sealed record DeploymentTemplateDefinition(
     string Id,
     string ScenarioId,
@@ -19,6 +22,7 @@ internal sealed record DeploymentTemplateDefinition(
     DeploymentTemplateAiReference AiReference,
     IReadOnlyList<string> Constraints);
 
+/// <summary>A deployment shape (provider + framework combination) that templates are grouped by.</summary>
 internal sealed record DeploymentTemplateScenario(
     string Id,
     string WebsiteProvider,
@@ -27,6 +31,7 @@ internal sealed record DeploymentTemplateScenario(
     string BackendFramework,
     string WiringMode);
 
+/// <summary>The repo-specific values (paths, project name, API env keys) substituted into a template's placeholders when rendering it.</summary>
 internal sealed record DeploymentTemplateVariables(
     string ClientRoot,
     string ClientPrefix,
@@ -39,6 +44,7 @@ internal sealed record DeploymentTemplateVariables(
     string ApiEnvKeysExpression,
     string ServerNamespace);
 
+/// <summary>A template already rendered/resolved for one target file, ready to either write directly (FullFile) or format as prompt reference material.</summary>
 internal sealed record ResolvedDeploymentTemplate(
     string TemplateId,
     string TargetPath,
@@ -48,6 +54,7 @@ internal sealed record ResolvedDeploymentTemplate(
     IReadOnlyList<string> Constraints,
     int AiPriority)
 {
+    /// <summary>Formats this template as a markdown reference block (constraints + example content/patch instructions) to embed in a Claude prompt.</summary>
     public string BuildAiReferenceBlock()
     {
         var builder = new System.Text.StringBuilder();

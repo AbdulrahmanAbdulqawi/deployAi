@@ -11,8 +11,10 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Validates and processes GitHub push webhook deliveries, triggering auto-deploy for any project tracking the pushed branch.</summary>
 public interface IGitHubWebhookHandler
 {
+    /// <summary>Verifies the payload's HMAC signature against the configured webhook secret, then triggers a deployment if a project tracks the pushed branch.</summary>
     Task HandlePushAsync(string payload, string? signatureHeader, CancellationToken cancellationToken);
 }
 

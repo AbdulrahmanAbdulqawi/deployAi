@@ -3,8 +3,10 @@ using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Ensures a service has a public Railway domain assigned (skipped for database-role services), and resolves a service's current public URL.</summary>
 public sealed partial class RailwayProvider
 {
+    /// <summary>Creates a public domain for a service if it doesn't already have one, unless the service is a database or explicitly opted out.</summary>
     private async Task EnsurePublicServiceDomainAsync(
         ProviderCredentials credentials,
         string serviceId,
@@ -92,6 +94,7 @@ public sealed partial class RailwayProvider
         return null;
     }
 
+    /// <summary>Resolves a service's public URL: the deployment's own URL if known, else its first active (non-deleting) domain.</summary>
     internal static string? ResolvePublicServiceUrl(
         string? deploymentUrl,
         IEnumerable<ServiceDomainSnapshot> serviceDomains)

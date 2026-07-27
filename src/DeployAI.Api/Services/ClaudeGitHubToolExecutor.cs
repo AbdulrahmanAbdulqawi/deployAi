@@ -4,12 +4,14 @@ using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Identifies the GitHub repo/ref a Claude agent run's tool calls should read from.</summary>
 internal readonly record struct GitHubRepoRef(
     string AccessToken,
     string Owner,
     string Repo,
     string GitRef);
 
+/// <summary>Defines the read-only GitHub browsing tool schemas (list directory, read file) offered to Claude for deployment setup generation.</summary>
 internal static class ClaudeGitHubTools
 {
     internal static IReadOnlyList<object> Definitions { get; } =
@@ -57,6 +59,7 @@ internal static class ClaudeGitHubTools
     ];
 }
 
+/// <summary>Executes the GitHub browsing tool calls Claude makes during a deployment-setup agent run, truncating large files/listings to keep them within prompt size limits.</summary>
 internal sealed class ClaudeGitHubToolExecutor
 {
     private const int DefaultMaxFileChars = 120_000;

@@ -1,12 +1,85 @@
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider
+public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
 {
+    public async Task UpdateApplicationConfigAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        UpdateProviderApplicationConfigRequest request,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var buildPack = CoolifyApiSupport.ResolveBuildPack(
+            request.CoolifyBuildPack,
+            request.DockerfilePath,
+            request.Framework,
+            request.OutputDirectory,
+            request.BuildCommand);
+
+        var body = new Dictionary<string, object?>
+        {
+            ["build_pack"] = buildPack,
+            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack),
+            // Coolify caches the Traefik labels it generates at first deploy in custom_labels and
+            // never regenerates them on redeploy unless this field is cleared - without this, a
+            // build pack/port change here silently has no effect on the live proxy until someone
+            // notices and clears it by hand (see the manual fix this method replaces). Like
+            // custom_nginx_configuration, Coolify's validator requires this field to be base64
+            // encoded - and rejects an empty string as "not base64" (its regex likely requires at
+            // least one base64 character), so encode an empty JSON array instead of an empty string.
+            ["custom_labels"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("[]"))
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.RootDirectory))
+        {
+            body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
+        {
+            body["publish_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.OutputDirectory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BuildCommand))
+        {
+            body["build_command"] = request.BuildCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.InstallCommand))
+        {
+            body["install_command"] = request.InstallCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.StartCommand))
+        {
+            body["start_command"] = request.StartCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.DockerfilePath))
+        {
+            body["dockerfile_location"] = request.DockerfilePath;
+        }
+
+        using var patchRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}");
+        patchRequest.Content = JsonContent.Create(body);
+        var response = await _httpClient.SendAsync(patchRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not update Coolify application config ({(int)response.StatusCode}).");
+        }
+    }
+
     public async Task<ProviderProject> CreateProjectAsync(
         ProviderCredentials credentials,
         CreateProviderProjectRequest request,
@@ -37,12 +110,12 @@ public sealed partial class CoolifyProvider
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory))
         {
-            body["base_directory"] = request.RootDirectory;
+            body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
         }
 
         if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
         {
-            body["publish_directory"] = request.OutputDirectory;
+            body["publish_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.OutputDirectory);
             body["is_static"] = true;
         }
 
@@ -250,6 +323,7 @@ public sealed partial class CoolifyProvider
         }
     }
 
+    /// <summary>Lists the projects, servers, and GitHub Apps visible on a Coolify connection, for the setup UI.</summary>
     public async Task<CoolifyInfrastructureSnapshot> ListInfrastructureAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
@@ -264,6 +338,7 @@ public sealed partial class CoolifyProvider
             githubApps.Select(MapInfrastructureResource).ToList());
     }
 
+    /// <summary>Lists the environments (e.g. production, staging) within a Coolify project.</summary>
     public async Task<IReadOnlyList<CoolifyInfrastructureResource>> ListProjectEnvironmentsAsync(
         ProviderCredentials credentials,
         string projectUuid,
@@ -276,6 +351,7 @@ public sealed partial class CoolifyProvider
             .ToList();
     }
 
+    /// <summary>Resolves which Coolify project to create the application in: an explicit uuid if given, else the first existing project, else a newly created one.</summary>
     private async Task<string> ResolveProjectUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,
@@ -315,6 +391,7 @@ public sealed partial class CoolifyProvider
         return created.Uuid;
     }
 
+    /// <summary>Resolves which Coolify server to deploy to: an explicit uuid if given, else the first configured server. Throws if none exist.</summary>
     private async Task<string> ResolveServerUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,
@@ -336,6 +413,7 @@ public sealed partial class CoolifyProvider
         return servers[0].Uuid;
     }
 
+    /// <summary>Resolves which environment to deploy to: an explicit name/uuid if given and found, else "production" if it exists, else the first environment.</summary>
     private async Task<CoolifyEnvironmentOption> ResolveEnvironmentAsync(
         CoolifyApiSupport.CoolifySession session,
         string projectUuid,
@@ -366,6 +444,7 @@ public sealed partial class CoolifyProvider
                ?? environments[0];
     }
 
+    /// <summary>Resolves the Coolify GitHub App for a private repo: an explicit uuid if given, else the sole configured app. Throws if none or more than one exist and none was chosen.</summary>
     private async Task<string> ResolveGithubAppUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,

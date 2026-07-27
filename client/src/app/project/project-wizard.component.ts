@@ -334,11 +334,16 @@ export class ProjectWizardComponent implements OnInit {
     this.selectedRepo.set(repo);
     const repoName = repo.fullName.split('/')[1] ?? repo.fullName;
     this.projectName = repoName;
-    this.newVercelProjectName = this.sanitizeName(repoName);
-    this.newRailwayProjectName = `${this.sanitizeName(repoName)}-api`;
-    this.newCoolifyProjectName = this.sanitizeName(repoName);
-    this.newCoolifyWebsiteProjectName = this.sanitizeName(repoName);
-    this.newCoolifyServerProjectName = `${this.sanitizeName(repoName)}-api`;
+    this.onProjectNameChange();
+  }
+
+  onProjectNameChange(): void {
+    const base = this.sanitizeName(this.projectName);
+    this.newVercelProjectName = base;
+    this.newRailwayProjectName = `${base}-api`;
+    this.newCoolifyProjectName = base;
+    this.newCoolifyWebsiteProjectName = base;
+    this.newCoolifyServerProjectName = `${base}-api`;
   }
 
   private sanitizeName(name: string): string {
@@ -1274,9 +1279,12 @@ export class ProjectWizardComponent implements OnInit {
       coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
       coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
       coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
+      // "static" skips the build step entirely and just copies the source tree as-is -
+      // only safe when there's nothing to compile. Anything with a build command (Angular,
+      // React, etc.) needs nixpacks, which runs install/build and then serves outputDirectory.
       buildPack: dockerfilePath || profile?.framework === 'docker'
         ? CoolifyBuildPack.Dockerfile
-        : outputDirectory
+        : outputDirectory && !profile?.buildCommand
           ? CoolifyBuildPack.Static
           : CoolifyBuildPack.Nixpacks,
       rootDirectory: profile?.rootDirectory,

@@ -6,6 +6,11 @@ namespace DeployAI.Providers.Railway;
 
 public sealed partial class RailwayProvider
 {
+    /// <summary>
+    /// Creates a new Railway project and service for a GitHub repo, then best-effort applies any
+    /// supplied build config (root directory, commands, Dockerfile) - a build-config failure here
+    /// doesn't fail project creation, since settings can still be synced before the first deploy.
+    /// </summary>
     public async Task<ProviderProject> CreateProjectAsync(
         ProviderCredentials credentials,
         CreateProviderProjectRequest request,
@@ -78,6 +83,7 @@ public sealed partial class RailwayProvider
             null);
     }
 
+    /// <summary>Falls back to a separate query for a new project's environment id when it wasn't included in the create-project response.</summary>
     private async Task<string?> FetchDefaultEnvironmentIdAsync(
         ProviderCredentials credentials,
         string projectId,

@@ -201,11 +201,33 @@ namespace DeployAI.Data.Migrations
                     b.ToTable("deployment_targets", (string)null);
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.NotificationPreference", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("EmailOnFailure")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("EmailOnSuccess")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("notification_preferences", (string)null);
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.Project", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("AutoDeployEnabled")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -224,6 +246,12 @@ namespace DeployAI.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<long?>("GitHubWebhookId")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("HealthJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("LogoKey")
                         .HasColumnType("text");
 
@@ -240,6 +268,8 @@ namespace DeployAI.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("GitHubRepoFullName", "AutoDeployEnabled");
 
                     b.ToTable("projects", (string)null);
                 });
@@ -413,6 +443,17 @@ namespace DeployAI.Data.Migrations
                     b.Navigation("DeployTarget");
 
                     b.Navigation("Deployment");
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.NotificationPreference", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("DeployAI.Data.Entities.NotificationPreference", "UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("DeployAI.Data.Entities.Project", b =>

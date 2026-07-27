@@ -11,6 +11,11 @@ using System.Text.Json;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Triggers and inspects deployments: starting a full or single-target deploy, listing history,
+/// reading logs, post-deploy verification, Claude-generated fixes for failed/unverified targets,
+/// and restoring a project's previous working deployment.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api")]
@@ -36,6 +41,12 @@ public sealed class DeploymentsController : ControllerBase
         _deploymentVerification = deploymentVerification;
     }
 
+    /// <summary>
+    /// Triggers a deployment of every deploy target on a project. Returns immediately (202) with
+    /// the deployment's initial status - the actual deploy runs asynchronously in the background.
+    /// </summary>
+    /// <param name="projectId">The project to deploy.</param>
+    /// <param name="request">Branch to deploy; defaults to the project's default branch if omitted.</param>
     [HttpPost("projects/{projectId:guid}/deployments")]
     public async Task<IActionResult> Trigger(Guid projectId, [FromBody] TriggerDeploymentRequest request, CancellationToken cancellationToken)
     {
@@ -57,6 +68,13 @@ public sealed class DeploymentsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Triggers a deployment of a single deploy target only (e.g. redeploy just the server after a
+    /// backend-only change), rather than every target on the project like <see cref="Trigger"/>.
+    /// </summary>
+    /// <param name="projectId">The project the target belongs to.</param>
+    /// <param name="deployTargetId">The single deploy target to deploy.</param>
+    /// <param name="request">Branch to deploy; defaults to the project's default branch if omitted.</param>
     [HttpPost("projects/{projectId:guid}/deployments/targets/{deployTargetId:guid}")]
     public async Task<IActionResult> TriggerTarget(
         Guid projectId,
@@ -82,6 +100,10 @@ public sealed class DeploymentsController : ControllerBase
         });
     }
 
+    /// <summary>Lists a project's deployment history, newest first.</summary>
+    /// <param name="projectId">The project to list deployments for.</param>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="perPage">Page size.</param>
     [HttpGet("projects/{projectId:guid}/deployments")]
     public async Task<IActionResult> ListForProject(Guid projectId, [FromQuery] int page = 1, [FromQuery] int perPage = 20, CancellationToken cancellationToken = default)
     {
@@ -111,6 +133,8 @@ public sealed class DeploymentsController : ControllerBase
         });
     }
 
+    /// <summary>Gets a single deployment's detail, including per-target status.</summary>
+    /// <param name="id">The deployment to fetch.</param>
     [HttpGet("deployments/{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -128,6 +152,12 @@ public sealed class DeploymentsController : ControllerBase
         return Ok(MapDeploymentDetail(deployment));
     }
 
+    /// <summary>
+    /// Runs live post-deploy verification checks (reachability, CORS, split-origin wiring, health)
+    /// against a deployment's actual URLs, for one side or both.
+    /// </summary>
+    /// <param name="id">The deployment to verify.</param>
+    /// <param name="scope">"website", "server", or "both" (default).</param>
     [HttpPost("deployments/{id:guid}/verify")]
     public async Task<IActionResult> Verify(
         Guid id,
@@ -170,6 +200,9 @@ public sealed class DeploymentsController : ControllerBase
         });
     }
 
+    /// <summary>Gets a deployment's build/deploy logs, in order, optionally filtered to one target.</summary>
+    /// <param name="id">The deployment to read logs for.</param>
+    /// <param name="target">Optional deployment target id to restrict logs to.</param>
     [HttpGet("deployments/{id:guid}/logs")]
     public async Task<IActionResult> GetLogs(Guid id, [FromQuery] Guid? target, CancellationToken cancellationToken)
     {
@@ -205,6 +238,13 @@ public sealed class DeploymentsController : ControllerBase
         return Ok(new { logs });
     }
 
+    /// <summary>
+    /// Uses Claude to analyze a failed deploy target and generate a fix pull request, streaming
+    /// progress as newline-delimited JSON (<c>started</c>/<c>log</c>/<c>complete</c>/<c>error</c>
+    /// events) since generation can take minutes.
+    /// </summary>
+    /// <param name="id">The deployment containing the failed target.</param>
+    /// <param name="targetId">The failed deployment target to generate a fix for.</param>
     [HttpPost("deployments/{id:guid}/targets/{targetId:guid}/fix")]
     [RequestTimeout("claude-agent")]
     public async Task GenerateFix(
@@ -267,6 +307,13 @@ public sealed class DeploymentsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Uses Claude to fix a specific failed <see cref="Verify"/> check (e.g. missing split-origin
+    /// wiring) rather than a fully failed deploy target, streaming progress the same way as
+    /// <see cref="GenerateFix"/>.
+    /// </summary>
+    /// <param name="id">The verified deployment.</param>
+    /// <param name="request">Which failed check and target to generate a fix for.</param>
     [HttpPost("deployments/{id:guid}/verification-fix")]
     [RequestTimeout("claude-agent")]
     public async Task GenerateVerificationFix(
@@ -337,6 +384,11 @@ public sealed class DeploymentsController : ControllerBase
         await Response.Body.FlushAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Re-triggers the project's most recent previously-successful deployment as a way to roll
+    /// back after a bad deploy at <paramref name="id"/>.
+    /// </summary>
+    /// <param name="id">The (typically failed) deployment to roll back from.</param>
     [HttpPost("deployments/{id:guid}/restore")]
     public async Task<IActionResult> Restore(Guid id, CancellationToken cancellationToken)
     {

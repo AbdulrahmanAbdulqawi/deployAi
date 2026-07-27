@@ -1,5 +1,6 @@
 namespace DeployAI.Api.Services;
 
+/// <summary>Guards which file paths Claude is allowed to write during setup/fix generation - rejects path traversal and any extension outside an allowlist, so a generated file can't overwrite something unexpected.</summary>
 internal static class GeneratedDeploymentFilePathRules
 {
     private static readonly string[] AllowedExtensions =
@@ -9,6 +10,7 @@ internal static class GeneratedDeploymentFilePathRules
         ".yaml", ".yml", ".razor", ".md", ".dockerignore"
     ];
 
+    /// <summary>Whether a generated file's path is safe to write: no path traversal, and an allowlisted extension or a Dockerfile.</summary>
     internal static bool IsAllowedPath(string path)
     {
         var normalized = Normalize(path);

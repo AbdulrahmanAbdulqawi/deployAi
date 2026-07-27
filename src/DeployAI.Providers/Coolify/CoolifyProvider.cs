@@ -7,6 +7,12 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Coolify;
 
+/// <summary>
+/// Coolify REST API client. Split into partial classes by concern: this file has the core
+/// <see cref="IDeploymentProvider"/> deploy/status/logs operations; <c>CoolifyProvider.Management</c>
+/// has project creation and env vars; <c>CoolifyProvider.Database</c> has Postgres/Redis
+/// provisioning and inspection; <c>CoolifyProvider.ServiceOperations</c> has status/redeploy/delete.
+/// </summary>
 public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderManagement
 {
     private readonly HttpClient _httpClient;
@@ -115,6 +121,10 @@ public sealed partial class CoolifyProvider : IDeploymentProvider, IProviderMana
         return MapStatus(deployment);
     }
 
+    /// <summary>
+    /// Polls Coolify's deployment logs every 2 seconds and yields new lines as they appear, stopping
+    /// once the deployment reaches a terminal status or after ~4 minutes (120 rounds) of no new output.
+    /// </summary>
     public async IAsyncEnumerable<string> StreamLogsAsync(
         ProviderCredentials credentials,
         string deploymentId,

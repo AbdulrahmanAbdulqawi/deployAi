@@ -16,6 +16,8 @@
       "scalars": {
         "DateTime": "DateTimeOffset",
         "JSON": "System.Text.Json.JsonElement",
+        "DeploymentDiagnosis": "System.Text.Json.JsonElement",
+        "DeploymentMeta": "System.Text.Json.JsonElement",
         "EnvironmentVariables": "System.Collections.Generic.Dictionary<string, string?>",
         "EnvironmentConfig": "string"
       }

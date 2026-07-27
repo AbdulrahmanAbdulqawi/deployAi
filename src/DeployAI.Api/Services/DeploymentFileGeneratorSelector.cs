@@ -4,13 +4,16 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Chooses which <see cref="IDeploymentFileGenerator"/> implementation to use for a setup run.</summary>
 public interface IDeploymentFileGeneratorSelector
 {
+    /// <summary>Selects a generator based on the caller's AI preference and Anthropic API key availability.</summary>
     Task<DeploymentFileGeneratorSelection> SelectAsync(
         bool? useAi,
         Func<string, Task>? reportActivity);
 }
 
+/// <summary>The chosen generator and which mode it's running in ("ai", "template", or "template-fallback").</summary>
 public sealed record DeploymentFileGeneratorSelection(
     IDeploymentFileGenerator Generator,
     string Mode);

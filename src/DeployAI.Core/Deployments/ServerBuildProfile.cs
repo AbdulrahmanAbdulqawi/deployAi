@@ -1,7 +1,6 @@
 namespace DeployAI.Core.Deployments;
 
-
-
+/// <summary>A detected backend build configuration (.NET/Node/Dockerfile), used to pre-fill a server deploy target.</summary>
 public sealed record ServerBuildProfile(
 
     string RootDirectory,

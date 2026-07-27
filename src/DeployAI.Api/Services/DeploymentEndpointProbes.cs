@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>The outcome of a single live HTTP probe against a deployed endpoint.</summary>
 internal enum ProbeCheckStatus
 {
     Passed,
@@ -10,11 +11,17 @@ internal enum ProbeCheckStatus
     Skipped
 }
 
+/// <summary>A probe's result: status, human-readable message, and (if failed) a suggested remediation action code.</summary>
 internal sealed record ProbeCheckResult(
     ProbeCheckStatus Status,
     string Message,
     string? SuggestedAction = null);
 
+/// <summary>
+/// Low-level HTTP probes against a deployment's live URLs - homepage reachability, SPA shell
+/// markers, split-origin bundle wiring, CORS preflight, and API health - the building blocks
+/// <see cref="DeploymentVerificationService"/> composes into full verification checks.
+/// </summary>
 internal static class DeploymentEndpointProbes
 {
     internal static async Task<ProbeCheckResult> CheckReachableAsync(

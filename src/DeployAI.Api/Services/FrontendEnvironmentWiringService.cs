@@ -9,34 +9,45 @@ using System.Text.Json;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Wires CORS/API-URL environment variables between a project's website and server deploy targets
+/// (both at deploy time, per-target, and on demand via <see cref="SyncCrossProviderEnvironmentAsync"/>),
+/// and verifies the wiring actually took effect.
+/// </summary>
 public interface IFrontendEnvironmentWiringService
 {
+    /// <summary>Runs a full cross-provider environment sync for a project - resolves live URLs, applies env vars, and verifies. See the implementation for full behavior.</summary>
     Task<EnvironmentSyncResult> SyncCrossProviderEnvironmentAsync(
         Guid projectId,
         EnvironmentSyncOptions options,
         CancellationToken cancellationToken);
 
+    /// <summary>Called before deploying a website target: applies the API URL env var so the build bakes in the correct backend origin. Returns a commit SHA if a repo file (e.g. vercel.json) had to be updated first.</summary>
     Task<string?> WireWebsiteTargetBeforeDeployAsync(
         Guid deploymentId,
         DeploymentTarget websiteTarget,
         CancellationToken cancellationToken);
 
+    /// <summary>Called before deploying a Railway server target: applies CORS/frontend-URL env vars so the server accepts requests from the website once it comes up.</summary>
     Task WireServerTargetBeforeRailwayDeployAsync(
         Guid deploymentId,
         DeploymentTarget railwayTarget,
         CancellationToken cancellationToken);
 
+    /// <summary>Called after a website target deploys successfully: re-wires the server side now that the website's final URL is known, and verifies the pair.</summary>
     Task WireServerTargetAfterWebsiteDeployAsync(
         Guid deploymentId,
         DeploymentTarget websiteTarget,
         CancellationToken cancellationToken);
 
+    /// <summary>Re-applies runtime env vars to a Railway server target outside the normal deploy flow, optionally redeploying it afterward.</summary>
     Task SyncRailwayServerRuntimeEnvAsync(
         Guid projectId,
         Guid serverDeployTargetId,
         bool redeployAfterUpdate,
         CancellationToken cancellationToken);
 
+    /// <summary>Probes the deployment's website/API endpoints to confirm the wiring actually works, returning human-readable pass/fail messages.</summary>
     Task<IReadOnlyList<string>> VerifyWiredEndpointsAsync(
         Guid deploymentId,
         CancellationToken cancellationToken);
@@ -98,18 +109,46 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return SkippedResult(options.Source, completedAt, "Project not found.");
         }
 
-        var websiteDeployTarget = FindWebsiteDeployTarget(project);
-        var serverDeployTarget = FindServerDeployTarget(project);
-        if (websiteDeployTarget?.Credential is null || serverDeployTarget?.Credential is null)
+        // Resolve every valid (website, server) pair - not just the first one - so a project
+        // with both a Vercel+Railway pair and a Coolify+Coolify pair gets both synced instead of
+        // silently starving whichever pair doesn't happen to be matched first.
+        var pairs = DeploymentTargetResolution.ResolveProviderPairs(project.DeployTargets)
+            .Where(pair => pair.Website.Credential is not null && pair.Server.Credential is not null)
+            .ToList();
+
+        if (pairs.Count == 0)
         {
-            return SkippedResult(options.Source, completedAt, "Project does not have both website and server targets.");
+            return SkippedResult(
+                options.Source,
+                completedAt,
+                "Project does not have a supported website and server provider pair.");
         }
 
-        if (!IsSupportedDualProviderPair(websiteDeployTarget.ProviderName, serverDeployTarget.ProviderName))
+        var pairResults = new List<EnvironmentSyncResult>();
+        foreach (var pair in pairs)
         {
-            return SkippedResult(options.Source, completedAt, "Project does not have a supported website and server provider pair.");
+            pairResults.Add(await SyncProviderPairAsync(
+                project,
+                pair.Website,
+                pair.Server,
+                options,
+                completedAt,
+                cancellationToken));
         }
 
+        var result = CombineResults(pairResults, options, completedAt);
+        await PersistSyncStateAsync(project, result, cancellationToken);
+        return result;
+    }
+
+    private async Task<EnvironmentSyncResult> SyncProviderPairAsync(
+        Project project,
+        DeployTarget websiteDeployTarget,
+        DeployTarget serverDeployTarget,
+        EnvironmentSyncOptions options,
+        DateTimeOffset completedAt,
+        CancellationToken cancellationToken)
+    {
         var websiteConfig = DeployTargetConfig.Parse(websiteDeployTarget.ConfigJson);
         var serverConfig = DeployTargetConfig.Parse(serverDeployTarget.ConfigJson);
         var apiUrl = await ResolveLiveApiUrlAsync(serverDeployTarget, cancellationToken);
@@ -159,7 +198,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 }
             }
 
-            var driftOnlyResult = new EnvironmentSyncResult(
+            return new EnvironmentSyncResult(
                 Success: driftDetails.Count == 0,
                 DriftDetected: driftDetails.Count > 0,
                 Skipped: false,
@@ -172,8 +211,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
                 DriftDetails: driftDetails,
                 Source: options.Source,
                 CompletedAt: completedAt);
-            await PersistSyncStateAsync(project, driftOnlyResult, cancellationToken);
-            return driftOnlyResult;
         }
 
         var hadWebsiteDrift = driftDetails.Any(d =>
@@ -394,7 +431,7 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             }
         }
 
-        var result = new EnvironmentSyncResult(
+        return new EnvironmentSyncResult(
             Success: verificationMessages.All(message => message.Contains("passed", StringComparison.OrdinalIgnoreCase)),
             DriftDetected: driftDetails.Count > 0,
             Skipped: false,
@@ -407,9 +444,31 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             DriftDetails: driftDetails,
             Source: options.Source,
             CompletedAt: completedAt);
+    }
 
-        await PersistSyncStateAsync(project, result, cancellationToken);
-        return result;
+    private static EnvironmentSyncResult CombineResults(
+        IReadOnlyList<EnvironmentSyncResult> results,
+        EnvironmentSyncOptions options,
+        DateTimeOffset completedAt)
+    {
+        if (results.Count == 1)
+        {
+            return results[0];
+        }
+
+        return new EnvironmentSyncResult(
+            Success: results.All(r => r.Success),
+            DriftDetected: results.Any(r => r.DriftDetected),
+            Skipped: false,
+            SkipReason: null,
+            ResolvedWebsiteUrl: results[0].ResolvedWebsiteUrl,
+            ResolvedApiUrl: results[0].ResolvedApiUrl,
+            RailwayKeysApplied: results.SelectMany(r => r.RailwayKeysApplied).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            VercelKeysApplied: results.SelectMany(r => r.VercelKeysApplied).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            VerificationMessages: results.SelectMany(r => r.VerificationMessages).ToList(),
+            DriftDetails: results.SelectMany(r => r.DriftDetails).ToList(),
+            Source: options.Source,
+            CompletedAt: completedAt);
     }
 
     public async Task<string?> WireWebsiteTargetBeforeDeployAsync(
@@ -621,12 +680,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             null);
     }
 
-    private static DeployTarget? FindWebsiteDeployTarget(Project project) =>
-        project.DeployTargets.FirstOrDefault(t =>
-            IsWebsiteProvider(t.ProviderName) &&
-            string.Equals(DeployTargetConfig.Parse(t.ConfigJson).Role, "website", StringComparison.OrdinalIgnoreCase))
-        ?? project.DeployTargets.FirstOrDefault(t => IsWebsiteProvider(t.ProviderName));
-
     private async Task<string?> ResolveLiveApiUrlAsync(
         DeployTarget serverDeployTarget,
         CancellationToken cancellationToken)
@@ -815,14 +868,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         return [primaryWebsiteUrl];
     }
 
-    private static DeployTarget? FindServerDeployTarget(Project project) =>
-        project.DeployTargets.FirstOrDefault(t =>
-            IsServerProvider(t.ProviderName) &&
-            string.Equals(DeployTargetConfig.Parse(t.ConfigJson).Role, "server", StringComparison.OrdinalIgnoreCase))
-        ?? project.DeployTargets.FirstOrDefault(t =>
-            IsServerProvider(t.ProviderName) &&
-            DeployTargetConfig.Parse(t.ConfigJson).IsDeployableTarget);
-
     private static bool IsWebsiteProvider(string providerName) =>
         string.Equals(providerName, "vercel", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
@@ -830,12 +875,6 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     private static bool IsServerProvider(string providerName) =>
         string.Equals(providerName, "railway", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsSupportedDualProviderPair(string websiteProvider, string serverProvider) =>
-        (string.Equals(websiteProvider, "vercel", StringComparison.OrdinalIgnoreCase) &&
-         string.Equals(serverProvider, "railway", StringComparison.OrdinalIgnoreCase)) ||
-        (string.Equals(websiteProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
-         string.Equals(serverProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
 
     private async Task<IReadOnlyList<string>> ApplyCoolifyApiEnvironmentAsync(
         DeployTarget websiteDeployTarget,

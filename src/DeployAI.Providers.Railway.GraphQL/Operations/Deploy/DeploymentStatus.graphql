@@ -3,5 +3,7 @@ query DeploymentStatus($id: String!) {
     id
     status
     url
+    diagnosis
+    meta
   }
 }

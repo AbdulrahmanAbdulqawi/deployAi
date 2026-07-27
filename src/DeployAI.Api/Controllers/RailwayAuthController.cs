@@ -11,6 +11,11 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Handles the Railway OAuth "Connect Railway" flow: builds the authorization URL for a signed-in
+/// user, then on callback exchanges the code and stores the resulting token as a provider
+/// connection.
+/// </summary>
 [ApiController]
 [Route("api/auth/railway")]
 public sealed class RailwayAuthController : ControllerBase
@@ -38,6 +43,11 @@ public sealed class RailwayAuthController : ControllerBase
         _appOptions = appOptions.Value;
     }
 
+    /// <summary>
+    /// Builds the Railway OAuth authorization URL for the current user, embedding their user id
+    /// and an optional post-connect return path in the anti-CSRF state value.
+    /// </summary>
+    /// <param name="returnUrl">Frontend path to redirect to after connecting (must start with '/').</param>
     [Authorize]
     [HttpGet("login-url")]
     public IActionResult GetLoginUrl([FromQuery] string? returnUrl)
@@ -54,6 +64,15 @@ public sealed class RailwayAuthController : ControllerBase
         return Ok(new { url });
     }
 
+    /// <summary>
+    /// Completes Railway OAuth: exchanges the code for a token, stores it as a provider connection
+    /// for the user embedded in <paramref name="state"/> (creating or updating one with the same
+    /// label as the Railway account name), then redirects back to the frontend. Redirects with an
+    /// error/invalid_state query param instead of failing outright when the flow can't complete.
+    /// </summary>
+    /// <param name="code">The Railway OAuth authorization code.</param>
+    /// <param name="state">The anti-CSRF state value issued by <see cref="GetLoginUrl"/>.</param>
+    /// <param name="error">An error code from Railway, if the user declined/cancelled.</param>
     [HttpGet("callback")]
     public async Task<IActionResult> Callback(
         [FromQuery] string? code,

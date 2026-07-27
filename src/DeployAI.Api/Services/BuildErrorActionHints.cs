@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Pattern-matches known angular.json build error shapes into precise, scoped fix instructions for the fix prompt - so Claude edits only the broken property instead of rewriting the whole file.</summary>
 internal static class BuildErrorActionHints
 {
     private static readonly Regex MissingAngularProjectPropertyRegex = new(
@@ -13,6 +14,7 @@ internal static class BuildErrorActionHints
         @"(?:Workspace config file cannot be loaded|Cannot read(?: config file)?):\s*(?<path>\S+angular\.json)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    /// <summary>Builds a "Required fixes" prompt section from recognized error patterns in a build error excerpt, or null if nothing recognized.</summary>
     internal static string? BuildSection(string? errorExcerpt)
     {
         if (string.IsNullOrWhiteSpace(errorExcerpt))

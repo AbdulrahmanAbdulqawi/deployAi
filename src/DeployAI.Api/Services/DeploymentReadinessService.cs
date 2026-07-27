@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Implements repo/project split-origin readiness scanning by fetching the relevant files from GitHub and evaluating them via <see cref="SplitOriginReadinessEvaluator"/>.</summary>
 public sealed class DeploymentReadinessService : IDeploymentReadinessService
 {
     private readonly DeployAIDbContext _db;
@@ -39,6 +40,25 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
     {
         var commitSha = await ResolveGitRefAsync(accessToken, owner, repo, gitRef, cancellationToken);
         var usesSplitOrigin = SplitOriginDetection.PlanUsesSplitOrigin(parts);
+
+        // Most repos have at most one (website, server) pair, in which case this falls back to
+        // the original single-pair resolution below. A repo can define two complete pairs at once
+        // (e.g. Vercel+Railway alongside a Coolify+Coolify full stack); FindWebsitePart/FindServerPart
+        // would silently scan only the first pair found and never flag missing files for the other.
+        var pairs = SplitOriginDetection.ResolveProviderPairs(parts);
+        if (pairs.Count > 1)
+        {
+            return await EvaluatePairsAsync(
+                pairs,
+                commitSha,
+                accessToken,
+                owner,
+                repo,
+                commitSha ?? gitRef,
+                resolveProbeUrl: null,
+                cancellationToken);
+        }
+
         var website = SplitOriginDetection.FindWebsitePart(parts);
         var server = SplitOriginDetection.FindServerPart(parts);
 
@@ -52,32 +72,15 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
                 Warnings: []);
         }
 
-        var paths = SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
-        var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in paths)
-        {
-            fileContents[path] = await _gitHubService.GetFileContentAsync(
-                accessToken,
-                owner,
-                repo,
-                path,
-                commitSha ?? gitRef,
-                cancellationToken);
-        }
-
-        var missing = SplitOriginDetection.EvaluateRepositoryFiles(usesSplitOrigin, website, server, fileContents);
-        var warnings = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(website.Framework) &&
-            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&
-            !SplitOriginDetection.IsCoolifyFullStack(website.ProviderName, server.ProviderName))
-        {
-            var proxy405 = await ProbeVercelApiPostReturns405Async(null, cancellationToken);
-            if (proxy405 == true)
-            {
-                warnings.Add("POST to vercel.app/api returns 405 — split-origin setup with direct Railway API URL is required.");
-            }
-        }
+        var (missing, warnings) = await EvaluatePairAsync(
+            accessToken,
+            owner,
+            repo,
+            commitSha ?? gitRef,
+            website,
+            server,
+            resolveProbeUrl: null,
+            cancellationToken);
 
         return new DeploymentReadinessResult(
             IsReady: SplitOriginReadinessEvaluator.IsReady(missing),
@@ -133,6 +136,21 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
 
         var commitSha = await ResolveGitRefAsync(token, repoParts[0], repoParts[1], branch, cancellationToken);
         var usesSplitOrigin = SplitOriginDetection.PlanUsesSplitOrigin(parts);
+
+        var pairs = SplitOriginDetection.ResolveProviderPairs(parts);
+        if (pairs.Count > 1)
+        {
+            return await EvaluatePairsAsync(
+                pairs,
+                commitSha,
+                token,
+                repoParts[0],
+                repoParts[1],
+                commitSha ?? branch,
+                resolveProbeUrl: ct => ResolveVercelWebsiteUrlAsync(project, ct),
+                cancellationToken);
+        }
+
         var website = SplitOriginDetection.FindWebsitePart(parts);
         var server = SplitOriginDetection.FindServerPart(parts);
 
@@ -141,33 +159,15 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
             return new DeploymentReadinessResult(true, commitSha, false, [], []);
         }
 
-        var paths = SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
-        var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in paths)
-        {
-            fileContents[path] = await _gitHubService.GetFileContentAsync(
-                token,
-                repoParts[0],
-                repoParts[1],
-                path,
-                commitSha ?? branch,
-                cancellationToken);
-        }
-
-        var missing = SplitOriginDetection.EvaluateRepositoryFiles(usesSplitOrigin, website, server, fileContents);
-        var warnings = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(website.Framework) &&
-            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&
-            !SplitOriginDetection.IsCoolifyFullStack(website.ProviderName, server.ProviderName))
-        {
-            var vercelUrl = await ResolveVercelWebsiteUrlAsync(project, cancellationToken);
-            var proxy405 = await ProbeVercelApiPostReturns405Async(vercelUrl, cancellationToken);
-            if (proxy405 == true)
-            {
-                warnings.Add("POST to vercel.app/api returns 405 — split-origin setup with direct Railway API URL is required.");
-            }
-        }
+        var (missing, warnings) = await EvaluatePairAsync(
+            token,
+            repoParts[0],
+            repoParts[1],
+            commitSha ?? branch,
+            website,
+            server,
+            resolveProbeUrl: ct => ResolveVercelWebsiteUrlAsync(project, ct),
+            cancellationToken);
 
         return new DeploymentReadinessResult(
             IsReady: SplitOriginReadinessEvaluator.IsReady(missing),
@@ -177,6 +177,89 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
             Warnings: warnings,
             WebsiteProviderName: website.ProviderName,
             ServerProviderName: server.ProviderName);
+    }
+
+    private async Task<(IReadOnlyList<MissingDeploymentFile> MissingFiles, IReadOnlyList<string> Warnings)> EvaluatePairAsync(
+        string token,
+        string owner,
+        string repo,
+        string gitRef,
+        DeploymentPlanPart website,
+        DeploymentPlanPart server,
+        Func<CancellationToken, Task<string?>>? resolveProbeUrl,
+        CancellationToken cancellationToken)
+    {
+        var paths = SplitOriginReadinessEvaluator.BuildAllScanPaths(website, server).ToList();
+        var fileContents = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths)
+        {
+            fileContents[path] = await _gitHubService.GetFileContentAsync(
+                token,
+                owner,
+                repo,
+                path,
+                gitRef,
+                cancellationToken);
+        }
+
+        var missing = SplitOriginDetection.EvaluateRepositoryFiles(true, website, server, fileContents);
+        var warnings = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(website.Framework) &&
+            CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&
+            !SplitOriginDetection.IsCoolifyFullStack(website.ProviderName, server.ProviderName))
+        {
+            var probeUrl = resolveProbeUrl is null ? null : await resolveProbeUrl(cancellationToken);
+            var proxy405 = await ProbeVercelApiPostReturns405Async(probeUrl, cancellationToken);
+            if (proxy405 == true)
+            {
+                warnings.Add("POST to vercel.app/api returns 405 — split-origin setup with direct Railway API URL is required.");
+            }
+        }
+
+        return (missing, warnings);
+    }
+
+    private async Task<DeploymentReadinessResult> EvaluatePairsAsync(
+        IReadOnlyList<(DeploymentPlanPart Website, DeploymentPlanPart Server)> pairs,
+        string? commitSha,
+        string token,
+        string owner,
+        string repo,
+        string gitRef,
+        Func<CancellationToken, Task<string?>>? resolveProbeUrl,
+        CancellationToken cancellationToken)
+    {
+        var allMissing = new List<MissingDeploymentFile>();
+        var allWarnings = new List<string>();
+        var allReady = true;
+
+        foreach (var pair in pairs)
+        {
+            var pairLabel = $"{pair.Website.ProviderName}+{pair.Server.ProviderName}";
+            var (missing, warnings) = await EvaluatePairAsync(
+                token,
+                owner,
+                repo,
+                gitRef,
+                pair.Website,
+                pair.Server,
+                resolveProbeUrl,
+                cancellationToken);
+
+            allReady &= SplitOriginReadinessEvaluator.IsReady(missing);
+            allMissing.AddRange(missing.Select(file => file with { Path = $"[{pairLabel}] {file.Path}" }));
+            allWarnings.AddRange(warnings.Select(warning => $"[{pairLabel}] {warning}"));
+        }
+
+        return new DeploymentReadinessResult(
+            IsReady: allReady,
+            CommitSha: commitSha,
+            UsesSplitOrigin: true,
+            MissingFiles: allMissing,
+            Warnings: allWarnings,
+            WebsiteProviderName: null,
+            ServerProviderName: null);
     }
 
     private async Task<string?> ResolveGitRefAsync(

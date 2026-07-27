@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Parses Claude's "submit_deployment_files" tool-call JSON payload into path/content pairs, validating each path via a supplied allowlist predicate.</summary>
 internal static class AnthropicJsonFileParser
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -281,6 +282,11 @@ internal static class AnthropicJsonFileParser
     }
 }
 
+/// <summary>
+/// Thin client for the Anthropic Messages API's tool-use loop: sends a conversation with tool
+/// definitions, handles streaming/non-streaming responses, and exposes the agent-loop limits
+/// (max turns/tool calls/commands) that bound Claude-driven setup and fix generation runs.
+/// </summary>
 public sealed class AnthropicMessageClient
 {
     private readonly HttpClient _httpClient;

@@ -5,8 +5,14 @@ using DeployAI.Infrastructure.Railway;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Resolves a usable, decrypted bearer token for a stored connection - for Railway OAuth
+/// connections specifically, this also transparently refreshes an expired access token and
+/// persists the new one, so callers never have to deal with token expiry themselves.
+/// </summary>
 public interface IProviderCredentialTokenService
 {
+    /// <summary>Decrypts a credential's token, refreshing it first if it's an expired Railway OAuth token.</summary>
     Task<string> GetTokenAsync(ProviderCredential credential, CancellationToken cancellationToken);
 }
 

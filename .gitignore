@@ -26,6 +26,8 @@ artifacts/
 # Angular / Node (client)
 client/node_modules/
 client/dist/
+mcp/deployai-mcp/node_modules/
+mcp/deployai-mcp/dist/
 client/.angular/
 client/tmp/
 client/out-tsc/
@@ -81,3 +83,4 @@ yarn-error.log*
 # Cursor (local editor state; keep .cursor/rules if you want them shared)
 .cursor/plans/
 .cursor/mcp.json
+/mcp/deployai-mcp

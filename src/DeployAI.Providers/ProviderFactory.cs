@@ -4,6 +4,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace DeployAI.Providers;
 
+// The factories below (ProviderFactory, ProviderManagementFactory, and the optional-capability
+// factories) all follow the same pattern: DI injects every registered provider implementing a
+// given interface, keyed by ProviderName, and GetX(name)/TryGetX(name) looks it up - throwing for
+// required capabilities (IDeploymentProvider, IProviderManagement) and returning null for optional
+// ones a given provider might not implement. See ProviderDependencyInjection.AddDeploymentProviders
+// below for the actual provider registrations.
+
+/// <summary>Resolves the registered <see cref="IDeploymentProvider"/> for a given provider name.</summary>
 public sealed class ProviderFactory : IProviderFactory
 {
     private readonly IReadOnlyDictionary<string, IDeploymentProvider> _providers;
@@ -62,6 +70,19 @@ public sealed class ProviderApplicationUrlResolverFactory : IProviderApplication
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderApplicationConfigSyncFactory : IProviderApplicationConfigSyncFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderApplicationConfigSync> _providers;
+
+    public ProviderApplicationConfigSyncFactory(IEnumerable<IProviderApplicationConfigSync> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderApplicationConfigSync? GetConfigSync(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDatabaseProvisioningFactory : IProviderDatabaseProvisioningFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDatabaseProvisioning> _providers;
@@ -101,8 +122,10 @@ public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceI
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+/// <summary>Registers every provider implementation and their capability factories with DI. Adding support for a new capability on a provider means registering it as that interface here too.</summary>
 public static class ProviderDependencyInjection
 {
+    /// <summary>Registers Vercel, Railway, and Coolify (and their optional capability interfaces), plus each capability's resolving factory.</summary>
     public static IServiceCollection AddDeploymentProviders(this IServiceCollection services)
     {
         services.AddHttpClient<Vercel.VercelProvider>();
@@ -126,8 +149,10 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolver>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderApplicationConfigSync>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderApplicationUrlResolverFactory, ProviderApplicationUrlResolverFactory>();
+        services.AddSingleton<IProviderApplicationConfigSyncFactory, ProviderApplicationConfigSyncFactory>();
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();

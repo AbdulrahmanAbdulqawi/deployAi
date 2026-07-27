@@ -137,6 +137,76 @@ public class CoolifyProviderManagementTests
     }
 
     [Fact]
+    public async Task UpdateApplicationConfigAsync_PatchesBuildPackPortAndClearsCustomLabels()
+    {
+        var handler = new MockHttpMessageHandler();
+        string? capturedBody = null;
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-1")
+            .Respond(request =>
+            {
+                capturedBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "uuid": "app-1" }""", System.Text.Encoding.UTF8, "application/json")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-1",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "angular",
+                RootDirectory: "client",
+                OutputDirectory: "dist/app/browser",
+                BuildCommand: "npm run build"),
+            CancellationToken.None);
+
+        Assert.NotNull(capturedBody);
+        using var document = System.Text.Json.JsonDocument.Parse(capturedBody!);
+        var root = document.RootElement;
+        Assert.Equal("nixpacks", root.GetProperty("build_pack").GetString());
+        Assert.Equal("3000", root.GetProperty("ports_exposes").GetString());
+        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        Assert.Equal("/client", root.GetProperty("base_directory").GetString());
+        Assert.Equal("/dist/app/browser", root.GetProperty("publish_directory").GetString());
+        Assert.Equal("npm run build", root.GetProperty("build_command").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateApplicationConfigAsync_ResolvesDockerfileBuildPackAndPort()
+    {
+        var handler = new MockHttpMessageHandler();
+        string? capturedBody = null;
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-2")
+            .Respond(request =>
+            {
+                capturedBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "uuid": "app-2" }""", System.Text.Encoding.UTF8, "application/json")
+                };
+            });
+
+        var provider = CreateProvider(handler);
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-2",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "dotnet",
+                DockerfilePath: "src/Api/Dockerfile"),
+            CancellationToken.None);
+
+        Assert.NotNull(capturedBody);
+        using var document = System.Text.Json.JsonDocument.Parse(capturedBody!);
+        var root = document.RootElement;
+        Assert.Equal("dockerfile", root.GetProperty("build_pack").GetString());
+        Assert.Equal("8080", root.GetProperty("ports_exposes").GetString());
+        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        Assert.Equal("src/Api/Dockerfile", root.GetProperty("dockerfile_location").GetString());
+    }
+
+    [Fact]
     public async Task ListProjectEnvironmentsAsync_ReturnsEnvironments()
     {
         var handler = new MockHttpMessageHandler();

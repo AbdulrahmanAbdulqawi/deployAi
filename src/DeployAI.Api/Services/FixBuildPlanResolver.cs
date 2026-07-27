@@ -2,6 +2,7 @@ using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Combines <see cref="FixBuildCommandResolver"/> and <see cref="FixBuildPlanRefiner"/> - reads the Dockerfile from disk if present, then resolves and refines the build plan.</summary>
 internal static class FixBuildPlanResolver
 {
     internal static FixBuildPlan Resolve(

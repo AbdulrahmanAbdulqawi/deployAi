@@ -12,6 +12,11 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Handles GitHub OAuth sign-in and DeployAI's own session token lifecycle (access/refresh token
+/// issuance, rotation, and revocation). Not protected by <c>[Authorize]</c> - each action either
+/// starts a login flow or authenticates via a token/state value in the request itself.
+/// </summary>
 [ApiController]
 [Route("api/auth")]
 public sealed class AuthController : ControllerBase
@@ -39,6 +44,7 @@ public sealed class AuthController : ControllerBase
         _appOptions = appOptions.Value;
     }
 
+    /// <summary>Starts GitHub OAuth login by redirecting to GitHub's authorization page.</summary>
     [HttpGet("github/login")]
     public IActionResult GitHubLogin()
     {
@@ -47,6 +53,14 @@ public sealed class AuthController : ControllerBase
         return Redirect(url);
     }
 
+    /// <summary>
+    /// Completes GitHub OAuth: exchanges the code for a token, creates or updates the local user
+    /// record, issues a DeployAI access/refresh token pair, then redirects to the frontend with the
+    /// tokens in the query string. Redirects with <c>?error=invalid_state</c> on a bad/expired
+    /// state value instead of failing outright.
+    /// </summary>
+    /// <param name="code">The GitHub OAuth authorization code.</param>
+    /// <param name="state">The anti-CSRF state value issued by <see cref="GitHubLogin"/>.</param>
     [HttpGet("github/callback")]
     public async Task<IActionResult> GitHubCallback([FromQuery] string code, [FromQuery] string state, CancellationToken cancellationToken)
     {
@@ -96,6 +110,12 @@ public sealed class AuthController : ControllerBase
         return Redirect(redirect);
     }
 
+    /// <summary>
+    /// Exchanges a valid, unexpired refresh token for a new access/refresh token pair. The old
+    /// refresh token is deleted atomically as part of the lookup so two concurrent refreshes with
+    /// the same token can't both succeed.
+    /// </summary>
+    /// <param name="request">The refresh token to redeem.</param>
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken cancellationToken)
     {
@@ -144,6 +164,8 @@ public sealed class AuthController : ControllerBase
         });
     }
 
+    /// <summary>Revokes the given refresh token, ending that session. A no-op if it's already gone.</summary>
+    /// <param name="request">The refresh token to revoke.</param>
     [HttpPost("logout")]
     public async Task<IActionResult> Logout([FromBody] RefreshRequest request, CancellationToken cancellationToken)
     {

@@ -3,6 +3,18 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Railway GraphQL API client. Split into partial classes by concern: this file has the core
+/// <see cref="IDeploymentProvider"/> deploy/status operations; <c>RailwayProvider.Management</c> has
+/// project creation; <c>RailwayProvider.EnvVars</c> has environment variables;
+/// <c>RailwayProvider.Database</c>/<c>.Database.Variables</c> have Postgres/Redis provisioning;
+/// <c>RailwayProvider.DataServiceInspection</c> has database inspection;
+/// <c>RailwayProvider.ServiceOperations</c> has status/redeploy/rollback/delete;
+/// <c>RailwayProvider.Networking</c> has public domain assignment; <c>RailwayProvider.Settings</c>
+/// has build config; <c>RailwayProvider.Volumes</c> has volume mounts;
+/// <c>RailwayProvider.Workspaces</c>/<c>.ListProjects</c> have project/workspace listing; and
+/// <c>RailwayProvider.Logs</c> has deployment log streaming.
+/// </summary>
 public sealed partial class RailwayProvider : IDeploymentProvider, IProviderManagement
 {
     private readonly RailwayGraphQlClientFactory _graphQl;
@@ -31,6 +43,11 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         }
     }
 
+    /// <summary>
+    /// Lists projects via the account-level query first (works for API tokens), falling back to the
+    /// OAuth-scoped workspace query if that's unauthorized or returns nothing (OAuth tokens can't
+    /// use the account-level query at all).
+    /// </summary>
     public async Task<IReadOnlyList<ProviderProject>> ListProjectsAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
@@ -51,6 +68,11 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         return await ListProjectsViaOAuthAsync(credentials, cancellationToken);
     }
 
+    /// <summary>
+    /// Triggers a deployment, first pushing build configuration and ensuring a public domain
+    /// exists for the service (both as side effects), then deploying at the given commit if one
+    /// was supplied in <paramref name="environment"/>'s "commitSha" entry.
+    /// </summary>
     public async Task<DeploymentResponse> TriggerDeploymentAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -91,6 +113,85 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
         await using var gql = _graphQl.CreateSession(credentials);
         var result = await gql.Client.DeploymentStatus.ExecuteAsync(deploymentId, cancellationToken);
         var data = RailwayApiSupport.EnsureData(result);
-        return RailwayGraphQlMapping.MapDeploymentStatus(data.Deployment.Status, data.Deployment.Url);
+        var failureDetail = RailwayGraphQlMapping.ExtractFailureDetail(
+            data.Deployment.Diagnosis,
+            data.Deployment.Meta);
+
+        if (string.IsNullOrWhiteSpace(failureDetail) &&
+            data.Deployment.Status is DeployAI.Providers.Railway.GraphQL.DeploymentStatus.Failed
+                or DeployAI.Providers.Railway.GraphQL.DeploymentStatus.Crashed
+                or DeployAI.Providers.Railway.GraphQL.DeploymentStatus.Removed)
+        {
+            failureDetail = await FetchDeploymentEventFailureDetailAsync(
+                credentials,
+                deploymentId,
+                cancellationToken);
+        }
+
+        var mapped = RailwayGraphQlMapping.MapDeploymentStatus(
+            data.Deployment.Status,
+            data.Deployment.Url,
+            failureDetail);
+
+        // #region agent log
+        try
+        {
+            var payload = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sessionId = "b63a0f",
+                runId = "post-fix",
+                hypothesisId = "C",
+                location = "RailwayProvider.cs:GetStatusAsync",
+                message = "railway_get_status",
+                data = new
+                {
+                    deploymentId,
+                    rawStatus = data.Deployment.Status.ToString(),
+                    hasUrl = !string.IsNullOrWhiteSpace(data.Deployment.Url),
+                    diagnosis = data.Deployment.Diagnosis,
+                    meta = data.Deployment.Meta,
+                    failureDetail,
+                    mappedKind = mapped.Status.ToString(),
+                    mappedError = mapped.ErrorMessage
+                },
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            });
+            System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
+        }
+        catch { /* debug ingest */ }
+        // #endregion
+
+        return mapped;
+    }
+
+    private async Task<string?> FetchDeploymentEventFailureDetailAsync(
+        ProviderCredentials credentials,
+        string deploymentId,
+        CancellationToken cancellationToken)
+    {
+        await using var gql = _graphQl.CreateSession(credentials);
+        var result = await gql.Client.DeploymentEvents.ExecuteAsync(deploymentId, 20, cancellationToken);
+        var data = RailwayApiSupport.TryGetData(result, static _ => true);
+        if (data?.DeploymentEvents?.Edges is null)
+        {
+            return null;
+        }
+
+        foreach (var edge in data.DeploymentEvents.Edges)
+        {
+            var payload = edge.Node?.Payload;
+            if (payload is null)
+            {
+                continue;
+            }
+
+            var detail = FirstNonBlank(payload.Error, payload.Reason, payload.Detail);
+            if (!string.IsNullOrWhiteSpace(detail))
+            {
+                return $"Railway {edge.Node!.Step}: {detail}";
+            }
+        }
+
+        return null;
     }
 }

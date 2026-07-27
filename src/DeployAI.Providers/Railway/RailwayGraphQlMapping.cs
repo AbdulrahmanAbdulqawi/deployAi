@@ -5,21 +5,101 @@ using GraphQlDeploymentStatus = DeployAI.Providers.Railway.GraphQL.DeploymentSta
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Maps generated Railway GraphQL types (deployment status enums, connection/edge results) to DeployAI's own provider-agnostic types.</summary>
 internal static class RailwayGraphQlMapping
 {
+    private const string GenericRailwayFailure = "Publishing did not go through on Railway.";
+
     internal static string NormalizeDeploymentStatus(GraphQlDeploymentStatus status) =>
         status.ToString().ToUpperInvariant();
 
-    internal static Core.Providers.DeploymentStatus MapDeploymentStatus(GraphQlDeploymentStatus status, string? url) =>
+    internal static Core.Providers.DeploymentStatus MapDeploymentStatus(
+        GraphQlDeploymentStatus status,
+        string? url,
+        string? failureDetail = null) =>
         status switch
         {
             GraphQlDeploymentStatus.Success => new Core.Providers.DeploymentStatus(DeploymentStatusKind.Success, url, null),
             GraphQlDeploymentStatus.Failed or GraphQlDeploymentStatus.Crashed or GraphQlDeploymentStatus.Removed =>
-                new Core.Providers.DeploymentStatus(DeploymentStatusKind.Failed, null, "Publishing did not go through on Railway."),
+                new Core.Providers.DeploymentStatus(
+                    DeploymentStatusKind.Failed,
+                    null,
+                    string.IsNullOrWhiteSpace(failureDetail) ? GenericRailwayFailure : failureDetail.Trim()),
             GraphQlDeploymentStatus.Building or GraphQlDeploymentStatus.Deploying or GraphQlDeploymentStatus.Initializing or GraphQlDeploymentStatus.Queued =>
                 new Core.Providers.DeploymentStatus(DeploymentStatusKind.InProgress, null, null),
             _ => new Core.Providers.DeploymentStatus(DeploymentStatusKind.InProgress, null, null)
         };
+
+    internal static string? ExtractFailureDetail(string? diagnosis, string? meta)
+    {
+        // Railway meta is deploy metadata (reason=deploy, commitHash, rootDirectory, …), not a
+        // failure explanation. Only diagnosis carries Railway's failure diagnosis text.
+        _ = meta;
+        return ExtractReadableText(diagnosis);
+    }
+
+    internal static string? ExtractReadableText(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var trimmed = raw.Trim();
+        if (trimmed[0] is '{' or '[')
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(trimmed);
+                return ExtractReadableText(document.RootElement) ?? trimmed;
+            }
+            catch (JsonException)
+            {
+                return trimmed;
+            }
+        }
+
+        return trimmed;
+    }
+
+    internal static string? ExtractReadableText(JsonElement? element)
+    {
+        if (element is null || element.Value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        var value = element.Value;
+        if (value.ValueKind == JsonValueKind.String)
+        {
+            return NullIfBlank(value.GetString());
+        }
+
+        if (value.ValueKind != JsonValueKind.Object)
+        {
+            return NullIfBlank(value.ToString());
+        }
+
+        foreach (var key in new[] { "message", "error", "reason", "summary", "detail", "title", "description" })
+        {
+            if (value.TryGetProperty(key, out var property))
+            {
+                var text = property.ValueKind == JsonValueKind.String
+                    ? property.GetString()
+                    : property.ToString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text.Trim();
+                }
+            }
+        }
+
+        return NullIfBlank(value.ToString());
+    }
+
+    private static string? NullIfBlank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
 
     internal static string MapServiceDeploymentStatus(GraphQlDeploymentStatus status) =>
         status switch

@@ -57,6 +57,13 @@
           }
         </div>
 
+        @if (selectedRepo()) {
+          <label class="wizard__field">
+            <span class="u-label-caps">App name</span>
+            <input type="text" [(ngModel)]="projectName" (ngModelChange)="onProjectNameChange()" placeholder="my-app" />
+          </label>
+        }
+
         <div class="wizard__actions">
           <app-ui-button variant="primary" icon="arrow-right" [disabled]="!selectedRepo()" (click)="nextFromRepo()">
             Continue

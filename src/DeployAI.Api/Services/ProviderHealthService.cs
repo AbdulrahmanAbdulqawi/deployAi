@@ -3,15 +3,20 @@ using System.Text.Json.Serialization;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Reports whether Vercel/Railway/Coolify's own APIs are reachable - infra status, not tied to any user's connection or project.</summary>
 public interface IProviderHealthService
 {
+    /// <summary>Gets the current reachability status of every hosting provider's API.</summary>
     Task<ProviderHealthSummary> GetSummaryAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>Reachability status for every hosting provider.</summary>
 public sealed record ProviderHealthSummary(IReadOnlyList<ProviderHealthStatus> Providers);
 
+/// <summary>One provider's reachability status.</summary>
 public sealed record ProviderHealthStatus(string Name, string Status, string? Message);
 
+/// <summary>Implements provider health checks with a short in-process cache (statics, so shared across requests) to avoid hammering provider status endpoints.</summary>
 public sealed class ProviderHealthService : IProviderHealthService
 {
     private readonly IHttpClientFactory _httpClientFactory;

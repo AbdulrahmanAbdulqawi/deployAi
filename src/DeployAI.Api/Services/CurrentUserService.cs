@@ -2,8 +2,10 @@ using System.Security.Claims;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Exposes the current authenticated request's user id, resolved from the JWT's "sub" claim.</summary>
 public interface ICurrentUserService
 {
+    /// <summary>The signed-in user's id, or null if unauthenticated/the claim is missing.</summary>
     Guid? UserId { get; }
 }
 

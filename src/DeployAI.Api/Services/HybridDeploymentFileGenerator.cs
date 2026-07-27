@@ -5,6 +5,7 @@ using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Generates missing split-origin setup files by scaffolding template-based ones directly and using Claude only for the files that need repo-specific content.</summary>
 public sealed class HybridDeploymentFileGenerator : IDeploymentFileGenerator
 {
     private readonly AnthropicMessageClient _anthropic;

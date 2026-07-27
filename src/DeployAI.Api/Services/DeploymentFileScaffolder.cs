@@ -3,6 +3,11 @@ using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Generates split-origin setup files directly from static templates (no AI call) where possible,
+/// and patches existing repo files (e.g. Program.cs, AuthController.cs) in place for the subset of
+/// files where a full-file template would clobber repo-specific code.
+/// </summary>
 public sealed class DeploymentFileScaffolder
 {
     private readonly DeploymentTemplateResolver _templateResolver;

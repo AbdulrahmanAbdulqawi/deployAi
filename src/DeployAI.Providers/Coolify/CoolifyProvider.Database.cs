@@ -190,6 +190,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         }
     }
 
+    /// <summary>Strips a trailing "|env" suffix (if present) to get the raw Coolify database uuid.</summary>
     private static string ParseDatabaseUuid(string databaseProviderProjectId)
     {
         var separatorIndex = databaseProviderProjectId.IndexOf('|', StringComparison.Ordinal);
@@ -198,6 +199,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
             : databaseProviderProjectId[..separatorIndex];
     }
 
+    /// <summary>Builds a Redis connection URL from Coolify's database details, preferring the internal Docker URL if Coolify returned one.</summary>
     private static string? ResolveRedisConnectionString(CoolifyDatabaseDetails? database)
     {
         if (database is null)
@@ -220,6 +222,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         return null;
     }
 
+    /// <summary>Builds a Postgres connection URL from Coolify's database details, preferring Coolify's own connection string field, then internal Docker URL, then assembling from individual fields.</summary>
     private static string? ResolvePostgresConnectionString(CoolifyDatabaseDetails? database)
     {
         if (database is null)
@@ -312,6 +315,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
             : null;
     }
 
+    /// <summary>Fetches an application's project/server/environment context needed to provision a database alongside it, defaulting the environment to "production" if Coolify doesn't report one.</summary>
     private async Task<CoolifyApplicationContext?> GetApplicationContextAsync(
         CoolifyApiSupport.CoolifySession session,
         string applicationUuid,
@@ -353,6 +357,7 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         return await response.Content.ReadFromJsonAsync<CoolifyDatabaseDetails>(cancellationToken);
     }
 
+    /// <summary>Lowercases and strips non-alphanumeric characters to a Coolify-safe resource name, falling back to "app-postgres" if nothing usable remains.</summary>
     private static string SanitizeResourceName(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

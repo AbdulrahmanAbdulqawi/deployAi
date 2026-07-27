@@ -4,6 +4,7 @@ using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Ensures a database service has a persistent volume mounted at the correct path (fixing a wrong mount path in place rather than creating a duplicate volume).</summary>
 public sealed partial class RailwayProvider
 {
     internal const string PostgresDataMountPath = "/var/lib/postgresql/data";
@@ -37,6 +38,7 @@ public sealed partial class RailwayProvider
             RedisDataMountPath,
             cancellationToken);
 
+    /// <summary>Ensures a volume mounted at <paramref name="mountPath"/> exists on the service: no-op if one already matches, fixes an existing volume's mount path if one is wrong, else creates a new one.</summary>
     private async Task<bool> EnsureServiceVolumeAsync(
         ProviderCredentials credentials,
         string projectId,

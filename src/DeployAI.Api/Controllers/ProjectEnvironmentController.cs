@@ -7,6 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Reports and triggers cross-provider environment sync (CORS/API-URL wiring between a project's
+/// website and server deploy targets) for a single project.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/projects/{projectId:guid}/environment")]
@@ -26,6 +30,8 @@ public sealed class ProjectEnvironmentController : ControllerBase
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
     }
 
+    /// <summary>Gets the result of the most recent environment sync run for this project, if any.</summary>
+    /// <param name="projectId">The project to check.</param>
     [HttpGet("sync")]
     public async Task<IActionResult> GetSyncStatus(Guid projectId, CancellationToken cancellationToken)
     {
@@ -34,6 +40,13 @@ public sealed class ProjectEnvironmentController : ControllerBase
         return Ok(MapSyncState(state));
     }
 
+    /// <summary>
+    /// Runs cross-provider environment sync now: resolves the live website/API URLs, applies
+    /// CORS/API-URL env vars on both sides, and verifies the result. May trigger a server redeploy
+    /// as a side effect when <paramref name="redeployRailway"/> is true and drift is detected.
+    /// </summary>
+    /// <param name="projectId">The project to sync.</param>
+    /// <param name="redeployRailway">Whether to redeploy the server target if drift requires it.</param>
     [HttpPost("sync")]
     public async Task<IActionResult> Sync(
         Guid projectId,

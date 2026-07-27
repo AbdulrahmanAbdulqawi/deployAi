@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace DeployAI.Core.Deployments;
 
+/// <summary>Coarse classification of why a deployment failed - a code/build problem vs. an infra issue Claude can't fix by editing the repo.</summary>
 public enum DeploymentFailureCategory
 {
     CodeBuild,
@@ -10,6 +11,7 @@ public enum DeploymentFailureCategory
     Unknown
 }
 
+/// <summary>Claude's analysis of a failed deployment target, persisted as JSON on the target and surfaced in the UI.</summary>
 public sealed record DeploymentFailureAnalysis(
     DeploymentFailureCategory Category,
     string Summary,
@@ -18,14 +20,17 @@ public sealed record DeploymentFailureAnalysis(
     bool CanRequestClaudeFix,
     int ErrorCount = 0);
 
+/// <summary>The pull request Claude opened with a fix, and which files it committed.</summary>
 public sealed record DeploymentFixResult(
     string BranchName,
     int PullRequestNumber,
     string PullRequestUrl,
     IReadOnlyList<string> CommittedFiles);
 
+/// <summary>Serializes/deserializes <see cref="DeploymentFailureAnalysis"/> to/from the JSON stored on a deployment target.</summary>
 public static class DeploymentFailureAnalysisJson
 {
+    /// <summary>Parses a stored analysis JSON blob, returning null for null/empty input.</summary>
     public static DeploymentFailureAnalysis? Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -55,6 +60,7 @@ public static class DeploymentFailureAnalysisJson
             state.ErrorCount);
     }
 
+    /// <summary>Serializes an analysis to JSON for storage on a deployment target.</summary>
     public static string ToJson(DeploymentFailureAnalysis analysis) =>
         JsonSerializer.Serialize(new DeploymentFailureAnalysisState
         {

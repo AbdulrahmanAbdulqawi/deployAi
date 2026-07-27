@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -35,8 +35,8 @@ namespace DeployAI.Data.Migrations
                 columns: table => new
                 {
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
-                    EmailOnSuccess = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
-                    EmailOnFailure = table.Column<bool>(type: "boolean", nullable: false, defaultValue: true),
+                    EmailOnSuccess = table.Column<bool>(type: "boolean", nullable: false),
+                    EmailOnFailure = table.Column<bool>(type: "boolean", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>

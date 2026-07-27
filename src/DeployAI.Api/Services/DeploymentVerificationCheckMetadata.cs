@@ -1,11 +1,14 @@
 namespace DeployAI.Api.Services;
 
+/// <summary>Maps a failed verification check to whether it's Claude-fixable and which repo files are likely relevant, so a fix-generation run knows where to look.</summary>
 internal static class DeploymentVerificationCheckMetadata
 {
+    /// <summary>A check is Claude-fixable if it failed/warned and its fix isn't just "redeploy" (nothing to edit for those).</summary>
     internal static bool CanRequestClaudeFix(string status, string? suggestedAction) =>
         status is "failed" or "warning" &&
         suggestedAction is not "redeploy_website" and not "redeploy_server";
 
+    /// <summary>Resolves which repo files are likely relevant to a given failed check, varying by whether the stack is Coolify full-stack or Vercel+Railway (different config files apply).</summary>
     internal static IReadOnlyList<string> ResolveReferencedFiles(
         string checkId,
         string? suggestedAction,

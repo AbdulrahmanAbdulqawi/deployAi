@@ -122,6 +122,27 @@ public class GeneratedDeploymentFileValidatorTests
     }
 
     [Fact]
+    public void ValidateOrThrow_RejectsVercelJsonInvalidHeaderSourcePattern()
+    {
+        var ex = Assert.Throws<DeployAIException>(() =>
+            GeneratedDeploymentFileValidator.ValidateOrThrow([
+                ("client/vercel.json", """
+                    {
+                      "headers": [
+                        {
+                          "source": "/(.*\\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp))",
+                          "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+                        }
+                      ]
+                    }
+                    """)
+            ]));
+
+        Assert.Equal("setup_generation_failed", ex.ErrorCode);
+        Assert.Contains("invalid headers source pattern", ex.Message);
+    }
+
+    [Fact]
     public void ValidateOrThrow_RejectsProgramCsAllowAllWithoutAllowedOrigins()
     {
         var ex = Assert.Throws<DeployAIException>(() =>

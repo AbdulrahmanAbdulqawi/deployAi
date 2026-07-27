@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>A project's overall live health, derived from its most recent scheduled verification run's pass rate.</summary>
 public enum ProjectHealthStatus
 {
     Healthy,
@@ -15,6 +16,7 @@ public enum ProjectHealthStatus
     Unknown
 }
 
+/// <summary>A project's last recorded health check result, persisted as JSON on <c>Project.HealthJson</c>.</summary>
 public sealed class ProjectHealthState
 {
     public DateTimeOffset LastCheckedAt { get; set; }
@@ -24,6 +26,7 @@ public sealed class ProjectHealthState
     public string? Summary { get; set; }
     public Guid? DeploymentId { get; set; }
 
+    /// <summary>Parses a project's stored health-state JSON, returning null if none is stored yet.</summary>
     public static ProjectHealthState? Parse(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -37,6 +40,7 @@ public sealed class ProjectHealthState
     public string ToJson() => JsonSerializer.Serialize(this);
 }
 
+/// <summary>Scheduled job that periodically runs live verification against every project's latest deployment and persists the resulting health status.</summary>
 public sealed class ProjectHealthMonitorJob
 {
     private readonly DeployAIDbContext _db;
@@ -53,6 +57,7 @@ public sealed class ProjectHealthMonitorJob
         _appOptions = appOptions.Value;
     }
 
+    /// <summary>Entry point invoked on schedule: verifies every project's latest deployment and updates its stored health state.</summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         var projectIds = await _db.Projects

@@ -7,6 +7,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Builds the system/user prompts sent to Claude for deployment setup generation and fix generation - the actual instructions and repo/error context that drive agent behavior.</summary>
 internal static class ClaudeDeploymentPrompts
 {
     private const string JsonOutputFormat =

@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Whether a built Angular bundle actually has the split-origin API interceptor wired in (as opposed to just having the source files present but not baked into the production build).</summary>
 internal sealed record SplitOriginBundleWiringAnalysis(
     bool HasWithInterceptors,
     bool HasNonEmptyApiBaseUrl,
@@ -11,6 +12,12 @@ internal sealed record SplitOriginBundleWiringAnalysis(
     internal static SplitOriginBundleWiringAnalysis Empty { get; } = new(false, false, false, false);
 }
 
+/// <summary>
+/// Pattern-matches Angular source/service files and built JS bundles to detect split-origin wiring
+/// issues: missing interceptor registration, relative /api paths that bypass it, legacy env
+/// property usage, and auth route mismatches - used by both readiness scanning (source files) and
+/// live deployment verification (built bundles).
+/// </summary>
 internal static class SplitOriginClientWiringAnalyzer
 {
     private static readonly Regex RelativeApiPathRegex = new(
@@ -29,6 +36,7 @@ internal static class SplitOriginClientWiringAnalyzer
         @"apiBaseUrl\s*:\s*['""]([^'""]*)['""]",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    /// <summary>Whether app.config.ts registers the api-base interceptor.</summary>
     internal static bool RegistersApiBaseInterceptor(string? appConfig)
     {
         if (string.IsNullOrWhiteSpace(appConfig))
@@ -40,6 +48,7 @@ internal static class SplitOriginClientWiringAnalyzer
                appConfig.Contains("api-base.interceptor", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether angular.json swaps in environment.production for production builds - needed for apiBaseUrl to actually be non-empty in the built bundle.</summary>
     internal static bool HasAngularProductionFileReplacements(string? angularJson)
     {
         if (string.IsNullOrWhiteSpace(angularJson))
@@ -51,6 +60,7 @@ internal static class SplitOriginClientWiringAnalyzer
                angularJson.Contains("environment.production", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether any Angular service source still uses a relative /api path, which bypasses the interceptor's absolute-URL rewriting.</summary>
     internal static bool HasRelativeApiServicePaths(IEnumerable<string?> sources)
     {
         foreach (var source in sources)
@@ -69,6 +79,7 @@ internal static class SplitOriginClientWiringAnalyzer
         return false;
     }
 
+    /// <summary>Extracts the specific relative /api paths found (for pointing at exactly which service files need fixing).</summary>
     internal static IReadOnlyList<string> ExtractRelativeApiServicePaths(IEnumerable<string?> sources)
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -92,6 +103,7 @@ internal static class SplitOriginClientWiringAnalyzer
         return paths.ToArray();
     }
 
+    /// <summary>Whether the frontend calls a legacy /api/Auth route while the server only exposes /api/v1/auth (a stale-generated-code mismatch).</summary>
     internal static bool HasAuthRouteMismatch(string? authService, string? authController)
     {
         if (string.IsNullOrWhiteSpace(authService))
@@ -113,6 +125,7 @@ internal static class SplitOriginClientWiringAnalyzer
         return authController.Contains("api/v1/auth", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Whether services still reference the old environment.apiUrl property while environment files were never updated to add apiBaseUrl (a partial-migration signal).</summary>
     internal static bool UsesLegacyApiUrlPropertyWithoutApiBaseUrl(
         IReadOnlyList<string?> environmentFiles,
         IEnumerable<string?> serviceSources)
@@ -135,6 +148,7 @@ internal static class SplitOriginClientWiringAnalyzer
         return false;
     }
 
+    /// <summary>Whether a server's configured CORS origin no longer matches the website's current live origin (e.g. after a domain change).</summary>
     internal static bool IsStaleCorsOrigin(string? configuredOrigin, string? currentWebsiteOrigin)
     {
         if (string.IsNullOrWhiteSpace(configuredOrigin) || string.IsNullOrWhiteSpace(currentWebsiteOrigin))
@@ -148,6 +162,7 @@ internal static class SplitOriginClientWiringAnalyzer
             StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Analyzes a deployed site's actual built JS bundles for split-origin wiring - the ground truth check, since source files can be correct but not actually compiled in.</summary>
     internal static SplitOriginBundleWiringAnalysis AnalyzeBundleScripts(IEnumerable<string> scriptBodies)
     {
         var joined = string.Join('\n', scriptBodies.Where(static body => !string.IsNullOrWhiteSpace(body)));
@@ -182,6 +197,7 @@ internal static class SplitOriginClientWiringAnalyzer
             isWired);
     }
 
+    /// <summary>Filters a repo's fetched files down to just Angular *.service.ts files.</summary>
     internal static IEnumerable<string?> SelectServiceFileContents(
         IReadOnlyDictionary<string, string?> fileContentsByPath)
     {

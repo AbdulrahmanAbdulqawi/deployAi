@@ -3,8 +3,10 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Detects whether a website+server pair (or a full deployment plan) needs split-origin setup files/wiring, and resolves which readiness files apply.</summary>
 internal static class SplitOriginDetection
 {
+    /// <summary>Whether a website+server pair both needs and is eligible for split-origin wiring (a supported provider pair, and framework combination that resolves to split-origin mode).</summary>
     internal static bool IsSplitOriginStack(
         string? websiteFramework,
         string? serverFramework,
@@ -20,6 +22,7 @@ internal static class SplitOriginDetection
                CrossProviderWiringMode.SplitOrigin;
     }
 
+    /// <summary>Whether a pair is a Coolify website + Coolify server full-stack setup (as opposed to Vercel+Railway).</summary>
     internal static bool IsCoolifyFullStack(string? websiteProvider, string? serverProvider) =>
         string.Equals(websiteProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(serverProvider, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
@@ -29,17 +32,48 @@ internal static class SplitOriginDetection
          string.Equals(serverProvider, "railway", StringComparison.OrdinalIgnoreCase)) ||
         IsCoolifyFullStack(websiteProvider, serverProvider);
 
+    /// <summary>Whether a plan part is a Vercel website using relative API paths - the shape that needs split-origin wiring when paired with a .NET server.</summary>
     internal static bool IsSplitOriginPlanPart(DeploymentPlanPart part) =>
         string.Equals(part.Role, "website", StringComparison.OrdinalIgnoreCase) &&
         string.Equals(part.ProviderName, "vercel", StringComparison.OrdinalIgnoreCase) &&
         CrossProviderUrlWiring.UsesRelativeApiPaths(part.Framework);
 
+    /// <summary>Returns the first website-role part, regardless of provider - ambiguous when a plan has more than one website part; prefer <see cref="ResolveProviderPairs"/> for that case.</summary>
     internal static DeploymentPlanPart? FindWebsitePart(IReadOnlyList<DeploymentPlanPart> parts) =>
         parts.FirstOrDefault(p => string.Equals(p.Role, "website", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Returns the first server-role part, regardless of provider - ambiguous when a plan has more than one server part; prefer <see cref="ResolveProviderPairs"/> for that case.</summary>
     internal static DeploymentPlanPart? FindServerPart(IReadOnlyList<DeploymentPlanPart> parts) =>
         parts.FirstOrDefault(p => string.Equals(p.Role, "server", StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Returns every valid (website, server) pair found among the given plan parts, grouped by
+    /// matching provider (Vercel+Railway, Coolify+Coolify) - unlike FindWebsitePart/FindServerPart,
+    /// which return only the first website-role/server-role part regardless of provider and would
+    /// silently drop readiness checks for a second pair (e.g. a project with both a Vercel+Railway
+    /// pair and a Coolify+Coolify pair).
+    /// </summary>
+    internal static IReadOnlyList<(DeploymentPlanPart Website, DeploymentPlanPart Server)> ResolveProviderPairs(
+        IReadOnlyList<DeploymentPlanPart> parts)
+    {
+        var websites = parts.Where(p => string.Equals(p.Role, "website", StringComparison.OrdinalIgnoreCase)).ToList();
+        var servers = parts.Where(p => string.Equals(p.Role, "server", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        var pairs = new List<(DeploymentPlanPart, DeploymentPlanPart)>();
+        foreach (var website in websites)
+        {
+            var server = servers.FirstOrDefault(
+                s => IsSupportedSplitOriginProviderPair(website.ProviderName, s.ProviderName));
+            if (server is not null)
+            {
+                pairs.Add((website, server));
+            }
+        }
+
+        return pairs;
+    }
+
+    /// <summary>Whether a plan's first website+server pair needs split-origin wiring. Note this only checks the first pair - a mixed multi-pair plan may have some pairs that do and some that don't.</summary>
     internal static bool PlanUsesSplitOrigin(IReadOnlyList<DeploymentPlanPart> parts)
     {
         var website = FindWebsitePart(parts);
@@ -52,6 +86,7 @@ internal static class SplitOriginDetection
         return IsSplitOriginStack(website.Framework, server.Framework, website.ProviderName, server.ProviderName);
     }
 
+    /// <summary>Builds the list of setup files a split-origin pair needs (interceptor, health controller, and - for Vercel+Railway only, not Coolify - railway.toml/vercel.json).</summary>
     internal static IReadOnlyList<string> BuildReadinessFilePaths(DeploymentPlanPart websitePart, DeploymentPlanPart serverPart)
     {
         var clientRoot = NormalizeRoot(websitePart.RootDirectory);
@@ -75,6 +110,7 @@ internal static class SplitOriginDetection
         return paths;
     }
 
+    /// <summary>Evaluates which split-origin setup files are missing from a repo's fetched file contents; returns empty if the pair doesn't use split-origin at all.</summary>
     internal static IReadOnlyList<MissingDeploymentFile> EvaluateRepositoryFiles(
         bool usesSplitOrigin,
         DeploymentPlanPart websitePart,

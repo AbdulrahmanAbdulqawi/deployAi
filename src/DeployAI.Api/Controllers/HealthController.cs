@@ -7,6 +7,10 @@ using Npgsql;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Liveness/readiness checks for DeployAI itself, its configured hosting providers, and its
+/// database - not authenticated, since these are used by uptime monitors/load balancers.
+/// </summary>
 [ApiController]
 [Route("api")]
 public sealed class HealthController : ControllerBase
@@ -20,12 +24,16 @@ public sealed class HealthController : ControllerBase
         _configuration = configuration;
     }
 
+    /// <summary>Basic liveness check - always returns ok if the API process is running.</summary>
     [HttpGet("health")]
     public IActionResult Health()
     {
         return Ok(new { status = "ok", service = "DeployAI" });
     }
 
+    /// <summary>
+    /// Reports connectivity status for each configured hosting provider (Vercel/Railway/Coolify).
+    /// </summary>
     [HttpGet("health/providers")]
     public async Task<IActionResult> ProviderHealth(CancellationToken cancellationToken)
     {
@@ -42,6 +50,10 @@ public sealed class HealthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Checks database connectivity and reports applied/pending EF Core migrations plus row counts
+    /// for the core tables. Returns HTTP 503 (rather than throwing) if the database is unreachable.
+    /// </summary>
     [HttpGet("health/db")]
     public async Task<IActionResult> DatabaseHealth(CancellationToken cancellationToken)
     {

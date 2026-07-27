@@ -9,6 +9,7 @@ using System.Text;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Implements the fix PR flow, delegating actual fix generation to <see cref="IDeploymentFixGenerator"/> (Claude) and failure classification to <see cref="IDeploymentFailureAnalyzer"/>.</summary>
 public sealed class DeploymentFixService : IDeploymentFixService
 {
     private readonly DeployAIDbContext _db;

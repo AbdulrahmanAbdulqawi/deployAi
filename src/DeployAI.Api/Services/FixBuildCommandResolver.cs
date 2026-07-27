@@ -4,6 +4,7 @@ using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Resolves the install/build/run commands a fix-generation build sandbox should use for a target, inferring the .csproj path from referenced files/Dockerfile when it isn't explicitly configured.</summary>
 public static class FixBuildCommandResolver
 {
     private static readonly Regex DotnetProjectRegex = new(

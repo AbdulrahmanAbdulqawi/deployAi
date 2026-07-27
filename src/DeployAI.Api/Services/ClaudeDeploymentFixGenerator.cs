@@ -9,6 +9,12 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Drives a Claude tool-use loop to fix a failed deployment target or verification check: preloads
+/// relevant repo files and templates as context, lets Claude read/write files and (optionally) run
+/// build commands via <see cref="IFixBuildWorkspaceService"/> to validate its own fix, then returns
+/// the final file changes.
+/// </summary>
 public sealed class ClaudeDeploymentFixGenerator : IDeploymentFixGenerator
 {
     private const int MaxPreloadedFiles = 12;

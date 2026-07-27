@@ -4,6 +4,12 @@ using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Railway Postgres/Redis provisioning. The general strategy: find an existing database service
+/// by image or name first (idempotent - re-provisioning doesn't duplicate), then try Railway's
+/// official template deploy, falling back to creating the service directly from a Docker image if
+/// the template deploy isn't authorized for this workspace/token.
+/// </summary>
 public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
 {
     private static readonly string[] PostgresImageMatchers =
@@ -24,6 +30,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         "redis:alpine"
     ];
 
+    /// <summary>Provisions Postgres if not already present, then ensures its volume and required plugin env vars, redeploying only if either changed.</summary>
     public async Task<ProvisionedDatabaseService?> EnsurePostgresAsync(
         ProviderCredentials credentials,
         string appProviderProjectId,
@@ -63,6 +70,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         return service;
     }
 
+    /// <summary>Provisions Redis if not already present, then ensures its volume and required plugin env vars, redeploying only if either changed.</summary>
     public async Task<ProvisionedDatabaseService?> EnsureRedisAsync(
         ProviderCredentials credentials,
         string appProviderProjectId,
@@ -130,6 +138,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
         CancellationToken cancellationToken) =>
         DeleteServiceAsync(credentials, databaseProviderProjectId, cancellationToken);
 
+    /// <summary>Finds an existing database service (by expected image, then by expected name) or provisions a new one via template/image fallback.</summary>
     private async Task<ProvisionedDatabaseService?> EnsureTemplateDatabaseAsync(
         ProviderCredentials credentials,
         string appProviderProjectId,
@@ -220,6 +229,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
             ? "redis:7-alpine"
             : "ghcr.io/railwayapp-templates/postgres-ssl:16";
 
+    /// <summary>Tries Railway's official template deploy (with and without a workspace id), falling back to a direct Docker-image service create if template deploy isn't authorized.</summary>
     private async Task<(string ServiceId, string ServiceName)> ProvisionDatabaseServiceAsync(
         ProviderCredentials credentials,
         string templateCode,
@@ -296,6 +306,7 @@ public sealed partial class RailwayProvider : IProviderDatabaseProvisioning
             cancellationToken);
     }
 
+    /// <summary>Polls for up to ~12 seconds (6 attempts, 2s apart) for a template-deployed database service to appear, since template deploys are async on Railway's side.</summary>
     private async Task<(string ServiceId, string ServiceName)?> WaitForDatabaseServiceAsync(
         ProviderCredentials credentials,
         string projectId,

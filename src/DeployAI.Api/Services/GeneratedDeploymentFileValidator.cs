@@ -8,10 +8,12 @@ namespace DeployAI.Api.Services;
 
 
 
+/// <summary>Validates Claude-generated files before they're committed - path safety (<see cref="GeneratedDeploymentFilePathRules"/>) and, for .json files, that the content actually parses.</summary>
 internal static class GeneratedDeploymentFileValidator
 
 {
 
+    /// <summary>Throws a <see cref="DeployAIException"/> if any file has a disallowed path or invalid JSON content.</summary>
     internal static void ValidateOrThrow(IReadOnlyList<(string Path, string Content)> files)
 
     {
@@ -50,17 +52,35 @@ internal static class GeneratedDeploymentFileValidator
 
 
 
-                if (path.EndsWith("vercel.json", StringComparison.OrdinalIgnoreCase) &&
-
-                    VercelJsonRewrites.HasApiProxyAntiPattern(content))
+                if (path.EndsWith("vercel.json", StringComparison.OrdinalIgnoreCase))
 
                 {
 
-                    throw new DeployAIException(
+                    if (VercelJsonRewrites.HasApiProxyAntiPattern(content))
 
-                        "setup_generation_failed",
+                    {
 
-                        "Claude returned vercel.json with /api or /hubs proxy rewrites. Split-origin apps must call Railway directly.");
+                        throw new DeployAIException(
+
+                            "setup_generation_failed",
+
+                            "Claude returned vercel.json with /api or /hubs proxy rewrites. Split-origin apps must call Railway directly.");
+
+                    }
+
+
+
+                    if (VercelJsonRewrites.HasInvalidHeaderSourcePattern(content))
+
+                    {
+
+                        throw new DeployAIException(
+
+                            "setup_generation_failed",
+
+                            "Claude returned vercel.json with an invalid headers source pattern. Vercel header sources do not support regex alternation like .(js|css|...).");
+
+                    }
 
                 }
 

@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Manages the current user's deployment email notification preferences.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/notifications")]
@@ -22,6 +25,11 @@ public sealed class NotificationsController : ControllerBase
         _currentUser = currentUser;
     }
 
+    /// <summary>
+    /// Gets the current user's notification preferences, creating a default (notify on both
+    /// success and failure) record on first request.
+    /// </summary>
+    /// <returns>The user's current email notification preferences.</returns>
     [HttpGet("preferences")]
     public async Task<IActionResult> GetPreferences(CancellationToken cancellationToken)
     {
@@ -30,6 +38,11 @@ public sealed class NotificationsController : ControllerBase
         return Ok(MapPreferences(prefs));
     }
 
+    /// <summary>
+    /// Updates the current user's notification preferences.
+    /// </summary>
+    /// <param name="request">Whether to email on successful and/or failed deployments.</param>
+    /// <returns>The updated preferences.</returns>
     [HttpPut("preferences")]
     public async Task<IActionResult> UpdatePreferences(
         [FromBody] UpdateNotificationPreferencesRequest request,

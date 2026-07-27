@@ -3,8 +3,10 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Fallback project-listing paths for OAuth-scoped tokens, which can't use the account-level projects query <see cref="RailwayProvider.TryListRootProjectsAsync"/> uses.</summary>
 public sealed partial class RailwayProvider
 {
+    /// <summary>Lists projects across every workspace the token is authorized for, falling back to external/shared workspaces if none of the user's own workspaces have any.</summary>
     private async Task<IReadOnlyList<ProviderProject>> ListProjectsViaOAuthAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
@@ -56,6 +58,7 @@ public sealed partial class RailwayProvider
         return projects;
     }
 
+    /// <summary>Lists projects via the account-level query, which only works for API tokens (not OAuth-scoped tokens).</summary>
     private async Task<IReadOnlyList<ProviderProject>> TryListRootProjectsAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)

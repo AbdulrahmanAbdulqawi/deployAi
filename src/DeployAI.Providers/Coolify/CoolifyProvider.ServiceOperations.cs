@@ -23,6 +23,11 @@ public sealed partial class CoolifyProvider : IProviderServiceOperations
         return new ProviderServiceStatus(status, deployUrl, null);
     }
 
+    /// <summary>
+    /// Triggers a Coolify redeploy using whatever config the application already has - callers that
+    /// need to push updated build/port/directory config first should call
+    /// <see cref="UpdateApplicationConfigAsync"/> before this.
+    /// </summary>
     public async Task RedeployServiceAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -57,6 +62,7 @@ public sealed partial class CoolifyProvider : IProviderServiceOperations
             "unsupported_provider",
             "Coolify does not support deployment rollback through DeployAI yet.");
 
+    /// <summary>Maps Coolify's raw application status string to DeployAI's coarse status vocabulary (running/failed/deploying/not_deployed/unknown).</summary>
     private static string MapApplicationStatus(string? status, string? deployUrl)
     {
         if (string.IsNullOrWhiteSpace(status))

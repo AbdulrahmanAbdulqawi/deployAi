@@ -4,16 +4,23 @@ using System.Text.Json;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Data an OAuth state value carries through the redirect round-trip (which user initiated it, where to send them back).</summary>
 public sealed record OAuthStatePayload(Guid? UserId = null, string? ReturnUrl = null);
 
+/// <summary>Anti-CSRF state values for OAuth flows (GitHub login, Railway/Vercel connect) - one-time-use, expiring tokens tying a callback back to who started the flow.</summary>
 public interface IOAuthStateStore
 {
+    /// <summary>Creates a state value with no payload (for flows that don't need to carry data through).</summary>
     string CreateState();
+    /// <summary>Creates a state value carrying the given payload.</summary>
     string CreateState(OAuthStatePayload payload);
+    /// <summary>Validates and consumes (single-use) a state value, discarding its payload.</summary>
     bool ValidateAndConsume(string state);
+    /// <summary>Validates and consumes a state value, returning its payload if valid.</summary>
     bool TryValidateAndConsume(string state, out OAuthStatePayload? payload);
 }
 
+/// <summary>In-process state store (10-minute expiry) - fine for a single-instance deployment; would need a shared backing store if DeployAI ever scales to multiple API instances.</summary>
 public sealed class InMemoryOAuthStateStore : IOAuthStateStore
 {
     private readonly ConcurrentDictionary<string, (DateTimeOffset ExpiresAt, OAuthStatePayload? Payload)> _states = new();

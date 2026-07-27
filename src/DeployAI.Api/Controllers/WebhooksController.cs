@@ -6,6 +6,10 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Receives inbound webhook callbacks from external services. Unauthenticated by user token -
+/// each handler validates its own payload signature instead.
+/// </summary>
 [ApiController]
 [AllowAnonymous]
 [Route("api/webhooks")]
@@ -22,6 +26,12 @@ public sealed class WebhooksController : ControllerBase
         _gitHubOptions = gitHubOptions.Value;
     }
 
+    /// <summary>
+    /// Handles a GitHub webhook delivery. Validates the <c>X-Hub-Signature-256</c> header against
+    /// the configured webhook secret and, for <c>push</c> events only, triggers auto-deploy for any
+    /// project tracking the pushed branch. Non-push events and deliveries received before a webhook
+    /// secret is configured are acknowledged without action.
+    /// </summary>
     [HttpPost("github")]
     public async Task<IActionResult> GitHub(CancellationToken cancellationToken)
     {

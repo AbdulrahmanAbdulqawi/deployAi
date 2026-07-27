@@ -3,11 +3,17 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Reconstructs a synthetic split-origin (website, server) part pair from just one known target's
+/// config, for cases where the fix flow only has one side's config on hand but needs the pair shape
+/// split-origin readiness/template resolution expects.
+/// </summary>
 internal static class DeploymentFixPlanBuilder
 {
     private const string DefaultClientRoot = "client";
     private const string DefaultServerRoot = "src/Api";
 
+    /// <summary>Builds the missing counterpart part (website or server) from a known target's config, inferring reasonable defaults for the other side. Returns empty if the framework/provider combination isn't a supported split-origin shape.</summary>
     internal static IReadOnlyList<DeploymentPlanPart> BuildSyntheticSplitOriginParts(
         string providerName,
         string? framework,

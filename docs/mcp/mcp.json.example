@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "railway": {
+      "command": "railway",
+      "args": ["mcp"]
+    },
+    "vercel": {
+      "url": "https://mcp.vercel.com"
+    },
+    "deployai": {
+      "command": "node",
+      "args": ["mcp/deployai-mcp/dist/index.js"],
+      "env": {
+        "DEPLOYAI_API_URL": "http://localhost:5000",
+        "DEPLOYAI_ACCESS_TOKEN": "<paste-from-deployai-app-after-login>",
+        "DEPLOYAI_REFRESH_TOKEN": "<paste-from-deployai-app-after-login>"
+      }
+    }
+  }
+}

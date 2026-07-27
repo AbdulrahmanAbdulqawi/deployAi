@@ -464,6 +464,26 @@ public class DeploymentVerificationServiceTests
         Assert.DoesNotContain(result.Checks, check => check.Id == "website.reachable");
     }
 
+    [Fact]
+    public async Task VerifyAsync_BothScope_VerifiesBothPairs_WhenDeploymentHasVercelRailwayAndCoolifyPairs()
+    {
+        // Regression test: a deployment with two complete provider pairs used to have only the
+        // first-matched pair verified (DeploymentTargetResolution.FindWebsiteTarget/FindServerTarget
+        // picked one match across all providers), silently skipping the other pair's checks forever.
+        await using var db = CreateDb();
+        var deploymentId = await SeedMixedPairDeploymentAsync(db);
+
+        var handler = CreateMixedPairHandler();
+        var service = CreateService(db, handler);
+        var result = await service.VerifyAsync(deploymentId, DeploymentVerificationScope.Both, CancellationToken.None);
+
+        Assert.Contains(result.Checks, check => check.Id == "vercel+railway:website.reachable" && check.Status == "passed");
+        Assert.Contains(result.Checks, check => check.Id == "vercel+railway:connection.cors" && check.Status == "passed");
+        Assert.Contains(result.Checks, check => check.Id == "coolify+coolify:website.reachable" && check.Status == "passed");
+        Assert.Contains(result.Checks, check => check.Id == "coolify+coolify:connection.cors" && check.Status == "passed");
+        Assert.True(result.Success);
+    }
+
     private static RecordingHttpMessageHandler CreateSplitOriginHandler(string apiOrigin = "https://api.example.com")
     {
         return new RecordingHttpMessageHandler(request =>
@@ -552,6 +572,177 @@ public class DeploymentVerificationServiceTests
                 Content = new StringContent("ok")
             };
         });
+    }
+
+    private static RecordingHttpMessageHandler CreateMixedPairHandler()
+    {
+        return new RecordingHttpMessageHandler(request =>
+        {
+            var url = request.RequestUri!.ToString();
+
+            if (request.Method == HttpMethod.Options)
+            {
+                var response = new HttpResponseMessage(HttpStatusCode.OK);
+                response.Headers.Add("Access-Control-Allow-Origin", request.Headers.GetValues("Origin").FirstOrDefault() ?? "*");
+                return response;
+            }
+
+            if (url.Contains("/api/v1/health", StringComparison.OrdinalIgnoreCase))
+            {
+                return JsonResponse("""{"status":"healthy"}""");
+            }
+
+            if (url.Contains("main.js", StringComparison.OrdinalIgnoreCase))
+            {
+                var apiOrigin = url.Contains("coolify-web", StringComparison.OrdinalIgnoreCase)
+                    ? "https://coolify-api.example.com"
+                    : "https://api.example.com";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $"withInterceptors([apiBaseInterceptor]); apiBaseUrl:'{apiOrigin}'; apiUrl='/api'",
+                        System.Text.Encoding.UTF8,
+                        "application/javascript")
+                };
+            }
+
+            if (url.Contains("app.vercel.app", StringComparison.OrdinalIgnoreCase) ||
+                url.Contains("coolify-web.example.com", StringComparison.OrdinalIgnoreCase))
+            {
+                return HtmlResponse("<!doctype html><app-root></app-root><script src=\"main.js\"></script>");
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("ok")
+            };
+        });
+    }
+
+    private static async Task<Guid> SeedMixedPairDeploymentAsync(DeployAIDbContext db)
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var vercelTargetId = Guid.NewGuid();
+        var railwayTargetId = Guid.NewGuid();
+        var coolifyWebsiteTargetId = Guid.NewGuid();
+        var coolifyServerTargetId = Guid.NewGuid();
+        var deploymentId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 1,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Mixed",
+            GitHubRepoFullName = "tester/mixed",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = vercelTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "vercel",
+                    ProviderProjectId = "prj_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = railwayTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "railway",
+                    ProviderProjectId = "svc_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = coolifyWebsiteTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    ProviderProjectId = "app_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = coolifyServerTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    ProviderProjectId = "app_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+
+        db.Deployments.Add(new Deployment
+        {
+            Id = deploymentId,
+            ProjectId = projectId,
+            Branch = "main",
+            TriggeredBy = "user",
+            Status = DeploymentStatuses.Success,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = vercelTargetId,
+                    ProviderName = "vercel",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://app.vercel.app",
+                    CompletedAt = DateTimeOffset.UtcNow
+                },
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = railwayTargetId,
+                    ProviderName = "railway",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://api.example.com",
+                    CompletedAt = DateTimeOffset.UtcNow
+                },
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = coolifyWebsiteTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://coolify-web.example.com",
+                    CompletedAt = DateTimeOffset.UtcNow
+                },
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = coolifyServerTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = "https://coolify-api.example.com",
+                    CompletedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+
+        await db.SaveChangesAsync();
+        return deploymentId;
     }
 
     private static DeploymentVerificationService CreateService(

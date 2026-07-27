@@ -1,7 +1,9 @@
 namespace DeployAI.Api.Services.DeploymentTemplates;
 
+/// <summary>Substitutes <c>{{placeholder}}</c> tokens in template file content with repo-specific values.</summary>
 internal static class DeploymentTemplateRenderer
 {
+    /// <summary>Replaces every known placeholder token in template content with the corresponding variable value.</summary>
     internal static string Render(string templateContent, DeploymentTemplateVariables variables)
     {
         var rendered = templateContent;
@@ -18,6 +20,7 @@ internal static class DeploymentTemplateRenderer
         return rendered;
     }
 
+    /// <summary>Derives template variables (roots, docker path, project/namespace names) from a website+server part pair.</summary>
     internal static DeploymentTemplateVariables BuildVariables(
         DeployAI.Core.Deployments.DeploymentPlanPart website,
         DeployAI.Core.Deployments.DeploymentPlanPart server)
