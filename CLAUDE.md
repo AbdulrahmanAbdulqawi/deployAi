@@ -109,6 +109,20 @@ Recorded so they get closed rather than re-done by hand.
   environment is now created rather than dead-ending, but the project picker still only offers
   projects that already exist. Coolify exposes `POST /projects`, so nothing prevents closing this
   — until then, the first deploy into a new Coolify instance is a manual step.
+- **Nothing acts on an inconclusive env scan yet.** `env-schema` now reports which sources it read
+  and flags `inconclusive` when it read none, but the wizard still shows no environment step for an
+  empty result either way. Until it distinguishes them, a repo whose configuration lives somewhere
+  the scan does not look still deploys with nothing set — which is how an API reached production
+  and crash-looped on `Jwt configuration missing`.
+- **The scan only reads a repository's root, plus one server path.** It looks for
+  `docker-compose.yml`, `.env.example`, `README.md` and `appsettings.json` at the root, and
+  `appsettings.json` under an explicitly supplied `serverPath`. A monorepo that nests its API
+  deeper — `backend/src/YemenHub.Api` — is invisible to it, and the Dockerfile and CI-workflow
+  scanners the detector implements are never fed by the endpoint at all.
+- **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
+  "Application is not running" for a stopped container, so the capability added for "an app that
+  builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
+  container that has hit Coolify's restart limit stays stopped until something starts it.
 - **Project status is never revalidated against the provider.** A project whose Coolify
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so

@@ -31,6 +31,7 @@ public sealed class GitHubController : ControllerBase
     private readonly IEnvVarDetector _envVarDetector;
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IEncryptionService _encryption;
+    private readonly ILogger<GitHubController> _logger;
 
     public GitHubController(
         DeployAIDbContext db,
@@ -42,7 +43,8 @@ public sealed class GitHubController : ControllerBase
         IRepositoryClassifier repositoryClassifier,
         IEnvVarDetector envVarDetector,
         IObjectStorageProviderFactory storageFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        ILogger<GitHubController> logger)
     {
         _db = db;
         _currentUser = currentUser;
@@ -54,6 +56,7 @@ public sealed class GitHubController : ControllerBase
         _envVarDetector = envVarDetector;
         _storageFactory = storageFactory;
         _encryption = encryption;
+        _logger = logger;
     }
 
     /// <summary>Lists the current user's GitHub repos, optionally filtered by name.</summary>
@@ -237,17 +240,27 @@ public sealed class GitHubController : ControllerBase
             @ref, cancellationToken);
         var readme = await _gitHubService.GetFileContentAsync(token, owner, repo, "README.md", @ref, cancellationToken);
 
-        var detected = _envVarDetector.Detect(new EnvScanInputs(
+        var scan = _envVarDetector.Detect(new EnvScanInputs(
             ComposeContent: compose,
             DotEnvExampleContent: dotEnv,
             AppsettingsContent: appsettings,
             ReadmeContent: readme));
 
-        var suggestions = await BuildEnvSuggestionsAsync(userId, detected, cancellationToken);
+        var suggestions = await BuildEnvSuggestionsAsync(userId, scan.Variables, cancellationToken);
+
+        if (scan.IsInconclusive)
+        {
+            _logger.LogWarning(
+                "Env scan for {Owner}/{Repo} read no sources (serverPath: {ServerPath}); "
+                + "an empty result here means the files were not found, not that the app needs no configuration.",
+                owner,
+                repo,
+                normalizedServerPath ?? "(none)");
+        }
 
         return Ok(new
         {
-            vars = detected.Select(env => new
+            vars = scan.Variables.Select(env => new
             {
                 name = env.Name,
                 isSecret = env.IsSecret,
@@ -256,7 +269,13 @@ public sealed class GitHubController : ControllerBase
                 category = env.Category.ToString().ToLowerInvariant(),
                 sources = env.SeenIn,
                 suggestedValue = suggestions.GetValueOrDefault(env.Name)
-            })
+            }),
+            // An empty vars list is ambiguous on its own, so the coverage travels with it: callers
+            // can tell "this repo declares nothing" from "none of the files I read exist here", and
+            // only the first is safe to deploy on without asking.
+            scanned = scan.SourcesRead,
+            notFound = scan.SourcesMissing,
+            inconclusive = scan.IsInconclusive
         });
     }
 

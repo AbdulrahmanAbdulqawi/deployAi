@@ -15,9 +15,33 @@ public sealed record EnvScanInputs(
     string? ReadmeContent = null,
     IReadOnlyList<string>? GithubWorkflowContents = null);
 
+/// <summary>
+/// What a scan found, and what it was able to look at.
+/// </summary>
+/// <remarks>
+/// The coverage is not decoration. An empty result has two very different meanings — "this repo
+/// genuinely declares no configuration" and "none of the files I read exist here" — and they were
+/// indistinguishable to callers. A deploy went out on the second: detection returned nothing for a
+/// repo whose API reads Jwt settings, the wizard skipped its environment step because there was
+/// nothing to show, and the container then died on startup with "Jwt configuration missing",
+/// restarting until Coolify gave up at 10 attempts. Returning the sources makes the difference
+/// visible, and <see cref="IsInconclusive"/> names the case that must never pass silently.
+/// </remarks>
+public sealed record EnvScanResult(
+    IReadOnlyList<DetectedEnvVar> Variables,
+    IReadOnlyList<string> SourcesRead,
+    IReadOnlyList<string> SourcesMissing)
+{
+    /// <summary>
+    /// Nothing was found and nothing was read. This is an absence of evidence, not evidence that
+    /// the app needs no configuration, and callers must not treat it as the latter.
+    /// </summary>
+    public bool IsInconclusive => Variables.Count == 0 && SourcesRead.Count == 0;
+}
+
 public interface IEnvVarDetector
 {
-    IReadOnlyList<DetectedEnvVar> Detect(EnvScanInputs inputs);
+    EnvScanResult Detect(EnvScanInputs inputs);
 }
 
 /// <summary>
@@ -36,8 +60,20 @@ public sealed partial class EnvVarDetector : IEnvVarDetector
     private static readonly string[] ExcludedNames =
         ["NODE_ENV", "ASPNETCORE_ENVIRONMENT", "ASPNETCORE_URLS", "PORT", "TZ", "PATH", "HOME"];
 
-    public IReadOnlyList<DetectedEnvVar> Detect(EnvScanInputs inputs)
+    public EnvScanResult Detect(EnvScanInputs inputs)
     {
+        var read = new List<string>();
+        var missing = new List<string>();
+
+        void Note(string source, bool present) => (present ? read : missing).Add(source);
+
+        Note("compose", !string.IsNullOrWhiteSpace(inputs.ComposeContent));
+        Note("dockerfile", inputs.DockerfileContents is { Count: > 0 });
+        Note("dotenv", !string.IsNullOrWhiteSpace(inputs.DotEnvExampleContent));
+        Note("appsettings", !string.IsNullOrWhiteSpace(inputs.AppsettingsContent));
+        Note("readme", !string.IsNullOrWhiteSpace(inputs.ReadmeContent));
+        Note("workflows", inputs.GithubWorkflowContents is { Count: > 0 });
+
         var mentions = new List<(string Name, string? Default, string Source)>();
 
         mentions.AddRange(ScanCompose(inputs.ComposeContent));
@@ -54,7 +90,7 @@ public sealed partial class EnvVarDetector : IEnvVarDetector
             mentions.AddRange(ScanGithubActions(workflow));
         }
 
-        return mentions
+        var variables = mentions
             .Where(m => !IsExcluded(m.Name))
             .GroupBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
@@ -74,6 +110,8 @@ public sealed partial class EnvVarDetector : IEnvVarDetector
             .ThenBy(v => v.HasDefault)
             .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        return new EnvScanResult(variables, read, missing);
     }
 
     /// <summary>${VAR}, ${VAR:-default}, ${VAR:?message}.</summary>
