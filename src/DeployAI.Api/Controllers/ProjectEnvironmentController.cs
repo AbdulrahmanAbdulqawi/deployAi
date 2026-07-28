@@ -246,6 +246,9 @@ public sealed class ProjectEnvironmentController : ControllerBase
         Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await _db.Projects
             .Include(p => p.DeployTargets)
+            // The credential travels with the target: reading a target's runtime logs needs a token
+            // for it, and without this the navigation is null on a freshly-loaded project.
+            .ThenInclude(t => t.Credential)
             .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken)
         ?? throw new DeployAIException("not_found", "We couldn't find that app.");
 

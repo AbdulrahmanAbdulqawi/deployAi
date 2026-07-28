@@ -138,6 +138,12 @@ public class MissingConfigurationEndpointTests
         });
         db.SaveChanges();
 
+        // Forces every read to go through a query rather than the graph these Add calls left in the
+        // tracker. Without it the Credential navigation is populated for free and a missing Include
+        // passes the test while throwing NullReferenceException against a real database — which is
+        // exactly what happened the first time this endpoint was run.
+        db.ChangeTracker.Clear();
+
         var runtimeLogs = new Mock<IProviderRuntimeLogs>();
         var setup = runtimeLogs.Setup(r => r.GetRuntimeLogsAsync(
             It.IsAny<ProviderCredentials>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()));
@@ -156,7 +162,11 @@ public class MissingConfigurationEndpointTests
 
         var tokens = new Mock<IProviderCredentialTokenService>();
         tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("token");
+            .Returns((ProviderCredential credential, CancellationToken _) => credential is null
+                // The real service dereferences this. A permissive mock let a missing Include pass
+                // here and then throw NullReferenceException against a real database.
+                ? throw new InvalidOperationException("The deploy target's credential was not loaded.")
+                : Task.FromResult("token"));
 
         var currentUser = new Mock<ICurrentUserService>();
         currentUser.SetupGet(c => c.UserId).Returns(UserId);

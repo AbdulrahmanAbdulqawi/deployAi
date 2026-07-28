@@ -405,7 +405,53 @@
           <h2 class="section__label u-label-caps">Environment variables</h2>
           <p class="detail__muted">The settings DeployAI manages for this app. Redeploy to apply changes.</p>
         </div>
+        <button
+          type="button"
+          class="btn btn--ghost"
+          (click)="checkMissingConfig()"
+          [disabled]="checkingMissingConfig()">
+          {{ checkingMissingConfig() ? 'Checking…' : 'Check for missing settings' }}
+        </button>
       </div>
+
+      @if (missingConfigUnreadable(); as reason) {
+        <div class="missing-config missing-config--muted">
+          <p class="detail__muted">
+            Couldn't read the app's logs, so this isn't a clean bill of health — {{ reason }}
+          </p>
+          <p class="detail__muted">
+            A stopped container has no logs to read. Start it from its Actions menu, then check again.
+          </p>
+        </div>
+      }
+
+      @if (missingConfig().length > 0) {
+        <div class="missing-config">
+          <p class="missing-config__lead">
+            {{ missingConfigService()?.displayName }} reported {{ missingConfig().length === 1 ? 'a setting' : 'settings' }}
+            it needs but doesn't have:
+          </p>
+          @for (item of missingConfig(); track item.name) {
+            <div class="missing-config__row">
+              <div>
+                <strong class="u-code-sm">{{ item.name }}</strong>
+                @if (item.kind === 'section') {
+                  <span class="managed-env__tag">SECTION</span>
+                }
+                <p class="detail__muted u-code-sm">{{ item.evidence }}</p>
+                @if (item.kind === 'section') {
+                  <p class="detail__muted">
+                    The app named a section, not a single variable — you'll complete the key.
+                  </p>
+                }
+              </div>
+              <button type="button" class="btn btn--ghost" (click)="useMissingConfig(item)">
+                Fill in below
+              </button>
+            </div>
+          }
+        </div>
+      }
 
       @if (loadingManagedEnv()) {
         <p class="detail__muted">Loading…</p>

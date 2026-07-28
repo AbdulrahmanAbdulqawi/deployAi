@@ -15,7 +15,8 @@ import {
   ProjectServicesResponse,
   ProviderEnvVar,
   ProviderName,
-  EnvVariable
+  EnvVariable,
+  MissingConfigurationItem
 } from '../core/models/api.models';
 import {
   databaseEngineLabel,
@@ -95,6 +96,13 @@ export class ProjectDetailComponent implements OnInit {
   newManagedKey = '';
   newManagedValue = '';
   newManagedSecret = false;
+
+  // Configuration the running app said it lacked. Distinct from managedEnv, which is only what
+  // DeployAI already knows about — the whole point is the keys nobody knew to ask for.
+  readonly missingConfig = signal<MissingConfigurationItem[]>([]);
+  readonly missingConfigService = signal<ProjectServiceView | null>(null);
+  readonly missingConfigUnreadable = signal<string | null>(null);
+  readonly checkingMissingConfig = signal(false);
 
   projectId = '';
 
@@ -678,6 +686,58 @@ export class ProjectDetailComponent implements OnInit {
         this.loadingManagedEnv.set(false);
       }
     });
+  }
+
+  /**
+   * Asks the running app what it lacks. Repository scanning reads a fixed set of files at a repo's
+   * root, so an app whose configuration lives deeper produces nothing to ask for — and then says
+   * exactly what it needed in its own startup output. This reads that.
+   */
+  checkMissingConfig(): void {
+    // The server if there is one — it is where startup configuration failures show up — otherwise
+    // the first application. Data services have no application logs to read.
+    const apps = this.services()?.applicationServices ?? [];
+    const service = apps.find(s => s.role === 'server') ?? apps[0] ?? null;
+    if (!service) {
+      return;
+    }
+
+    this.checkingMissingConfig.set(true);
+    this.missingConfigService.set(service);
+    this.api.getMissingConfiguration(this.projectId, service.id).subscribe({
+      next: (response) => {
+        this.checkingMissingConfig.set(false);
+        this.missingConfig.set(response.missing ?? []);
+        // "Could not look" is not "nothing missing". A stopped container is the usual cause and is
+        // precisely the state worth reporting, so it gets its own message rather than an empty list.
+        this.missingConfigUnreadable.set(
+          response.readable ? null : (response.message ?? "Could not read this app's logs.")
+        );
+      },
+      error: (err) => {
+        this.checkingMissingConfig.set(false);
+        this.missingConfig.set([]);
+        this.missingConfigUnreadable.set(
+          err?.error?.error?.message ?? "Could not read this app's logs."
+        );
+      }
+    });
+  }
+
+  /**
+   * Puts a finding into the add-variable fields for review rather than saving it. A section gives a
+   * prefix to complete — .NET says "Jwt configuration missing" without saying whether it wants
+   * Jwt__Key or Jwt__Issuer — so the key is left unfinished on purpose.
+   */
+  useMissingConfig(item: MissingConfigurationItem): void {
+    this.newManagedKey = item.kind === 'section' ? `${item.name}__` : item.name;
+    this.newManagedValue = item.suggestedValue;
+    this.newManagedSecret = true;
+    this.toast.success(
+      item.kind === 'section'
+        ? `Complete the key below — the app reported the "${item.name}" section, not a single variable.`
+        : `${item.name} filled in below. Review it, then add.`
+    );
   }
 
   isEnvRevealed(key: string): boolean {
