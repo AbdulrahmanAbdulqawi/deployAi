@@ -733,10 +733,20 @@ export class ApiService {
     );
   }
 
-  /** Persists env vars (encrypted) and pushes them onto the project's Coolify app. */
-  setComposeEnvironment(projectId: string, variables: { key: string; value: string; isSecret: boolean }[]) {
+  /**
+   * Persists env vars (encrypted) and pushes them onto the project's Coolify app.
+   *
+   * `targetId` decides which app receives them. Omitting it makes the server pick, and its pick is
+   * the website — so a split deploy sends server-side configuration to the frontend container,
+   * where nothing reads it and nothing reports that it went astray.
+   */
+  setComposeEnvironment(
+    projectId: string,
+    variables: { key: string; value: string; isSecret: boolean }[],
+    targetId?: string
+  ) {
     return this.http.post<{ applied: string[] }>(
-      `/api/projects/${projectId}/environment/compose`,
+      `/api/projects/${projectId}/environment/compose${targetId ? `?targetId=${targetId}` : ''}`,
       { variables }
     );
   }

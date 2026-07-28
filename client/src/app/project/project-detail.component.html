@@ -503,6 +503,16 @@
           }
 
           <div class="managed-env__add">
+            @if (envTargets().length > 1) {
+              <select
+                class="managed-env__add-target"
+                [(ngModel)]="newManagedTargetId"
+                aria-label="Which app receives this setting">
+                @for (service of envTargets(); track service.id) {
+                  <option [value]="service.id">{{ service.role || 'app' }}</option>
+                }
+              </select>
+            }
             <input
               class="managed-env__add-key"
               type="text"

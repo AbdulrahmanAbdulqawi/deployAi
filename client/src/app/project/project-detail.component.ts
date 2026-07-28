@@ -96,6 +96,10 @@ export class ProjectDetailComponent implements OnInit {
   newManagedKey = '';
   newManagedValue = '';
   newManagedSecret = false;
+  // Which app receives the variable. Without this the API picks, and it picks the website — so on a
+  // split deploy a server-side setting lands in the frontend container, where nothing reads it and
+  // nothing says so. A CORS origin set this way left the API rejecting the site's own requests.
+  newManagedTargetId = '';
 
   // Configuration the running app said it lacked. Distinct from managedEnv, which is only what
   // DeployAI already knows about — the whole point is the keys nobody knew to ask for.
@@ -774,6 +778,24 @@ export class ProjectDetailComponent implements OnInit {
     });
   }
 
+  /**
+   * The apps a variable can be sent to. A project with one app needs no choice; a split deploy does,
+   * because the two containers read entirely different configuration.
+   */
+  envTargets(): ProjectServiceView[] {
+    return this.services()?.applicationServices ?? [];
+  }
+
+  /** Defaults to the server: hand-typed configuration is server-side far more often than not. */
+  resolveManagedTargetId(): string {
+    if (this.newManagedTargetId) {
+      return this.newManagedTargetId;
+    }
+
+    const apps = this.envTargets();
+    return (apps.find(s => s.role === 'server') ?? apps[0])?.id ?? '';
+  }
+
   addManagedEnv(): void {
     const key = this.newManagedKey.trim();
     const value = this.newManagedValue;
@@ -781,16 +803,21 @@ export class ProjectDetailComponent implements OnInit {
       return;
     }
 
+    const targetId = this.resolveManagedTargetId();
+    const targetName = this.envTargets().find(s => s.id === targetId)?.role ?? 'app';
+
     this.savingManagedEnvKey.set(key);
-    this.api.setComposeEnvironment(this.projectId, [
-      { key, value, isSecret: this.newManagedSecret }
-    ]).subscribe({
+    this.api.setComposeEnvironment(
+      this.projectId,
+      [{ key, value, isSecret: this.newManagedSecret }],
+      targetId || undefined
+    ).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.newManagedKey = '';
         this.newManagedValue = '';
         this.newManagedSecret = false;
-        this.toast.success(`${key} added. Redeploy to apply it.`);
+        this.toast.success(`${key} added to the ${targetName}. Redeploy to apply it.`);
         this.loadManagedEnv();
       },
       error: (err) => {
@@ -855,6 +882,8 @@ export class ProjectDetailComponent implements OnInit {
     this.api.getProjectServices(this.projectId).subscribe({
       next: (response) => {
         this.services.set(response);
+        // Bind the picker once the apps are known, so it opens on the server rather than blank.
+        this.newManagedTargetId = this.resolveManagedTargetId();
         for (const service of [...response.applicationServices, ...response.dataServices]) {
           this.newEnvKey[service.id] = '';
           this.newEnvValue[service.id] = '';

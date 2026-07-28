@@ -142,6 +142,16 @@ Recorded so they get closed rather than re-done by hand.
   before a deploy.
 - **Verification is shallow.** A deployment probing `/health` successfully can still have a
   fully broken API surface. See `DeploymentVerificationService.cs` / `DeploymentEndpointProbes.cs`.
+- **CORS wiring is a guess, and nothing checks whether the guess was right.**
+  `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
+  own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
+  is still a list of names hoped to match. An app reading any other key gets its origins written
+  nowhere it looks, keeps whatever hardcoded fallback its source has, and nothing reports it: the API
+  logs nothing (the browser never sends the request), both deploy targets go green, `/health` passes,
+  and the only symptom is the frontend's own "cannot reach the server" message. One `OPTIONS` from the
+  website origin to the API, checking for `Access-Control-Allow-Origin`, would settle it in a single
+  request at the end of a deploy — that is the fix; the key list is a stopgap. Better still: read the
+  key out of the repository (`GetSection("...")` in `Program.cs`) rather than guessing names at all.
 - **Generated commit messages are generic.** Dockerfile generation has produced several commits
   sharing one message, obscuring what each changed.
 - **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR
