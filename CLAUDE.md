@@ -105,6 +105,14 @@ Recorded so they get closed rather than re-done by hand.
   single request, but `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still
   loop key by key. Batching would cut N round trips to one and leave no window for a concurrent
   sync to interleave mid-set.
+- **DeployAI cannot create a Coolify project, only deploy into an existing one.** A missing
+  environment is now created rather than dead-ending, but the project picker still only offers
+  projects that already exist. Coolify exposes `POST /projects`, so nothing prevents closing this
+  — until then, the first deploy into a new Coolify instance is a manual step.
+- **Project status is never revalidated against the provider.** A project whose Coolify
+  applications have been deleted still shows as deployed and healthy, with links to domains that
+  return 404. The status and URLs come from the last deployment record and are never rechecked, so
+  the dashboard can advertise a dead app indefinitely.
 - **No divergence warning.** DeployAI deploys whatever ref it is pointed at without reporting
   how that ref relates to the user's other branches.
 - **No migration-chain validation.** Nothing checks for colliding or misordered migrations

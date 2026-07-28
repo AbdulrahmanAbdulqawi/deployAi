@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
@@ -852,9 +853,18 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         var environments = await ListCoolifyEnvironmentsAsync(session, projectUuid, cancellationToken);
         if (environments.Count == 0)
         {
-            throw new DeployAIException(
-                "coolify_no_environment",
-                "No environments are configured for the selected Coolify project.");
+            // A Coolify project with no environments used to dead-end here, and the only way out
+            // was for someone to open Coolify and add one by hand -- the exact manual step this
+            // product exists to remove. It happens for real: deleting a project's last environment
+            // leaves the project itself behind, and Coolify's dashboard stops listing it, so the
+            // state is easy to reach and hard to see.
+            return await CreateEnvironmentAsync(
+                session,
+                projectUuid,
+                string.IsNullOrWhiteSpace(request.CoolifyEnvironmentName)
+                    ? "production"
+                    : request.CoolifyEnvironmentName.Trim(),
+                cancellationToken);
         }
 
         if (!string.IsNullOrWhiteSpace(request.CoolifyEnvironmentName))
@@ -948,6 +958,54 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         await EnsureSuccessAsync(response, cancellationToken, "Could not list Coolify GitHub apps.");
         var githubApps = await response.Content.ReadFromJsonAsync<List<CoolifyNamedResource>>(cancellationToken) ?? [];
         return githubApps.Where(app => !string.IsNullOrWhiteSpace(app.Uuid)).ToList();
+    }
+
+    /// <summary>
+    /// Creates an environment in a Coolify project and returns it.
+    /// </summary>
+    /// <remarks>
+    /// Coolify's create endpoint accepts <c>name</c> and nothing else -- any extra field is
+    /// rejected with a 422 -- and answers with the uuid alone, so the name is carried over from
+    /// the request rather than read back. A 409 means something created the same name in between
+    /// the list and this call; that is the outcome we wanted, so re-read and use it instead of
+    /// failing the deploy.
+    /// </remarks>
+    private async Task<CoolifyEnvironmentOption> CreateEnvironmentAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string projectUuid,
+        string environmentName,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(
+            HttpMethod.Post,
+            session,
+            $"projects/{projectUuid}/environments");
+        request.Content = JsonContent.Create(new { name = environmentName });
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Conflict)
+        {
+            var existing = await ListCoolifyEnvironmentsAsync(session, projectUuid, cancellationToken);
+            var match = existing.FirstOrDefault(env =>
+                string.Equals(env.Name, environmentName, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken, "Could not create a Coolify environment.");
+
+        var created = await response.Content.ReadFromJsonAsync<CoolifyUuidResponse>(cancellationToken);
+        if (string.IsNullOrWhiteSpace(created?.Uuid))
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                "Coolify did not return an environment id.");
+        }
+
+        return new CoolifyEnvironmentOption { Uuid = created.Uuid, Name = environmentName };
     }
 
     private async Task<IReadOnlyList<CoolifyEnvironmentOption>> ListCoolifyEnvironmentsAsync(
