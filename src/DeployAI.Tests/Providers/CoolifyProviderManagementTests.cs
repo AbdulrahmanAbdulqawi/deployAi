@@ -65,6 +65,56 @@ public class CoolifyProviderManagementTests
         Assert.Equal("main", project.GitBranch);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateProjectAsync_SendsTheRequestedAutoDeploySetting(bool autoDeploy)
+    {
+        // Regression: this was hardcoded to true. It overrode users who had turned auto-deploy off,
+        // and it made a publish build the same commit more than once -- DeployAI writes generated
+        // files (Dockerfile, compose) into the repository mid-publish, so Coolify's webhook started
+        // a build for that commit while DeployAI was already deploying it. One observed publish ran
+        // three concurrent builds of a single Next.js site: 6m19s, 11m10s and 11m17s, for an app
+        // whose actual `next build` takes 16 seconds.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
+
+        string? sent = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .Respond(async req =>
+            {
+                sent = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "uuid": "app-new" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-new")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-new", "name": "my-app" }""");
+
+        var provider = CreateProvider(handler);
+        await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest(
+                "my-app", "acme/widget", null, GitBranch: "main", AutoDeployEnabled: autoDeploy),
+            CancellationToken.None);
+
+        Assert.NotNull(sent);
+        Assert.Equal(
+            autoDeploy,
+            JsonDocument.Parse(sent!).RootElement.GetProperty("is_auto_deploy_enabled").GetBoolean());
+    }
+
     [Fact]
     public async Task CreateProjectAsync_CreatesAnEnvironment_WhenTheProjectHasNone()
     {

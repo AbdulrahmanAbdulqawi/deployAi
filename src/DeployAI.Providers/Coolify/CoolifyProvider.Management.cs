@@ -149,9 +149,14 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             // before the first deploy has had a chance to populate it.
         }
 
-        // Pushes to the deployment branch redeploy on their own. Without this the app only ever
-        // updates when someone comes back to DeployAI and presses publish.
-        body["is_auto_deploy_enabled"] = true;
+        // Follows the project's own setting rather than being forced on. Hardcoding it to true
+        // both overrode a user who had deliberately turned auto-deploy off, and made every publish
+        // build the same commit twice: DeployAI writes generated files (Dockerfile, compose) into
+        // the repository mid-publish, and Coolify's webhook then started a build for that commit
+        // alongside the deploy DeployAI was already running for it. One observed publish produced
+        // three concurrent builds of one website -- 6m19s, 11m10s and 11m17s -- for a Next.js app
+        // that compiles in 16 seconds, because the duplicates contended for the same machine.
+        body["is_auto_deploy_enabled"] = request.AutoDeployEnabled;
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory) && !isCompose)
         {

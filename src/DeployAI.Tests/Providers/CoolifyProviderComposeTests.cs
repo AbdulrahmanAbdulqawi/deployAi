@@ -145,7 +145,13 @@ public class CoolifyProviderComposeTests
         await provider.CreateProjectAsync(Credentials, ComposeRequest(), CancellationToken.None);
 
         Assert.False(createBody.Value.GetProperty("instant_deploy").GetBoolean());
-        Assert.True(createBody.Value.GetProperty("is_auto_deploy_enabled").GetBoolean());
+
+        // Follows the request, which does not ask for it. This previously asserted true because the
+        // provider hardcoded it -- a setting that overrode the user's own choice and made Coolify's
+        // webhook build DeployAI's generated commits alongside the deploy DeployAI was already
+        // running for them. See CoolifyProviderManagementTests.CreateProjectAsync_SendsTheRequested-
+        // AutoDeploySetting for the behaviour that replaced it.
+        Assert.False(createBody.Value.GetProperty("is_auto_deploy_enabled").GetBoolean());
     }
 
     [Fact]
