@@ -1,6 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
@@ -28,15 +27,22 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         var body = new Dictionary<string, object?>
         {
             ["build_pack"] = buildPack,
-            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework),
-            // Coolify caches the Traefik labels it generates at first deploy in custom_labels and
-            // never regenerates them on redeploy unless this field is cleared - without this, a
-            // build pack/port change here silently has no effect on the live proxy until someone
-            // notices and clears it by hand (see the manual fix this method replaces). Like
-            // custom_nginx_configuration, Coolify's validator requires this field to be base64
-            // encoded - and rejects an empty string as "not base64" (its regex likely requires at
-            // least one base64 character), so encode an empty JSON array instead of an empty string.
-            ["custom_labels"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("[]"))
+            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework)
+
+            // custom_labels is deliberately not sent. It used to be set to a base64 empty array to
+            // force Coolify to regenerate the Traefik labels it caches at first deploy, because a
+            // build pack or port change otherwise had no effect on the live proxy. That cure was
+            // worse: the proxy runs with --providers.docker.exposedbydefault=false, so a container
+            // is routed only if it carries traefik.enable=true and its router labels, and writing an
+            // empty set leaves it with none. Two applications deployed through this method were
+            // reachable by nothing -- correct domain, correct port, container running, and Traefik
+            // answering its own 404 -- while an application deployed before this method existed
+            // still routed. Restarting and redeploying could not recover it, because the empty set
+            // was reapplied every time.
+            //
+            // Leaving the field alone keeps Coolify's own label management, which every working
+            // application on that instance already relies on. The stale-label problem this was
+            // meant to solve is recorded in CLAUDE.md rather than traded for an unroutable app.
         };
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory))

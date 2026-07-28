@@ -584,7 +584,10 @@ public class CoolifyProviderManagementTests
         var root = document.RootElement;
         Assert.Equal("nixpacks", root.GetProperty("build_pack").GetString());
         Assert.Equal("3000", root.GetProperty("ports_exposes").GetString());
-        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        // Never sent. The proxy runs with exposedbydefault=false, so writing an empty label
+        // set leaves the container with no traefik.enable and no router — reachable by
+        // nothing, and not recoverable by redeploying, because the empty set is reapplied.
+        Assert.False(root.TryGetProperty("custom_labels", out _));
         Assert.Equal("/client", root.GetProperty("base_directory").GetString());
         Assert.Equal("/dist/app/browser", root.GetProperty("publish_directory").GetString());
         Assert.Equal("npm run build", root.GetProperty("build_command").GetString());
@@ -619,7 +622,10 @@ public class CoolifyProviderManagementTests
         var root = document.RootElement;
         Assert.Equal("dockerfile", root.GetProperty("build_pack").GetString());
         Assert.Equal("8080", root.GetProperty("ports_exposes").GetString());
-        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        // Never sent. The proxy runs with exposedbydefault=false, so writing an empty label
+        // set leaves the container with no traefik.enable and no router — reachable by
+        // nothing, and not recoverable by redeploying, because the empty set is reapplied.
+        Assert.False(root.TryGetProperty("custom_labels", out _));
         Assert.Equal("src/Api/Dockerfile", root.GetProperty("dockerfile_location").GetString());
     }
 
