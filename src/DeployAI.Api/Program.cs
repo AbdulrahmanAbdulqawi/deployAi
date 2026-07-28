@@ -61,6 +61,7 @@ builder.Services.Configure<FixBuildOptions>(builder.Configuration.GetSection(Fix
 builder.Services.AddScoped<IProcessBuildRunner, ProcessBuildRunner>();
 builder.Services.AddScoped<IFixBuildWorkspaceService, FixBuildWorkspaceService>();
 builder.Services.AddScoped<IDeploymentFailureAnalyzer, DeploymentFailureAnalyzer>();
+builder.Services.AddScoped<IMissingConfigurationDetector, MissingConfigurationDetector>();
 builder.Services.AddScoped<IDeploymentFixService, DeploymentFixService>();
 builder.Services.AddScoped<IDeploymentFixGenerator, ClaudeDeploymentFixGenerator>();
 builder.Services.AddSingleton<DeploymentTemplateCatalog>();

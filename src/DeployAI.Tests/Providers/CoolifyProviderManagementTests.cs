@@ -174,7 +174,7 @@ public class CoolifyProviderManagementTests
         Assert.NotNull(createdBody);
         var createPayload = JsonDocument.Parse(createdBody!).RootElement;
         Assert.Equal("production", createPayload.GetProperty("name").GetString());
-        Assert.Equal(1, createPayload.EnumerateObject().Count());
+        Assert.Single(createPayload.EnumerateObject());
 
         // The environment it just created must be the one the application is placed in, otherwise
         // the app lands somewhere unrelated to the project the user chose.
