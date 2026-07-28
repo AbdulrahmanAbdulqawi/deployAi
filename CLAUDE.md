@@ -109,6 +109,15 @@ Recorded so they get closed rather than re-done by hand.
   environment is now created rather than dead-ending, but the project picker still only offers
   projects that already exist. Coolify exposes `POST /projects`, so nothing prevents closing this
   — until then, the first deploy into a new Coolify instance is a manual step.
+- **Only .NET apps get their schema created.** The generated .NET Dockerfile now bundles EF
+  migrations and applies them before the app starts. Nothing equivalent exists for the other
+  runtimes DeployAI deploys — a Node or Python service provisioned a database still meets an empty
+  one, and the failure looks like a healthy app returning 500s.
+- **Coolify's proxy labels are managed by Coolify, and DeployAI must not write them.** Writing
+  `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The problem
+  that change was originally for is still open: Coolify caches the Traefik labels it generates at
+  first deploy, so a later build-pack or port change does not reach the live proxy until someone
+  presses "Reset Labels to Defaults" and redeploys.
 - **Nothing acts on an inconclusive env scan yet.** `env-schema` now reports which sources it read
   and flags `inconclusive` when it read none, but the wizard still shows no environment step for an
   empty result either way. Until it distinguishes them, a repo whose configuration lives somewhere
