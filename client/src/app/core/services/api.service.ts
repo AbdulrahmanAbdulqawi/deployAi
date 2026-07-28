@@ -42,6 +42,7 @@ import {
   StorageBucket,
   EnvSchemaVar,
   EnvVariable,
+  UnreadableEnvTarget,
   MissingConfigurationItem
 } from '../models/api.models';
 
@@ -753,7 +754,7 @@ export class ApiService {
 
   /** The env vars DeployAI manages for this app — for viewing and editing after deploy. */
   getEnvironment(projectId: string) {
-    return this.http.get<{ variables: EnvVariable[] }>(
+    return this.http.get<{ variables: EnvVariable[]; unreadable: UnreadableEnvTarget[] }>(
       `/api/projects/${projectId}/environment`
     );
   }
@@ -774,9 +775,10 @@ export class ApiService {
   }
 
   /** Removes a single env var from the live app and DeployAI's store. */
-  deleteEnvironmentVariable(projectId: string, key: string) {
+  /** `targetId` names the app to remove it from; without it the API removes from the website. */
+  deleteEnvironmentVariable(projectId: string, key: string, targetId?: string) {
     return this.http.delete<{ deleted: string }>(
-      `/api/projects/${projectId}/environment/${encodeURIComponent(key)}`
+      `/api/projects/${projectId}/environment/${encodeURIComponent(key)}${targetId ? `?targetId=${targetId}` : ''}`
     );
   }
 

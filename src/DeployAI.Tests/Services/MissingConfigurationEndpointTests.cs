@@ -179,7 +179,8 @@ public class MissingConfigurationEndpointTests
             encryption.Object,
             logsFactory.Object,
             tokens.Object,
-            new MissingConfigurationDetector());
+            new MissingConfigurationDetector(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ProjectEnvironmentController>.Instance);
 
         return (controller, projectId, targetId);
     }

@@ -734,6 +734,24 @@
   text-transform: capitalize;
 }
 
+.managed-env__group {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+
+  &:first-child {
+    margin-top: 0;
+  }
+}
+
+.managed-env__unreadable {
+  margin-bottom: var(--space-3);
+  color: var(--text-warning, var(--text-muted));
+  font-size: var(--text-sm);
+}
+
 .managed-env__add-secret {
   white-space: nowrap;
 }

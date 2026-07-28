@@ -30,6 +30,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
     private readonly IProviderRuntimeLogsFactory _runtimeLogsFactory;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IMissingConfigurationDetector _missingConfiguration;
+    private readonly ILogger<ProjectEnvironmentController> _logger;
 
     public ProjectEnvironmentController(
         DeployAIDbContext db,
@@ -39,7 +40,8 @@ public sealed class ProjectEnvironmentController : ControllerBase
         IEncryptionService encryption,
         IProviderRuntimeLogsFactory runtimeLogsFactory,
         IProviderCredentialTokenService tokens,
-        IMissingConfigurationDetector missingConfiguration)
+        IMissingConfigurationDetector missingConfiguration,
+        ILogger<ProjectEnvironmentController> logger)
     {
         _db = db;
         _currentUser = currentUser;
@@ -49,6 +51,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
         _runtimeLogsFactory = runtimeLogsFactory;
         _tokens = tokens;
         _missingConfiguration = missingConfiguration;
+        _logger = logger;
     }
 
     /// <summary>
@@ -180,6 +183,22 @@ public sealed class ProjectEnvironmentController : ControllerBase
         return Ok(new { missing, readable = true });
     }
 
+    /// <summary>
+    /// Every environment variable each of the project's apps actually has, read from the provider,
+    /// annotated with which app it is on.
+    /// </summary>
+    /// <remarks>
+    /// This used to list DeployAI's own encrypted store and nothing else — only the handful of keys
+    /// a user had typed here. Everything else the app runs on (the database URL DeployAI linked, the
+    /// API URL it derived, the CORS origins it wired, anything set on the provider directly) was
+    /// invisible, so the screen claiming to show "the settings DeployAI manages for this app" showed
+    /// four of fifteen. Reading the provider makes the list the truth, and carrying the target on
+    /// each row answers the question the single project-wide store cannot: which container has it.
+    /// <para>
+    /// A target that cannot be read is reported rather than skipped. Dropping it would render a
+    /// shorter list that looks complete, which is how a missing variable gets mistaken for a set one.
+    /// </para>
+    /// </remarks>
     [HttpGet("")]
     public async Task<IActionResult> ListEnvironment(Guid projectId, CancellationToken cancellationToken)
     {
@@ -187,13 +206,87 @@ public sealed class ProjectEnvironmentController : ControllerBase
         var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
         var stored = LoadStoredEnvVars(project);
 
-        var variables = stored
-            .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => new { key = kv.Key, value = kv.Value.Value, isSecret = kv.Value.IsSecret })
-            .ToList();
+        var variables = new List<EnvVariableView>();
+        var unreadable = new List<object>();
+        var seenLive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return Ok(new { variables });
+        foreach (var (target, config) in DeployableTargets(project))
+        {
+            var role = config.Role ?? "app";
+            try
+            {
+                var management = _managementFactory.GetManagement(target.ProviderName);
+                var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+                var live = await management.ListEnvVarsAsync(
+                    new ProviderCredentials(token), target.ProviderProjectId!, cancellationToken);
+
+                foreach (var item in live)
+                {
+                    seenLive.Add(item.Key);
+                    var known = stored.TryGetValue(item.Key, out var s) ? s : null;
+                    variables.Add(new EnvVariableView(
+                        item.Key,
+                        // The provider withholds write-only values; DeployAI's own copy fills the gap
+                        // where it has one, so a value it set stays editable rather than blanking.
+                        item.ValueHidden ? known?.Value ?? string.Empty : item.Value ?? known?.Value ?? string.Empty,
+                        known?.IsSecret ?? (ProviderEnvVarTypes.IsSecret(item.Type) || LooksSecret(item.Key)),
+                        target.Id,
+                        role,
+                        Managed: known is not null));
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not read environment variables for target {TargetId}.", target.Id);
+                unreadable.Add(new { targetId = target.Id, targetRole = role, reason = ex.Message });
+            }
+        }
+
+        // Anything DeployAI stored but no app reports. Usually a target that failed to read above;
+        // it can also mean the value never reached the provider, which is worth seeing.
+        foreach (var (key, value) in stored.Where(kv => !seenLive.Contains(kv.Key)))
+        {
+            variables.Add(new EnvVariableView(key, value.Value, value.IsSecret, null, null, Managed: true));
+        }
+
+        return Ok(new
+        {
+            variables = variables
+                .OrderBy(v => v.TargetRole ?? "￿", StringComparer.OrdinalIgnoreCase)
+                .ThenBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            unreadable
+        });
     }
+
+    /// <summary>
+    /// One variable as the screen shows it. <see cref="TargetId"/> is null for a variable DeployAI
+    /// stores that no app reported — which is either a target it could not read, or a value that
+    /// never reached the provider.
+    /// </summary>
+    private sealed record EnvVariableView(
+        string Key,
+        string Value,
+        bool IsSecret,
+        Guid? TargetId,
+        string? TargetRole,
+        bool Managed);
+
+    private IEnumerable<(DeployTarget Target, DeployTargetConfig Config)> DeployableTargets(Data.Entities.Project project) =>
+        project.DeployTargets
+            .Select(t => (Target: t, Config: DeployTargetConfig.Parse(t.ConfigJson)))
+            .Where(t => t.Config.IsDeployableTarget && !string.IsNullOrWhiteSpace(t.Target.ProviderProjectId));
+
+    /// <summary>
+    /// Whether a key should be masked when the provider does not say. Reading a value back from a
+    /// provider loses whether it was ever meant to be secret, and a connection string shown in clear
+    /// on a shared screen is the failure that matters here — so the guess errs toward masking.
+    /// </summary>
+    private static bool LooksSecret(string key) =>
+        SecretKeyMarkers.Any(marker => key.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] SecretKeyMarkers =
+        ["secret", "password", "passwd", "token", "apikey", "api_key", "signingkey", "privatekey", "connectionstring", "database_url"];
 
     /// <summary>
     /// Removes a single environment variable from the live app and from DeployAI's store.

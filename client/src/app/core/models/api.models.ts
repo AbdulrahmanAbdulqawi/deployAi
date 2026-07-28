@@ -454,6 +454,18 @@ export interface EnvVariable {
   key: string;
   value: string;
   isSecret: boolean;
+  /** Which app has it. Null when DeployAI stores it but no app reported it back. */
+  targetId: string | null;
+  targetRole: string | null;
+  /** Whether DeployAI itself set it, as opposed to reading it off the provider. */
+  managed: boolean;
+}
+
+/** A deploy target whose variables could not be read — reported so a short list isn't mistaken for a complete one. */
+export interface UnreadableEnvTarget {
+  targetId: string;
+  targetRole: string;
+  reason: string;
 }
 
 /**

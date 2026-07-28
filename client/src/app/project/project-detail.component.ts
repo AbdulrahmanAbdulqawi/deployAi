@@ -16,6 +16,7 @@ import {
   ProviderEnvVar,
   ProviderName,
   EnvVariable,
+  UnreadableEnvTarget,
   MissingConfigurationItem
 } from '../core/models/api.models';
 import {
@@ -91,6 +92,7 @@ export class ProjectDetailComponent implements OnInit {
   readonly loadingManagedEnv = signal(false);
   readonly savingManagedEnvKey = signal<string | null>(null);
   readonly revealedEnv = signal<Record<string, boolean>>({});
+  readonly unreadableEnvTargets = signal<UnreadableEnvTarget[]>([]);
   // Working copy of each var's value, so edits stay local until saved.
   managedEnvDraft: Record<string, string> = {};
   newManagedKey = '';
@@ -679,14 +681,19 @@ export class ProjectDetailComponent implements OnInit {
     this.loadingManagedEnv.set(true);
     this.api.getEnvironment(this.projectId).subscribe({
       next: (response) => {
-        const vars = [...response.variables].sort((a, b) => a.key.localeCompare(b.key));
+        // Server order already groups by app; re-sorting by key alone would interleave them.
+        const vars = response.variables;
         this.managedEnv.set(vars);
-        this.managedEnvDraft = Object.fromEntries(vars.map(v => [v.key, v.value]));
+        this.unreadableEnvTargets.set(response.unreadable ?? []);
+        // Keyed by app as well as name: the same key can legitimately exist on both containers
+        // with different values, and a single map would let one overwrite the other's draft.
+        this.managedEnvDraft = Object.fromEntries(vars.map(v => [this.envRowId(v), v.value]));
         this.revealedEnv.set({});
         this.loadingManagedEnv.set(false);
       },
       error: () => {
         this.managedEnv.set([]);
+        this.unreadableEnvTargets.set([]);
         this.loadingManagedEnv.set(false);
       }
     });
@@ -752,20 +759,48 @@ export class ProjectDetailComponent implements OnInit {
     this.revealedEnv.update(state => ({ ...state, [key]: !state[key] }));
   }
 
+  /** Identifies a row by app as well as name — the same key can exist on both containers. */
+  envRowId(item: EnvVariable): string {
+    return `${item.targetId ?? 'unplaced'}:${item.key}`;
+  }
+
+  /** The variables on one app, in the order the server grouped them. */
+  envGroups(): { targetId: string | null; role: string; items: EnvVariable[] }[] {
+    const groups = new Map<string, { targetId: string | null; role: string; items: EnvVariable[] }>();
+    for (const item of this.managedEnv()) {
+      const id = item.targetId ?? 'unplaced';
+      if (!groups.has(id)) {
+        groups.set(id, {
+          targetId: item.targetId,
+          // A variable DeployAI stores that no app reported back: either its app could not be read,
+          // or the value never reached the provider. Both are worth showing, not hiding.
+          role: item.targetRole ?? 'not on any app',
+          items: []
+        });
+      }
+      groups.get(id)!.items.push(item);
+    }
+    return [...groups.values()];
+  }
+
   envValueChanged(item: EnvVariable): boolean {
-    return (this.managedEnvDraft[item.key] ?? '') !== item.value;
+    return (this.managedEnvDraft[this.envRowId(item)] ?? '') !== item.value;
   }
 
   saveManagedEnv(item: EnvVariable): void {
-    const value = this.managedEnvDraft[item.key] ?? '';
+    const value = this.managedEnvDraft[this.envRowId(item)] ?? '';
     if (!value || value === item.value) {
       return;
     }
 
-    this.savingManagedEnvKey.set(item.key);
-    this.api.setComposeEnvironment(this.projectId, [
-      { key: item.key, value, isSecret: item.isSecret }
-    ]).subscribe({
+    this.savingManagedEnvKey.set(this.envRowId(item));
+    this.api.setComposeEnvironment(
+      this.projectId,
+      [{ key: item.key, value, isSecret: item.isSecret }],
+      // Save back to the app it came from. Without this it would go to the API's default (the
+      // website), so editing a server variable would write a copy to the frontend instead.
+      item.targetId ?? undefined
+    ).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.toast.success(`${item.key} saved. Redeploy to apply it.`);
@@ -830,7 +865,9 @@ export class ProjectDetailComponent implements OnInit {
   async deleteManagedEnv(item: EnvVariable): Promise<void> {
     const confirmed = await this.confirm.ask({
       title: `Remove ${item.key}?`,
-      message: 'This removes the variable from the live app and from DeployAI. Redeploy to apply.',
+      message: item.targetRole
+        ? `This removes ${item.key} from the ${item.targetRole}. Redeploy to apply.`
+        : 'This removes the variable from the live app and from DeployAI. Redeploy to apply.',
       confirmLabel: 'Remove',
       destructive: true
     });
@@ -838,8 +875,10 @@ export class ProjectDetailComponent implements OnInit {
       return;
     }
 
-    this.savingManagedEnvKey.set(item.key);
-    this.api.deleteEnvironmentVariable(this.projectId, item.key).subscribe({
+    this.savingManagedEnvKey.set(this.envRowId(item));
+    // From the app it is actually on. Defaulting would delete DeployAI's record while leaving the
+    // value live on the other container.
+    this.api.deleteEnvironmentVariable(this.projectId, item.key, item.targetId ?? undefined).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.toast.success(`${item.key} removed.`);
