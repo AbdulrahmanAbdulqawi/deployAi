@@ -537,6 +537,13 @@
               placeholder="Value"
               autocomplete="off"
               spellcheck="false" />
+            <button
+              type="button"
+              class="text-btn managed-env__add-generate"
+              [disabled]="!newManagedKey.trim()"
+              (click)="generateManagedValue()">
+              Generate
+            </button>
             <label class="checkbox managed-env__add-secret">
               <input type="checkbox" [(ngModel)]="newManagedSecret" />
               Secret

@@ -831,6 +831,22 @@ export class ProjectDetailComponent implements OnInit {
     return (apps.find(s => s.role === 'server') ?? apps[0])?.id ?? '';
   }
 
+  /** Fills the value box with something DeployAI invented, and marks it secret. */
+  generateManagedValue(): void {
+    const key = this.newManagedKey.trim();
+    if (!key) {
+      return;
+    }
+
+    this.api.generateEnvValue(this.projectId, key).subscribe({
+      next: ({ value }) => {
+        this.newManagedValue = value;
+        this.newManagedSecret = true;
+      },
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not generate a value.')
+    });
+  }
+
   addManagedEnv(): void {
     const key = this.newManagedKey.trim();
     const value = this.newManagedValue;

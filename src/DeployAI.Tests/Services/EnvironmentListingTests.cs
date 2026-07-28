@@ -107,6 +107,36 @@ public class EnvironmentListingTests
         Assert.True(row.GetProperty("managed").GetBoolean());
     }
 
+    [Fact]
+    public void GetGeneratedValue_ProducesAUsablePassword_SoOneIsNeverTypedByHand()
+    {
+        var harness = Harness.Create(stored: [], website: [], server: []);
+
+        var first = Value(harness.Controller.GetGeneratedValue("Bootstrap__PlatformAdminPassword"));
+        var second = Value(harness.Controller.GetGeneratedValue("Bootstrap__PlatformAdminPassword"));
+
+        Assert.NotEqual(first, second);
+        // Every character class: ASP.NET Identity rejects an alphanumeric-only password at seed
+        // time, which once crash-looped a live deploy.
+        Assert.Contains(first, char.IsUpper);
+        Assert.Contains(first, char.IsLower);
+        Assert.Contains(first, char.IsDigit);
+        Assert.Contains(first, c => !char.IsLetterOrDigit(c));
+    }
+
+    [Fact]
+    public void GetGeneratedValue_RejectsAnEmptyKey()
+    {
+        var harness = Harness.Create(stored: [], website: [], server: []);
+
+        Assert.Throws<DeployAI.Core.Exceptions.DeployAIException>(
+            () => harness.Controller.GetGeneratedValue("  "));
+    }
+
+    private static string Value(IActionResult result) =>
+        JsonSerializer.SerializeToElement(Assert.IsType<OkObjectResult>(result).Value)
+            .GetProperty("value").GetString()!;
+
     private static ProviderEnvVar Var(string key, string value) =>
         new(Guid.NewGuid().ToString(), key, value, ProviderEnvVarTypes.Plain, [], ValueHidden: false);
 

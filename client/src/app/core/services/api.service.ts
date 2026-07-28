@@ -775,6 +775,13 @@ export class ApiService {
   }
 
   /** Removes a single env var from the live app and DeployAI's store. */
+  /** Asks DeployAI to invent a value, so a secret is never typed by hand. */
+  generateEnvValue(projectId: string, key: string) {
+    return this.http.get<{ value: string }>(
+      `/api/projects/${projectId}/environment/generated-value?key=${encodeURIComponent(key)}`
+    );
+  }
+
   /** `targetId` names the app to remove it from; without it the API removes from the website. */
   deleteEnvironmentVariable(projectId: string, key: string, targetId?: string) {
     return this.http.delete<{ deleted: string }>(

@@ -289,6 +289,28 @@ public sealed class ProjectEnvironmentController : ControllerBase
         ["secret", "password", "passwd", "token", "apikey", "api_key", "signingkey", "privatekey", "connectionstring", "database_url"];
 
     /// <summary>
+    /// A value DeployAI invents for a key, so a secret never has to be thought up, typed, or pasted.
+    /// </summary>
+    /// <remarks>
+    /// The same generator the wizard and the missing-configuration flow use, exposed so the plain
+    /// "add a variable" row can reach it too. Without this, the one path where a user adds a secret
+    /// by hand is the one path that asks them to invent it — and a hand-picked admin password is
+    /// exactly the credential that ends up reused or pasted into a chat.
+    /// </remarks>
+    /// <param name="key">The variable name; a name containing PASSWORD gets a full character set.</param>
+    [HttpGet("generated-value")]
+    public IActionResult GetGeneratedValue([FromQuery] string key)
+    {
+        RequireUserId();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new DeployAIException("invalid_key", "An environment variable name is required.");
+        }
+
+        return Ok(new { value = GeneratedSecrets.For(key.Trim()) });
+    }
+
+    /// <summary>
     /// Removes a single environment variable from the live app and from DeployAI's store.
     /// </summary>
     [HttpDelete("{key}")]

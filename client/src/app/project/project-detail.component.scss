@@ -722,7 +722,7 @@
   display: grid;
   // `auto` for the target picker so the row keeps its shape whether or not it is rendered — it
   // only appears when the project has more than one app to choose between.
-  grid-template-columns: auto minmax(140px, 1fr) minmax(0, 2fr) auto auto;
+  grid-template-columns: auto minmax(140px, 1fr) minmax(0, 2fr) auto auto auto;
   gap: var(--space-3);
   align-items: center;
   margin-top: var(--space-3);
