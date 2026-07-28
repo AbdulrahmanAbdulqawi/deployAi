@@ -70,10 +70,6 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
             .ToList();
 
         var storage = targets.FirstOrDefault(t => t.Config.IsStorageTarget);
-        if (storage.Target is null)
-        {
-            return null;
-        }
 
         // Keyed off role, not provider name: under a single-origin compose plan both halves
         // share the Coolify provider, so matching on provider would pick the wrong target.
@@ -84,10 +80,43 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
         {
             throw new DeployAIException(
                 "storage_no_server",
-                "This app has a bucket but no server to wire it into.");
+                "This app has no server to wire a bucket into.");
         }
 
-        var connectionCredential = await ResolveStorageCredentialAsync(userId, storage.Config, cancellationToken);
+        var connectionCredential = await ResolveStorageCredentialAsync(
+            userId,
+            storage.Target is null ? new DeployTargetConfig() : storage.Config,
+            cancellationToken);
+
+        if (storage.Target is null)
+        {
+            // Nothing else in the codebase ever created one. DeploymentPartRoles.Storage was
+            // referenced in exactly one place -- the predicate testing for it -- so this branch
+            // returned null for every project, and the whole object-storage capability (provider,
+            // provisioning, env wiring, twelve endpoints) could not be reached at all.
+            //
+            // Creating it here is safe because this runs only from an explicit request to
+            // provision storage for one app; nothing in the deploy pipeline calls it, so no app
+            // gets a bucket it did not ask for.
+            var created = new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                ProviderName = connectionCredential.ProviderName,
+                CredentialId = connectionCredential.Id,
+                ConfigJson = new DeployTargetConfig
+                {
+                    Role = DeploymentPartRoles.Storage,
+                    // Which connection the bucket belongs to, so a second connection added later
+                    // cannot silently re-point an app at a different account's storage.
+                    RailwayProjectId = connectionCredential.Id.ToString()
+                }.ToJson(),
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            _db.DeployTargets.Add(created);
+            storage = (created, DeployTargetConfig.Parse(created.ConfigJson));
+        }
         var provider = _storageFactory.GetObjectStorage(connectionCredential.ProviderName)
             ?? throw new DeployAIException(
                 "storage_provider_unavailable",
