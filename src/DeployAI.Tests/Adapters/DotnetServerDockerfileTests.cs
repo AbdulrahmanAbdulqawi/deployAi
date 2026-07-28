@@ -100,4 +100,26 @@ public class DotnetServerDockerfileTests
         var appAt = dockerfile.IndexOf("exec dotnet My.Api.dll", StringComparison.Ordinal);
         Assert.True(gateAt < appAt, "the app must start only after migrations have succeeded");
     }
+
+    [Fact]
+    public void Build_InstallsTheKerberosLibraryNpgsqlNeeds()
+    {
+        // Npgsql loads GSSAPI when opening a connection and the ASP.NET runtime image does not ship
+        // it, so every Postgres query failed with "libgssapi_krb5.so.2: cannot open shared object
+        // file" -- from an app that had started cleanly. The failure is per-request, so nothing
+        // about the container's state gives it away.
+        var dockerfile = DotnetServerDockerfile.Build(
+            buildRootDirectory: "backend/src",
+            serviceDirectory: "backend/src/YemenHub.Api",
+            csprojContent: "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>",
+            csprojFileName: "YemenHub.Api.csproj");
+
+        Assert.Contains("libgssapi-krb5-2", dockerfile);
+
+        // In the runtime stage: the build stage's image is discarded, so installing it there does
+        // nothing for the app that actually runs.
+        var runtimeStageAt = dockerfile.IndexOf("FROM mcr.microsoft.com/dotnet/aspnet", StringComparison.Ordinal);
+        var installAt = dockerfile.IndexOf("libgssapi-krb5-2", StringComparison.Ordinal);
+        Assert.True(installAt > runtimeStageAt, "the library must be installed into the runtime image");
+    }
 }
