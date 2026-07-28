@@ -142,6 +142,14 @@ Recorded so they get closed rather than re-done by hand.
   before a deploy.
 - **Verification is shallow.** A deployment probing `/health` successfully can still have a
   fully broken API surface. See `DeploymentVerificationService.cs` / `DeploymentEndpointProbes.cs`.
+- **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
+  `Project.EnvironmentVariablesEncrypted` is one blob per project, so a listed variable carries no
+  record of which container it was pushed to. Adding one now asks (the add row has a target picker
+  and defaults to the server), but editing and deleting still fall through to the API's default,
+  which is the *website* — so removing a server-side variable can delete DeployAI's record of it
+  while leaving the value live on the server, and saving a new value can write it to the frontend.
+  The fix is to store the target alongside each variable and show it in the list; until then the
+  list is a set of names whose location is unknowable from the UI.
 - **CORS wiring is a guess, and nothing checks whether the guess was right.**
   `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
   own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
