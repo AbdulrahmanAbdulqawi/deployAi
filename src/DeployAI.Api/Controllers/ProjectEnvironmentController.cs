@@ -27,19 +27,28 @@ public sealed class ProjectEnvironmentController : ControllerBase
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IEncryptionService _encryption;
+    private readonly IProviderRuntimeLogsFactory _runtimeLogsFactory;
+    private readonly IProviderCredentialTokenService _tokens;
+    private readonly IMissingConfigurationDetector _missingConfiguration;
 
     public ProjectEnvironmentController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IProviderManagementFactory managementFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IProviderRuntimeLogsFactory runtimeLogsFactory,
+        IProviderCredentialTokenService tokens,
+        IMissingConfigurationDetector missingConfiguration)
     {
         _db = db;
         _currentUser = currentUser;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _managementFactory = managementFactory;
         _encryption = encryption;
+        _runtimeLogsFactory = runtimeLogsFactory;
+        _tokens = tokens;
+        _missingConfiguration = missingConfiguration;
     }
 
     /// <summary>
@@ -103,6 +112,74 @@ public sealed class ProjectEnvironmentController : ControllerBase
     /// store), so they can be reviewed and edited after the first deploy. Secret values are
     /// returned to the authenticated owner — the client masks them behind a reveal toggle.
     /// </summary>
+    /// <summary>
+    /// Reads a target's container output for configuration it says is missing, and offers a value
+    /// for each so the user can review and apply them.
+    /// </summary>
+    /// <remarks>
+    /// The second source of truth for what an app needs. Repository scanning reads a fixed set of
+    /// files at a repo's root, so an app whose configuration lives deeper produces nothing to ask
+    /// for and is deployed with nothing set — after which it says exactly what it wanted in its own
+    /// startup output. Keys already set are filtered out: they are not what is missing, and
+    /// offering to overwrite a working secret is how you break a running app.
+    /// </remarks>
+    /// <param name="targetId">Which deploy target to read. Required — logs are per application.</param>
+    /// <param name="lines">How much of the tail to read.</param>
+    [HttpGet("missing")]
+    public async Task<IActionResult> GetMissingConfiguration(
+        Guid projectId,
+        [FromQuery] Guid targetId,
+        CancellationToken cancellationToken,
+        [FromQuery] int lines = 200)
+    {
+        var userId = RequireUserId();
+        var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
+        var target = project.DeployTargets.FirstOrDefault(t => t.Id == targetId)
+            ?? throw new DeployAIException("target_not_found", "That service is not part of this project.");
+
+        var runtimeLogs = _runtimeLogsFactory.GetRuntimeLogs(target.ProviderName);
+        if (runtimeLogs is null)
+        {
+            return Ok(new { missing = Array.Empty<object>(), readable = false, reason = "unsupported_provider" });
+        }
+
+        string[] logLines;
+        try
+        {
+            var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+            var raw = await runtimeLogs.GetRuntimeLogsAsync(
+                new ProviderCredentials(token),
+                target.ProviderProjectId,
+                lines,
+                cancellationToken);
+            logLines = (raw ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        }
+        catch (DeployAIException ex)
+        {
+            // A stopped container has no logs to read, which is precisely the state this feature is
+            // for. Say so plainly instead of reporting "nothing missing" — the caller can offer to
+            // start it, and an empty list here would read as "your configuration is fine".
+            return Ok(new { missing = Array.Empty<object>(), readable = false, reason = ex.ErrorCode, message = ex.Message });
+        }
+
+        var alreadySet = LoadStoredEnvVars(project).Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missing = _missingConfiguration.Detect(logLines)
+            .Where(m => !alreadySet.Contains(m.Name))
+            .Select(m => new
+            {
+                name = m.Name,
+                kind = m.Kind == MissingConfigurationKind.ConfigurationSection ? "section" : "variable",
+                evidence = m.Evidence,
+                // A section names a prefix, not a key, so the value is offered against the prefix
+                // and the caller completes the name. Suggesting "Jwt" as a whole key would be wrong.
+                suggestedValue = GeneratedSecrets.For(m.Name)
+            })
+            .ToArray();
+
+        return Ok(new { missing, readable = true });
+    }
+
     [HttpGet("")]
     public async Task<IActionResult> ListEnvironment(Guid projectId, CancellationToken cancellationToken)
     {

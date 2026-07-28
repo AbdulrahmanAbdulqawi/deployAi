@@ -381,62 +381,13 @@ public sealed class GitHubController : ControllerBase
         }
     }
 
-    private static string GenerateSecret(int length)
-    {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        return string.Create(length, alphabet, static (span, chars) =>
-        {
-            Span<byte> bytes = stackalloc byte[span.Length];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-            for (var i = 0; i < span.Length; i++)
-            {
-                span[i] = chars[bytes[i] % chars.Length];
-            }
-        });
-    }
+    private static string GenerateSecret(int length) => GeneratedSecrets.Secret(length);
 
     /// <summary>
-    /// A password satisfying the strictest common policy: upper, lower, digit, and symbol.
-    /// Symbols exclude anything docker compose / .env files treat specially ($, #, quotes,
-    /// backslash) so the value survives Coolify's env interpolation verbatim.
-    /// Public so tests can hold the policy in place — an alphanumeric-only password
-    /// crash-looped a live deploy (ASP.NET Identity rejects it at seed time).
+    /// Delegates to <see cref="GeneratedSecrets.Password"/>. Kept here, and public, because tests
+    /// hold the password policy in place through this name.
     /// </summary>
-    public static string GeneratePassword(int length)
-    {
-        const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const string lower = "abcdefghijklmnopqrstuvwxyz";
-        const string digits = "0123456789";
-        const string symbols = "!@^*-_+=?.";
-        const string all = upper + lower + digits + symbols;
-
-        Span<byte> bytes = stackalloc byte[length + 4];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-
-        var result = new char[length];
-        for (var i = 0; i < length; i++)
-        {
-            result[i] = all[bytes[i] % all.Length];
-        }
-
-        // Guarantee one of each class at random-but-distinct positions.
-        result[bytes[length] % length] = upper[bytes[length] % upper.Length];
-        var positions = new HashSet<int> { bytes[length] % length };
-        var classSets = new[] { lower, digits, symbols };
-        for (var c = 0; c < classSets.Length; c++)
-        {
-            var pos = bytes[length + 1 + c] % length;
-            while (positions.Contains(pos))
-            {
-                pos = (pos + 1) % length;
-            }
-
-            positions.Add(pos);
-            result[pos] = classSets[c][bytes[length + 1 + c] % classSets[c].Length];
-        }
-
-        return new string(result);
-    }
+    public static string GeneratePassword(int length) => GeneratedSecrets.Password(length);
 
     /// <summary>
     /// Detects the frontend build profile for a given folder (Angular vs. plain package.json),
