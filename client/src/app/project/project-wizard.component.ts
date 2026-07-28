@@ -362,11 +362,16 @@ export class ProjectWizardComponent implements OnInit {
     this.selectedRepo.set(repo);
     const repoName = repo.fullName.split('/')[1] ?? repo.fullName;
     this.projectName = repoName;
-    this.newVercelProjectName = this.sanitizeName(repoName);
-    this.newRailwayProjectName = `${this.sanitizeName(repoName)}-api`;
-    this.newCoolifyProjectName = this.sanitizeName(repoName);
-    this.newCoolifyWebsiteProjectName = this.sanitizeName(repoName);
-    this.newCoolifyServerProjectName = `${this.sanitizeName(repoName)}-api`;
+    this.onProjectNameChange();
+  }
+
+  onProjectNameChange(): void {
+    const base = this.sanitizeName(this.projectName);
+    this.newVercelProjectName = base;
+    this.newRailwayProjectName = `${base}-api`;
+    this.newCoolifyProjectName = base;
+    this.newCoolifyWebsiteProjectName = base;
+    this.newCoolifyServerProjectName = `${base}-api`;
   }
 
   private sanitizeName(name: string): string {

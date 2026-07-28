@@ -2,6 +2,11 @@ using System.Text;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Rewrites every JSON-looking response body through <see cref="RailwayGraphQlResponseNormalizer"/>
+/// before StrawberryShake deserializes it, working around shape inconsistencies in Railway's raw
+/// GraphQL responses that the generated client can't tolerate directly.
+/// </summary>
 internal sealed class RailwayGraphQlResponseHandler : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(

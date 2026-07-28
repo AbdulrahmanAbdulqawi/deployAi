@@ -64,29 +64,6 @@ function lerp(a: number, b: number, factor: number): number {
   return a + (b - a) * factor;
 }
 
-function debugAgentLog(
-  location: string,
-  message: string,
-  data: Record<string, unknown>,
-  hypothesisId: string
-): void {
-  // #region agent log
-  fetch('http://127.0.0.1:7621/ingest/cf701369-72fb-4b43-b17f-7654957025c3', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b41937' },
-    body: JSON.stringify({
-      sessionId: 'b41937',
-      location,
-      message,
-      data,
-      hypothesisId,
-      timestamp: Date.now(),
-      runId: 'verification',
-    }),
-  }).catch(() => {});
-  // #endregion
-}
-
 @Component({
   selector: 'app-orb-snake-background',
   standalone: true,
@@ -121,8 +98,6 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
   private viewportWidth = 0;
   private viewportHeight = 0;
   private remPx = 16;
-  private debugFrame = 0;
-  private lastLoggedSegmentCount = INITIAL_SEGMENT_COUNT;
 
   private readonly onResize = (): void => {
     this.updateViewport();
@@ -258,19 +233,7 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const before = this.positions.length;
     this.gameProgress = onSnackMissed(this.gameProgress, false);
-    debugAgentLog(
-      'orb-snake-background.component.ts:applyMissedSnack',
-      'missed food penalty applied without shrinking snake',
-      {
-        beforeSegments: before,
-        afterSegments: this.positions.length,
-        gameSegmentCount: this.gameProgress.segmentCount,
-        foodsEaten: this.gameProgress.foodsEaten,
-      },
-      'B'
-    );
     this.triggerStun(STUN_FRAMES_MISS);
   }
 
@@ -282,13 +245,7 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
     );
   }
 
-  private endRun(reason: 'screen-full'): void {
-    debugAgentLog(
-      'orb-snake-background.component.ts:endRun',
-      'run ended — celebrating',
-      { reason, segmentCount: this.positions.length },
-      'F'
-    );
+  private endRun(): void {
     this.snackStates.length = 0;
     this.publishSnacks();
     this.celebrationFrames = CELEBRATION_FRAMES;
@@ -296,7 +253,7 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
 
   private handleRunComplete(): void {
     this.gameProgress = onScreenFilled(this.gameProgress);
-    this.endRun('screen-full');
+    this.endRun();
   }
 
   private isCelebrating(): boolean {
@@ -331,7 +288,6 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    const before = this.positions.length;
     const tail = this.positions[this.positions.length - 1] ?? this.positions[0];
     this.positions.push({ ...tail });
     this.segmentCount.set(this.positions.length);
@@ -339,29 +295,14 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
       ...this.gameProgress,
       segmentCount: this.positions.length,
     };
-    debugAgentLog(
-      'orb-snake-background.component.ts:growSnake',
-      'snake grew after eating',
-      { beforeSegments: before, afterSegments: this.positions.length },
-      'C'
-    );
   }
 
   private shrinkSnakeToCount(targetCount: number): void {
-    const before = this.positions.length;
     while (this.positions.length > targetCount) {
       this.positions.pop();
     }
 
     this.segmentCount.set(this.positions.length);
-    if (before !== this.positions.length) {
-      debugAgentLog(
-        'orb-snake-background.component.ts:shrinkSnakeToCount',
-        'segment count reduced',
-        { before, after: this.positions.length, targetCount },
-        'D'
-      );
-    }
   }
 
   private relayoutTailFromHead(): void {
@@ -402,22 +343,11 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
   }
 
   private handleSelfCollision(): void {
-    const before = this.positions.length;
     this.gameProgress = onSelfCollision(this.gameProgress);
     this.shrinkSnakeToCount(this.gameProgress.segmentCount);
     this.relayoutTailFromHead();
     this.recomputeSpeeds();
     this.triggerStun(STUN_FRAMES_SELF);
-    debugAgentLog(
-      'orb-snake-background.component.ts:handleSelfCollision',
-      'self-collision setback applied',
-      {
-        beforeSegments: before,
-        afterSegments: this.positions.length,
-        foodsEaten: this.gameProgress.foodsEaten,
-      },
-      'F'
-    );
   }
 
   private shrinkSnakeToInitial(): void {
@@ -619,44 +549,6 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
         this.positions[index] = point;
       }
     }
-
-    this.debugFrame += 1;
-    if (this.debugFrame % 30 === 0) {
-      const spacing = this.segmentSpacing();
-      let stackedPairs = 0;
-      for (let index = 1; index < this.positions.length; index += 1) {
-        const current = this.positions[index];
-        const previous = this.positions[index - 1];
-        if (current && previous && Math.hypot(current.x - previous.x, current.y - previous.y) < spacing * 0.35) {
-          stackedPairs += 1;
-        }
-      }
-
-      const historyTrailPx = this.headHistory.reduce((total, point, index, history) => {
-        if (index === 0) {
-          return total;
-        }
-        const previous = history[index - 1];
-        return previous ? total + Math.hypot(point.x - previous.x, point.y - previous.y) : total;
-      }, 0);
-
-      if (stackedPairs > 0 || this.positions.length !== this.segmentCount()) {
-        debugAgentLog(
-          'orb-snake-background.component.ts:updateSegmentsFromHistory',
-          'tail collapse or segment desync detected',
-          {
-            segmentCount: this.positions.length,
-            signalCount: this.segmentCount(),
-            headHistoryLength: this.headHistory.length,
-            maxHistoryLength: this.maxHeadHistoryLength(),
-            historyTrailPx,
-            requiredTrailPx: (this.positions.length - 1) * spacing,
-            stackedPairs,
-          },
-          'A'
-        );
-      }
-    }
   }
 
   private checkSelfCollision(): void {
@@ -749,23 +641,6 @@ export class OrbSnakeBackgroundComponent implements AfterViewInit, OnDestroy {
       element.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
       element.style.opacity = `${this.segmentOpacity(progress)}`;
     });
-
-    if (this.positions.length !== this.lastLoggedSegmentCount) {
-      const headScale = lerp(1, TAIL_SCALE, 0);
-      debugAgentLog(
-        'orb-snake-background.component.ts:syncSegmentElements',
-        'visible segment count changed',
-        {
-          segmentCount: this.positions.length,
-          signalCount: this.segmentCount(),
-          domCount: elements.length,
-          headScale,
-          remPx: this.remPx,
-        },
-        'E'
-      );
-      this.lastLoggedSegmentCount = this.positions.length;
-    }
   }
 
   private syncSnackElements(): void {

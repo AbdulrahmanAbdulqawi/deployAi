@@ -1,14 +1,21 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Reads and rewrites a repo's vercel.json: resolving where it lives, detecting the legacy
+/// same-origin API-proxy rewrite pattern that split-origin apps must not have, and generating a
+/// SPA-only replacement when a repo needs one.
+/// </summary>
 internal static class VercelJsonRewrites
 {
     internal const string ApiSource = "/api/:path*";
     internal const string HubsSource = "/hubs/:path*";
 
+    /// <summary>Candidate vercel.json paths to check, given a target's configured root directory.</summary>
     internal static IEnumerable<string> CandidatePaths(DeployTargetConfig config)
     {
         var root = config.RootDirectory?.Trim().Trim('/');
@@ -22,12 +29,14 @@ internal static class VercelJsonRewrites
         yield return "client/vercel.json";
     }
 
+    /// <summary>The primary (first-choice) vercel.json path for a target.</summary>
     internal static string ResolvePrimaryPath(DeployTargetConfig config)
     {
         var root = config.RootDirectory?.Trim().Trim('/');
         return string.IsNullOrEmpty(root) ? "vercel.json" : $"{root}/vercel.json";
     }
 
+    /// <summary>Adds/updates build command, install command, and output directory fields in a vercel.json, preserving everything else.</summary>
     internal static string EnrichWithBuildSettings(string vercelJsonContent, DeployTargetConfig config)
     {
         var root = JsonNode.Parse(vercelJsonContent)?.AsObject() ?? new JsonObject();
@@ -50,6 +59,43 @@ internal static class VercelJsonRewrites
         return root.ToJsonString(SerializerOptions);
     }
 
+  // Vercel header `source` values use path-to-regexp, not full regex — alternation like .(js|css|...) is rejected.
+    private static readonly Regex HeaderAlternationPattern = new(
+        @"\.\([^)]*\|",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>Whether vercel.json has a "headers" rule with a source pattern Vercel's router will reject.</summary>
+    internal static bool HasInvalidHeaderSourcePattern(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return false;
+        }
+
+        var root = JsonNode.Parse(content)?.AsObject();
+        if (root?["headers"] is not JsonArray headers)
+        {
+            return false;
+        }
+
+        foreach (var entry in headers)
+        {
+            if (entry is not JsonObject header)
+            {
+                continue;
+            }
+
+            var source = header["source"]?.GetValue<string>();
+            if (!string.IsNullOrWhiteSpace(source) && HeaderAlternationPattern.IsMatch(source))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether vercel.json has /api or /hubs proxy rewrites - the same-origin-proxy pattern that split-origin apps must NOT have (they call the backend directly instead).</summary>
     internal static bool HasApiProxyAntiPattern(string? content)
     {
         if (string.IsNullOrWhiteSpace(content))
@@ -71,6 +117,7 @@ internal static class VercelJsonRewrites
         return ContainsProxyRewrite(root["routes"] as JsonArray, useLegacyKeys: true);
     }
 
+    /// <summary>Builds a SPA-only vercel.json (no API proxy rewrites) for a split-origin app, preserving any unrelated existing config.</summary>
     internal static bool TryBuildSpaOnlyContent(
         string? existingContent,
         DeployTargetConfig config,

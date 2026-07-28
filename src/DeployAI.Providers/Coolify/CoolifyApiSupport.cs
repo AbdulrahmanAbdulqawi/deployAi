@@ -86,6 +86,13 @@ internal static class CoolifyApiSupport
         return new Uri(baseUri, path.TrimStart('/'));
     }
 
+    /// <summary>Ensures a directory path has a leading slash, as Coolify's API requires for base_directory/publish_directory.</summary>
+    internal static string NormalizeDirectoryPath(string path)
+    {
+        var trimmed = path.Trim();
+        return trimmed.StartsWith('/') ? trimmed : $"/{trimmed}";
+    }
+
     internal static string NormalizeGitHubRepoUrl(string gitHubRepoFullName)
     {
         var trimmed = gitHubRepoFullName.Trim();
@@ -128,12 +135,57 @@ internal static class CoolifyApiSupport
             return CoolifyBuildPackValues.Dockerfile;
         }
 
-        // An output directory only means "static" for a framework that produces a servable
-        // bundle. An SSR framework (Next, Nuxt, SvelteKit, Remix) also has an output dir
-        // (.next, .output, build) but ships a Node server, so it must build with Nixpacks —
-        // serving .next as static files gets a blank page and no server-rendered routes.
+        // Two independent reasons an output directory does not make something "static", and both
+        // must hold for it to be one.
+        //
+        // Coolify's static build pack does not build. Its generated image is literally
+        // `FROM nginx / WORKDIR /usr/share/nginx/html / COPY . .` — the repository is copied in
+        // as-is. Anything with a build command must go through Nixpacks, which installs and builds
+        // and then serves the output; sending Angular here publishes package.json and src/.
+        //
+        // And an SSR framework (Next, Nuxt, SvelteKit, Remix) has an output dir (.next, .output,
+        // build) but ships a Node server, so serving that output as static files gets a blank page
+        // and no server-rendered routes.
         if (!string.IsNullOrWhiteSpace(request.OutputDirectory) &&
+            string.IsNullOrWhiteSpace(request.BuildCommand) &&
             !IsServerRenderedFrontend(request.Framework))
+        {
+            return CoolifyBuildPackValues.Static;
+        }
+
+        return CoolifyBuildPackValues.Nixpacks;
+    }
+
+    /// <summary>
+    /// Field-based form, for a config sync that holds individual settings rather than a create
+    /// request. There is no compose branch here: compose location is not part of an update.
+    /// </summary>
+    internal static string ResolveBuildPack(
+        string? coolifyBuildPack,
+        string? dockerfilePath,
+        string? framework,
+        string? outputDirectory,
+        string? buildCommand)
+    {
+        if (!string.IsNullOrWhiteSpace(coolifyBuildPack) &&
+            CoolifyBuildPackValues.TryParse(coolifyBuildPack, out var explicitPack))
+        {
+            return CoolifyBuildPackValues.ToApiValue(explicitPack);
+        }
+
+        if (!string.IsNullOrWhiteSpace(dockerfilePath) ||
+            string.Equals(framework, "docker", StringComparison.OrdinalIgnoreCase))
+        {
+            return CoolifyBuildPackValues.Dockerfile;
+        }
+
+        // Two independent reasons an output directory does not imply "static", and both must hold
+        // for it to be one. The static build pack skips the build step and copies the tree as-is,
+        // so anything with a build command needs nixpacks to compile first. And an SSR framework
+        // ships a Node server, so serving its output as static files gets a blank page.
+        if (!string.IsNullOrWhiteSpace(outputDirectory) &&
+            string.IsNullOrWhiteSpace(buildCommand) &&
+            !IsServerRenderedFrontend(framework))
         {
             return CoolifyBuildPackValues.Static;
         }
@@ -165,7 +217,15 @@ internal static class CoolifyApiSupport
     /// The container port Coolify's proxy routes to. Null for compose, where the compose file
     /// declares its own ports and a single number is meaningless.
     /// </summary>
-    internal static string? ResolveExposedPort(string buildPack, CreateProviderProjectRequest request)
+    internal static string? ResolveExposedPort(string buildPack, CreateProviderProjectRequest request) =>
+        ResolveExposedPort(buildPack, request.ExposedPort, request.Framework);
+
+    /// <summary>
+    /// Field-based form, for callers that hold a config-update request rather than a create
+    /// request. Both go through the same rules so a later config sync cannot resolve a different
+    /// port than the one the application was created with.
+    /// </summary>
+    internal static string? ResolveExposedPort(string buildPack, string? exposedPort, string? framework)
     {
         if (IsComposeBuildPack(buildPack))
         {
@@ -175,9 +235,9 @@ internal static class CoolifyApiSupport
         // An explicit port (e.g. from the Dockerfile's EXPOSE that we generated) wins over guessing
         // — the framework is often just "docker" for a Dockerfile build, which the switch below
         // can't map to a real port.
-        if (!string.IsNullOrWhiteSpace(request.ExposedPort))
+        if (!string.IsNullOrWhiteSpace(exposedPort))
         {
-            return request.ExposedPort.Trim();
+            return exposedPort.Trim();
         }
 
         if (string.Equals(buildPack, CoolifyBuildPackValues.Static, StringComparison.OrdinalIgnoreCase))
@@ -187,13 +247,26 @@ internal static class CoolifyApiSupport
 
         // .NET containers listen on 8080 by default. The previous blanket "3000" silently
         // pointed the proxy at a port nothing was listening on.
-        return request.Framework?.Trim().ToLowerInvariant() switch
+        var frameworkPort = framework?.Trim().ToLowerInvariant() switch
         {
             "dotnet" or "aspnet" or "aspnetcore" => "8080",
             "python" or "django" or "flask" or "fastapi" => "8000",
             "go" or "rust" => "8080",
-            _ => "3000"
+            _ => null
         };
+
+        if (frameworkPort is not null)
+        {
+            return frameworkPort;
+        }
+
+        // A Dockerfile build's framework is usually just "docker", or absent entirely, so the map
+        // above cannot resolve it — and falling through to 3000 points the proxy at a port nothing
+        // is listening on. .NET 8+ images are the dominant Dockerfile shape here and listen on
+        // 8080. An explicit port, read from the EXPOSE line we generate, still wins above this.
+        return string.Equals(buildPack, CoolifyBuildPackValues.Dockerfile, StringComparison.OrdinalIgnoreCase)
+            ? "8080"
+            : "3000";
     }
 
     internal sealed record CoolifySession(string InstanceUrl, string ApiToken);

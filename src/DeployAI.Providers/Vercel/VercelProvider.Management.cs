@@ -7,6 +7,7 @@ namespace DeployAI.Providers.Vercel;
 
 public sealed partial class VercelProvider
 {
+    /// <summary>Creates a new Vercel project linked to a GitHub repo, then best-effort applies any supplied build settings.</summary>
     public async Task<ProviderProject> CreateProjectAsync(
         ProviderCredentials credentials,
         CreateProviderProjectRequest request,
@@ -75,6 +76,7 @@ public sealed partial class VercelProvider
         return VercelApiSupport.BuildSettingsFromEnvironment(environment);
     }
 
+    /// <summary>Lists env vars, hiding values for secret/sensitive/encrypted types rather than returning them in plain text.</summary>
     public async Task<IReadOnlyList<ProviderEnvVar>> ListEnvVarsAsync(
         ProviderCredentials credentials,
         string providerProjectId,

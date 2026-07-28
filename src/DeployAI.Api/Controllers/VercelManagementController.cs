@@ -10,6 +10,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Creates new Vercel projects for a GitHub repo, plus generic provider environment variable
+/// management (list/upsert/delete) that despite the controller name works against whichever
+/// provider owns the given connection, not just Vercel.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/credentials")]
@@ -35,6 +40,11 @@ public sealed class VercelManagementController : ControllerBase
         _tokens = tokens;
     }
 
+    /// <summary>
+    /// Creates a new Vercel project for a GitHub repo - the step that actually provisions the
+    /// project on Vercel's side, separate from linking it into a DeployAI project.
+    /// </summary>
+    /// <param name="request">Repo, framework, build config, and the Vercel connection to create it through.</param>
     [HttpPost("vercel/projects")]
     public async Task<IActionResult> CreateVercelProject(
         [FromBody] CreateVercelProjectRequest request,
@@ -59,6 +69,9 @@ public sealed class VercelManagementController : ControllerBase
         return Ok(new { project });
     }
 
+    /// <summary>Lists environment variables on a provider project (any connected provider).</summary>
+    /// <param name="credentialId">The connection to authenticate through.</param>
+    /// <param name="projectId">The provider-side project/service id.</param>
     [HttpGet("{credentialId:guid}/projects/{projectId}/env")]
     public async Task<IActionResult> ListEnvVars(
         Guid credentialId,
@@ -72,6 +85,10 @@ public sealed class VercelManagementController : ControllerBase
         return Ok(new { envVars });
     }
 
+    /// <summary>Creates or updates an environment variable on a provider project (any connected provider).</summary>
+    /// <param name="credentialId">The connection to authenticate through.</param>
+    /// <param name="projectId">The provider-side project/service id.</param>
+    /// <param name="request">Key/value to set. Type defaults to "encrypted"; targets default to all environments.</param>
     [HttpPost("{credentialId:guid}/projects/{projectId}/env")]
     public async Task<IActionResult> UpsertEnvVar(
         Guid credentialId,
@@ -95,6 +112,10 @@ public sealed class VercelManagementController : ControllerBase
         return Ok(new { envVar });
     }
 
+    /// <summary>Deletes an environment variable from a provider project (any connected provider).</summary>
+    /// <param name="credentialId">The connection to authenticate through.</param>
+    /// <param name="projectId">The provider-side project/service id.</param>
+    /// <param name="envVarId">The provider's id for the env var to delete.</param>
     [HttpDelete("{credentialId:guid}/projects/{projectId}/env/{envVarId}")]
     public async Task<IActionResult> DeleteEnvVar(
         Guid credentialId,

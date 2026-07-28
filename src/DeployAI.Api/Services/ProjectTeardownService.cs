@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Deletes a project and, best-effort, everything provisioned for it on each provider (app services, databases, webhooks) - not just the DeployAI database record.</summary>
 public interface IProjectTeardownService
 {
     /// <param name="force">Drop DeployAI's record even if provider resources could not be removed.

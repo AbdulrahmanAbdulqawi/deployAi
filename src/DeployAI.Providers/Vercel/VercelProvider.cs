@@ -7,6 +7,13 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
 
+/// <summary>
+/// Vercel REST API client. Split into partial classes by concern: this file has the core
+/// <see cref="IDeploymentProvider"/> deploy/status/logs operations; <c>VercelProvider.Management</c>
+/// has project creation and env vars; <c>VercelProvider.Deploy</c> has git-source/settings
+/// resolution for triggering a deploy; <c>VercelProvider.Routing</c> has API-proxy rewrites and
+/// public-domain resolution; <c>VercelProvider.Settings</c> has project settings mapping.
+/// </summary>
 public sealed partial class VercelProvider : IDeploymentProvider, IProviderManagement
 {
     private readonly HttpClient _httpClient;
@@ -38,6 +45,7 @@ public sealed partial class VercelProvider : IDeploymentProvider, IProviderManag
                ?? [];
     }
 
+    /// <summary>Applies project settings from <paramref name="environment"/>, re-fetches the project (settings can affect the git source), then triggers a production deployment.</summary>
     public async Task<DeploymentResponse> TriggerDeploymentAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -92,6 +100,10 @@ public sealed partial class VercelProvider : IDeploymentProvider, IProviderManag
         return MapStatus(deployment);
     }
 
+    /// <summary>
+    /// Polls Vercel's deployment events every 2 seconds and yields new lines, stopping once the
+    /// deployment reaches a terminal status or after ~2 minutes (60 rounds) of no new output.
+    /// </summary>
     public async IAsyncEnumerable<string> StreamLogsAsync(
         ProviderCredentials credentials,
         string deploymentId,

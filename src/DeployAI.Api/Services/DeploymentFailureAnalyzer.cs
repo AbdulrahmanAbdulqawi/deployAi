@@ -3,6 +3,7 @@ using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Pattern-matches build/deploy log lines against known compiler/build-tool error markers (tsc, Angular, MSBuild, NuGet, etc.) to classify a failure as CodeBuild vs. Infrastructure and extract referenced file paths.</summary>
 public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
 {
     private const int MaxExcerptChars = 16384;
@@ -49,6 +50,15 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "Application bundle generation failed"
     ];
 
+    private static readonly string[] DockerBuildMarkers =
+    [
+        "dockerfile invalid",
+        "invalid dockerfile",
+        "failed to solve",
+        "error building docker",
+        "docker build failed"
+    ];
+
     private static readonly string[] HardInfrastructureMarkers =
     [
         "not linked to GitHub",
@@ -58,7 +68,10 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "unauthorized",
         "gitHub_auth",
         "provider_token_invalid",
-        "invalid_credential"
+        "invalid_credential",
+        // Railway opaque builder/image failures with no actionable compiler output.
+        "Failed to build an image",
+        "Please check the build logs for more details"
     ];
 
     private static readonly string[] GenericFailureMarkers =
@@ -79,7 +92,9 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         "Invalid vercel.json",
         "should NOT have additional property",
         "Function Runtimes must have a valid version",
-        "cannot be used in conjunction with"
+        "cannot be used in conjunction with",
+        "has invalid `source` pattern",
+        "Header at index"
     ];
 
     private static readonly Regex TypeScriptPathRegex = new(
@@ -129,6 +144,8 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
             joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
         var codeHit = CodeBuildMarkers.FirstOrDefault(marker =>
             joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        var dockerHit = DockerBuildMarkers.FirstOrDefault(marker =>
+            joined.Contains(marker, StringComparison.OrdinalIgnoreCase));
 
         var errorLines = SelectErrorLines(logLines);
         var errorCount = logLines.Count(IsErrorOrFailureLine);
@@ -153,17 +170,23 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         // A recognized build marker OR any concrete error output means Claude can attempt a fix.
         // The error-line fallback covers Vite/esbuild/Rollup/Angular client builds whose exact
         // wording is not in the marker list (e.g. a bare stack trace ending in "FAILED").
-        if (!string.IsNullOrWhiteSpace(codeHit) || errorLines.Count > 0)
+        if (!string.IsNullOrWhiteSpace(codeHit) || !string.IsNullOrWhiteSpace(dockerHit) || errorLines.Count > 0)
         {
             var excerpt = BuildExcerpt(
                 errorLines.Count > 0 ? errorLines : logLines.TakeLast(maxExcerptLines).ToList(),
                 maxExcerptLines,
                 maxExcerptChars);
+            var fixMarker = codeHit ?? dockerHit ?? "build error";
+            var fixFiles = referencedFiles.Count > 0
+                ? referencedFiles
+                : !string.IsNullOrWhiteSpace(dockerHit)
+                    ? (IReadOnlyList<string>)["Dockerfile"]
+                    : referencedFiles;
             return new DeploymentFailureAnalysis(
                 DeploymentFailureCategory.CodeBuild,
-                SummarizeCodeBuild(codeHit ?? "build error", referencedFiles, errorCount),
+                SummarizeCodeBuild(fixMarker, fixFiles, errorCount),
                 excerpt,
-                referencedFiles,
+                fixFiles,
                 !string.IsNullOrWhiteSpace(excerpt),
                 errorCount);
         }
@@ -325,10 +348,21 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
         return $"Build failed with a code error ({marker.Trim()}).";
     }
 
-    private static string SummarizeConfiguration(string marker) =>
-        marker.Contains("Secret", StringComparison.OrdinalIgnoreCase)
-            ? "Deployment failed: an environment variable references a Vercel Secret that does not exist. This is usually fixed by removing the '@secret' reference in vercel.json (use a plain value or a normal Environment Variable)."
-            : "Deployment failed due to an invalid Vercel configuration (vercel.json).";
+    private static string SummarizeConfiguration(string marker)
+    {
+        if (marker.Contains("Secret", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Deployment failed: an environment variable references a Vercel Secret that does not exist. This is usually fixed by removing the '@secret' reference in vercel.json (use a plain value or a normal Environment Variable).";
+        }
+
+        if (marker.Contains("invalid `source` pattern", StringComparison.OrdinalIgnoreCase) ||
+            marker.Contains("Header at index", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Deployment failed: vercel.json has an invalid headers source pattern. Vercel header sources do not support regex alternation like .(js|css|...) — use separate header rules per extension or remove the headers block.";
+        }
+
+        return "Deployment failed due to an invalid Vercel configuration (vercel.json).";
+    }
 
     private static string SummarizeInfrastructure(string marker) =>
         marker switch
@@ -340,6 +374,9 @@ public sealed class DeploymentFailureAnalyzer : IDeploymentFailureAnalyzer
             var m when m.Contains("credential", StringComparison.OrdinalIgnoreCase) ||
                        m.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) =>
                 "Deployment failed due to a hosting connection or permission issue.",
+            var m when m.Contains("Failed to build an image", StringComparison.OrdinalIgnoreCase) ||
+                       m.Contains("check the build logs", StringComparison.OrdinalIgnoreCase) =>
+                "Railway failed to build the container image and did not return actionable build logs. Try Redeploy, or inspect the build in the Railway dashboard.",
             _ => "Deployment failed due to an infrastructure or configuration issue."
         };
 

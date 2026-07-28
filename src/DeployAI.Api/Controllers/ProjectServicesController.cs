@@ -10,6 +10,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Manages the individual provider services (application deploy targets and data/database
+/// services) that make up a project - status, redeploy, removal, and database inspection.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/projects/{projectId:guid}/services")]
@@ -47,6 +51,8 @@ public sealed class ProjectServicesController : ControllerBase
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
     }
 
+    /// <summary>Lists a project's application and data services.</summary>
+    /// <param name="projectId">The project to list services for.</param>
     [HttpGet]
     public async Task<IActionResult> List(Guid projectId, CancellationToken cancellationToken)
     {
@@ -54,6 +60,9 @@ public sealed class ProjectServicesController : ControllerBase
         return Ok(MapServicesResponse(project));
     }
 
+    /// <summary>Gets the live provider status (running/deploying/failed, current URL) of one service.</summary>
+    /// <param name="projectId">The project the service belongs to.</param>
+    /// <param name="targetId">The deploy target (service) to check.</param>
     [HttpGet("{targetId:guid}/status")]
     public async Task<IActionResult> GetStatus(
         Guid projectId,
@@ -134,6 +143,13 @@ public sealed class ProjectServicesController : ControllerBase
         return Ok(new { message = $"Requested {operation.ToLowerInvariant()}." });
     }
 
+    /// <summary>
+    /// Restarts a service on its provider. For Railway targets, first re-syncs cross-provider
+    /// environment wiring (without triggering a second redeploy or verification) so the restart
+    /// picks up current env vars.
+    /// </summary>
+    /// <param name="projectId">The project the service belongs to.</param>
+    /// <param name="targetId">The deploy target (service) to redeploy.</param>
     [HttpPost("{targetId:guid}/redeploy")]
     public async Task<IActionResult> Redeploy(
         Guid projectId,
@@ -171,6 +187,12 @@ public sealed class ProjectServicesController : ControllerBase
         return Ok(new { message = "Service restart requested." });
     }
 
+    /// <summary>
+    /// Tears down and removes a data service (database) from the project - both on the provider
+    /// and in DeployAI. Application services (website/server targets) can't be removed this way.
+    /// </summary>
+    /// <param name="projectId">The project the service belongs to.</param>
+    /// <param name="targetId">The data service to remove.</param>
     [HttpDelete("{targetId:guid}")]
     public async Task<IActionResult> Remove(
         Guid projectId,
@@ -193,6 +215,9 @@ public sealed class ProjectServicesController : ControllerBase
         return Ok(MapServicesResponse(project));
     }
 
+    /// <summary>Gets connection info (host, database name, credentials reference) for a data service.</summary>
+    /// <param name="projectId">The project the service belongs to.</param>
+    /// <param name="targetId">The data service to inspect.</param>
     [HttpGet("{targetId:guid}/data-info")]
     public async Task<IActionResult> GetDataInfo(
         Guid projectId,

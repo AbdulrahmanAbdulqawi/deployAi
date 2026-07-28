@@ -6,8 +6,10 @@ using Npgsql;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Builds the "data info" view for a database deploy target - metadata, and for Postgres, table/row counts and applied migrations via a live connection.</summary>
 public interface IDataServiceInspectionService
 {
+    /// <summary>Gets connection metadata and (for Postgres) live inspection info for a data service target.</summary>
     Task<object> GetDataServiceInfoAsync(
         DeployTarget target,
         ProviderCredentials credentials,
@@ -16,6 +18,9 @@ public interface IDataServiceInspectionService
 
 public sealed class DataServiceInspectionService : IDataServiceInspectionService
 {
+    // Implementation connects directly to Postgres (via Npgsql) to inspect tables/migrations when
+    // the provider exposes connection details, falling back to provider-reported metadata alone
+    // when it doesn't.
     private readonly IProviderDataServiceInspectionFactory _inspectionFactory;
 
     public DataServiceInspectionService(IProviderDataServiceInspectionFactory inspectionFactory)

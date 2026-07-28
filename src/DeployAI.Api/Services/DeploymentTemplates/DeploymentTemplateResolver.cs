@@ -2,6 +2,7 @@ using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services.DeploymentTemplates;
 
+/// <summary>Matches a repo's parts/missing files against the template catalog's scenarios and renders the applicable templates for each gap.</summary>
 public sealed class DeploymentTemplateResolver
 {
     private readonly DeploymentTemplateCatalog _catalog;
@@ -11,6 +12,7 @@ public sealed class DeploymentTemplateResolver
         _catalog = catalog;
     }
 
+    /// <summary>Resolves and renders templates for every missing file, matching by scenario (provider+framework) and file name.</summary>
     internal IReadOnlyList<ResolvedDeploymentTemplate> ResolveForGaps(
         IReadOnlyList<DeploymentPlanPart> parts,
         IReadOnlyList<MissingDeploymentFile> missingFiles,
@@ -88,6 +90,7 @@ public sealed class DeploymentTemplateResolver
         return resolved;
     }
 
+    /// <summary>Resolves templates matching a fix run's referenced files (rather than a full readiness scan's missing files), for use as fix-prompt reference material.</summary>
     internal IReadOnlyList<ResolvedDeploymentTemplate> ResolveForSplitOriginFix(
         IReadOnlyList<DeploymentPlanPart> parts,
         IReadOnlyList<string> referencedFilePaths)
@@ -132,6 +135,7 @@ public sealed class DeploymentTemplateResolver
         return resolved;
     }
 
+    /// <summary>Resolves just the matching scenario id for a plan, without resolving/rendering any templates.</summary>
     internal string? ResolveScenarioId(IReadOnlyList<DeploymentPlanPart> parts) =>
         ResolveScenario(parts)?.Id;
 

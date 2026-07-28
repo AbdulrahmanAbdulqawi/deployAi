@@ -3,10 +3,17 @@ using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Resolves and pushes Railway service build settings (root directory, build/start commands,
+/// Dockerfile path) from a target's config - including .NET-monorepo-specific handling, since a
+/// .csproj that isn't at the repo root needs different root-directory/dockerfile-path resolution
+/// than a plain Dockerfile-at-root layout.
+/// </summary>
 public sealed partial class RailwayProvider
 {
     private const string DockerfilePathVariable = "RAILWAY_DOCKERFILE_PATH";
 
+    /// <summary>Maps a target's environment entries to the subset of Railway service settings that need to change (root directory, build/start commands).</summary>
     private static Dictionary<string, object?> BuildSettingsFromEnvironment(IReadOnlyDictionary<string, string> environment)
     {
         var input = new Dictionary<string, object?>();
@@ -49,6 +56,7 @@ public sealed partial class RailwayProvider
         return input;
     }
 
+    /// <summary>Converts a create-project request's build fields into the same environment-entry shape used elsewhere, so the same resolution logic applies at creation time too.</summary>
     internal static Dictionary<string, string> BuildEnvironmentFromCreateRequest(CreateProviderProjectRequest request)
     {
         var environment = new Dictionary<string, string>();
@@ -93,6 +101,7 @@ public sealed partial class RailwayProvider
     private static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request) =>
         BuildSettingsFromEnvironment(BuildEnvironmentFromCreateRequest(request));
 
+    /// <summary>Resolves root directory + Dockerfile path for a Docker build, handling the monorepo case where the Dockerfile lives under a service subdirectory rather than the repo root.</summary>
     private static (string RootDirectory, string? DockerfilePath) ResolveDockerBuildPaths(
         IReadOnlyDictionary<string, string> environment)
     {
@@ -162,6 +171,7 @@ public sealed partial class RailwayProvider
                buildCommand.Contains("dotnet publish", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>Pushes resolved build settings (root directory/commands) and, if a Dockerfile path is resolved, the RAILWAY_DOCKERFILE_PATH env var, to the service.</summary>
     private async Task ApplyBuildConfigurationAsync(
         ProviderCredentials credentials,
         string serviceId,

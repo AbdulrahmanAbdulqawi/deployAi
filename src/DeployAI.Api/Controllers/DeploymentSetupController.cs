@@ -11,6 +11,11 @@ using System.Text.Json;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Scans a repo/project for split-origin deployment readiness, and generates (via Claude), merges,
+/// and adopts the setup files/PRs needed to make a repo deployable - plus the related AI-setup
+/// preference and "use this branch" project settings.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/github/repos/{owner}/{repo}")]
@@ -39,6 +44,13 @@ public sealed class DeploymentSetupController : ControllerBase
         _encryption = encryption;
     }
 
+    /// <summary>
+    /// Scans a repo at a given ref for split-origin deployment readiness (missing wiring files,
+    /// warnings) against a caller-supplied deployment plan, without requiring an existing project.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="request">Git ref to scan and the deployment plan parts to evaluate against.</param>
     [HttpPost("deployment-readiness")]
     public async Task<IActionResult> ScanDeploymentReadiness(
         string owner,
@@ -57,6 +69,11 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(MapReadiness(result));
     }
 
+    /// <summary>
+    /// Scans an existing project's linked repo/targets for split-origin deployment readiness.
+    /// </summary>
+    /// <param name="projectId">The project to scan (owned by the current user).</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the project's default branch.</param>
     [HttpGet("~/api/projects/{projectId:guid}/deployment-readiness")]
     public async Task<IActionResult> GetProjectDeploymentReadiness(
         Guid projectId,
@@ -74,6 +91,14 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(MapReadiness(result));
     }
 
+    /// <summary>
+    /// Generates the deployment setup files for a repo using Claude and opens a PR with them,
+    /// streaming progress as newline-delimited JSON (<c>started</c>/<c>log</c>/<c>complete</c>/
+    /// <c>error</c> events) rather than a single response, since generation can take minutes.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="request">Git ref and deployment plan parts to generate setup files for.</param>
     [HttpPost("deployment-setup")]
     [RequestTimeout("claude-agent")]
     public async Task CreateDeploymentSetup(
@@ -145,6 +170,13 @@ public sealed class DeploymentSetupController : ControllerBase
         await Response.Body.FlushAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Merges a previously generated deployment-setup pull request, then re-syncs cross-provider
+    /// environment wiring for the linked project if one is specified.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="request">The PR number to merge and, optionally, the project to re-sync env wiring for.</param>
     [HttpPost("deployment-setup/merge")]
     public async Task<IActionResult> MergeDeploymentSetup(
         string owner,
@@ -170,6 +202,10 @@ public sealed class DeploymentSetupController : ControllerBase
         });
     }
 
+    /// <summary>Merges a previously generated deployment-fix pull request (e.g. a build/wiring fix).</summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="request">The PR number to merge.</param>
     [HttpPost("deployment-fix/merge")]
     public async Task<IActionResult> MergeDeploymentFix(
         string owner,
@@ -182,6 +218,8 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(new { merged = true });
     }
 
+    /// <summary>Gets whether AI-generated deployment setup is enabled for a project.</summary>
+    /// <param name="projectId">The project to check.</param>
     [HttpGet("~/api/projects/{projectId:guid}/settings/ai-setup")]
     public async Task<IActionResult> GetAiSetupPreference(
         Guid projectId,
@@ -192,6 +230,9 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(new { enabled });
     }
 
+    /// <summary>Enables or disables AI-generated deployment setup for a project.</summary>
+    /// <param name="projectId">The project to update.</param>
+    /// <param name="request">The new preference value.</param>
     [HttpPut("~/api/projects/{projectId:guid}/settings/ai-setup")]
     public async Task<IActionResult> SetAiSetupPreference(
         Guid projectId,
@@ -203,6 +244,12 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(new { enabled = request.Enabled });
     }
 
+    /// <summary>
+    /// Switches a project to deploy from a different existing branch (e.g. one containing manually
+    /// authored setup files, as an alternative to the AI-generated setup flow).
+    /// </summary>
+    /// <param name="projectId">The project to update.</param>
+    /// <param name="request">The branch to switch to.</param>
     [HttpPost("~/api/projects/{projectId:guid}/deployment-setup/use-branch")]
     public async Task<IActionResult> UseSetupBranch(
         Guid projectId,

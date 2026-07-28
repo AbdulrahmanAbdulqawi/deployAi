@@ -10,6 +10,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Creates new Railway services for a GitHub repo and provisions Postgres/Redis database add-ons
+/// on an existing Railway service - the provider-specific setup steps a Railway deploy target
+/// needs.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/credentials")]
@@ -35,6 +40,11 @@ public sealed class RailwayManagementController : ControllerBase
         _tokens = tokens;
     }
 
+    /// <summary>
+    /// Creates a new Railway service for a GitHub repo - the step that actually provisions the
+    /// service on Railway's side, separate from linking it into a DeployAI project.
+    /// </summary>
+    /// <param name="request">Repo, branch, build config, and the Railway connection to create it through.</param>
     [HttpPost("railway/projects")]
     public async Task<IActionResult> CreateRailwayProject(
         [FromBody] CreateRailwayProjectRequest request,
@@ -62,6 +72,12 @@ public sealed class RailwayManagementController : ControllerBase
         return Ok(new { project });
     }
 
+    /// <summary>
+    /// Provisions Postgres and/or Redis on an existing Railway service already linked into one of
+    /// the user's projects, and wires the resulting connection string(s) as env vars.
+    /// </summary>
+    /// <param name="providerProjectId">URL-encoded Railway service id (as stored on the deploy target).</param>
+    /// <param name="request">Which database engines to provision.</param>
     [HttpPost("railway/projects/{providerProjectId}/databases")]
     public async Task<IActionResult> ProvisionDatabases(
         string providerProjectId,

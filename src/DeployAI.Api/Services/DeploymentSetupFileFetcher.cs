@@ -3,6 +3,7 @@ using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Fetches the existing content of files needed for setup file generation/patching (both missing files' neighbors and any files being patched in place).</summary>
 public sealed class DeploymentSetupFileFetcher
 {
     private readonly IGitHubService _gitHubService;
@@ -12,6 +13,7 @@ public sealed class DeploymentSetupFileFetcher
         _gitHubService = gitHubService;
     }
 
+    /// <summary>Fetches every file relevant to closing the readiness gap - missing files' existing (possibly absent) content, plus files that need patching.</summary>
     internal async Task<IReadOnlyDictionary<string, string?>> FetchGapFilesAsync(
         string accessToken,
         string owner,

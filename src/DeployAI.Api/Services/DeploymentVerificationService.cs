@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Which side of a deployment to run live verification checks against.</summary>
 public enum DeploymentVerificationScope
 {
     Website,
@@ -13,6 +14,7 @@ public enum DeploymentVerificationScope
     Both
 }
 
+/// <summary>One live post-deploy check's result (reachability, CORS, split-origin wiring, health, etc.).</summary>
 public sealed record DeploymentVerificationCheck(
     string Id,
     string Target,
@@ -24,20 +26,28 @@ public sealed record DeploymentVerificationCheck(
     bool CanRequestClaudeFix,
     IReadOnlyList<string> ReferencedFiles);
 
+/// <summary>The full result of verifying a deployment - overall success and every individual check.</summary>
 public sealed record DeploymentVerificationResult(
     bool Success,
     string Scope,
     IReadOnlyList<DeploymentVerificationCheck> Checks,
     DateTimeOffset CompletedAt);
 
+/// <summary>Runs live post-deploy verification checks against a deployment's actual website/server URLs.</summary>
 public interface IDeploymentVerificationService
 {
+    /// <summary>Runs verification checks for one or both sides of a deployment. If more than one complete provider pair exists, verifies every pair (see <see cref="DeploymentTargetResolution.ResolveProviderPairs(System.Collections.Generic.IEnumerable{DeployAI.Data.Entities.DeploymentTarget})"/>) and merges the results.</summary>
     Task<DeploymentVerificationResult> VerifyAsync(
         Guid deploymentId,
         DeploymentVerificationScope scope,
         CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Probes a deployment's actual live URLs to verify it's really working: homepage reachability,
+/// SPA shell/split-origin bundle wiring, CORS, and API health - as opposed to just trusting the
+/// provider's own "deployed successfully" status.
+/// </summary>
 public sealed class DeploymentVerificationService : IDeploymentVerificationService
 {
     private readonly DeployAIDbContext _db;
@@ -77,9 +87,54 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             return EmptyResult(scope, "Deployment not found.");
         }
 
+        // A deployment normally has at most one complete (website, server) pair, in which case
+        // this falls back to the original single-pass resolution below (byte-identical behavior,
+        // including partial verification when only one side is deployed). But a project can have
+        // *two* complete pairs at once - e.g. Vercel+Railway alongside a Coolify+Coolify full
+        // stack - and FindWebsiteTarget/FindServerTarget would silently verify only the first pair
+        // found, leaving the other pair permanently unverified. When more than one complete pair
+        // exists, verify every pair and merge the results instead.
+        var pairs = DeploymentTargetResolution.ResolveProviderPairs(deployment.Targets);
+        if (pairs.Count > 1)
+        {
+            var pairResults = new List<DeploymentVerificationResult>();
+            foreach (var pair in pairs)
+            {
+                pairResults.Add(await VerifyPairAsync(deployment, pair.Website, pair.Server, scope, cancellationToken));
+            }
+
+            var allChecks = new List<DeploymentVerificationCheck>();
+            for (var i = 0; i < pairResults.Count; i++)
+            {
+                var pairLabel = $"{pairs[i].Website.ProviderName}+{pairs[i].Server.ProviderName}";
+                allChecks.AddRange(pairResults[i].Checks.Select(check => check with { Id = $"{pairLabel}:{check.Id}" }));
+            }
+
+            return new DeploymentVerificationResult(
+                pairResults.All(result => result.Success),
+                scope.ToString().ToLowerInvariant(),
+                allChecks,
+                DateTimeOffset.UtcNow);
+        }
+
         var websiteTarget = DeploymentTargetResolution.FindWebsiteTarget(deployment.Targets);
         var serverTarget = DeploymentTargetResolution.FindServerTarget(deployment.Targets);
-        var coolifyFullStack = DeploymentTargetResolution.IsCoolifyFullStack(deployment.Targets);
+        return await VerifyPairAsync(deployment, websiteTarget, serverTarget, scope, cancellationToken);
+    }
+
+    /// <summary>Runs all checks for one website/server pair (either side may be null - checks for a missing side are skipped, not failed).</summary>
+    private async Task<DeploymentVerificationResult> VerifyPairAsync(
+        Deployment deployment,
+        DeploymentTarget? websiteTarget,
+        DeploymentTarget? serverTarget,
+        DeploymentVerificationScope scope,
+        CancellationToken cancellationToken)
+    {
+        var coolifyFullStack =
+            websiteTarget is not null &&
+            serverTarget is not null &&
+            string.Equals(websiteTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(serverTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
 
         var websiteDeployTarget = ResolveWebsiteDeployTarget(deployment, websiteTarget);
         var serverDeployTarget = ResolveServerDeployTarget(deployment, serverTarget);
@@ -225,6 +280,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
             DateTimeOffset.UtcNow);
     }
 
+    /// <summary>Checks the website's homepage reachability, SPA shell markers, and (for split-origin stacks) that the deployed bundle actually calls the API directly.</summary>
     private async Task RunWebsiteChecksAsync(
         List<DeploymentVerificationCheck> checks,
         string websiteUrl,
@@ -277,6 +333,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         }
     }
 
+    /// <summary>Checks the server's reachability and health endpoint.</summary>
     private async Task RunServerChecksAsync(
         List<DeploymentVerificationCheck> checks,
         string apiUrl,
@@ -312,6 +369,7 @@ public sealed class DeploymentVerificationService : IDeploymentVerificationServi
         }
     }
 
+    /// <summary>Checks CORS (the server accepts requests from the website's origin) and that the API is reachable from the website's declared API URL.</summary>
     private async Task RunConnectionChecksAsync(
         List<DeploymentVerificationCheck> checks,
         string websiteUrl,

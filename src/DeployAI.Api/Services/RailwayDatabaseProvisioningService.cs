@@ -9,31 +9,41 @@ using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Database (Postgres/Redis) provisioning for a server deploy target - despite the "Railway" name,
+/// this dispatches through <see cref="IProviderDatabaseProvisioningFactory"/> by the server target's
+/// actual provider, so it works for Coolify server targets too, not just Railway.
+/// </summary>
 public interface IRailwayDatabaseProvisioningService
 {
+    /// <summary>Detects which databases a server's repo needs (from docker-compose/appsettings/Prisma).</summary>
     Task<DatabaseRequirementProfile> DetectRequirementsAsync(
         Project project,
         DeployTarget serverTarget,
         string branch,
         CancellationToken cancellationToken);
 
+    /// <summary>Provisions exactly the requested database engines and links their connection strings to the server target.</summary>
     Task ProvisionAsync(
         Project project,
         DeployTarget serverTarget,
         DatabaseProvisioningRequest request,
         CancellationToken cancellationToken);
 
+    /// <summary>Detects requirements from the repo and provisions exactly those databases automatically.</summary>
     Task EnsureFromRepoAsync(
         Project project,
         DeployTarget serverTarget,
         string branch,
         CancellationToken cancellationToken);
 
+    /// <summary>Tears down a database on its provider and removes its DeployAI record.</summary>
     Task RemoveDatabaseServiceAsync(
         Project project,
         DeployTarget databaseTarget,
         CancellationToken cancellationToken);
 
+    /// <summary>Tears down a database on its provider only, without touching the DeployAI record (used mid-project-teardown, where the record is removed separately).</summary>
     Task TeardownDatabaseServiceOnProviderAsync(
         Project project,
         DeployTarget databaseTarget,

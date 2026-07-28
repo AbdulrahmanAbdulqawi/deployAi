@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Corrects a resolved <see cref="FixBuildPlan"/>'s working directory/csproj path when they don't actually line up on disk (e.g. a configured root directory that doesn't contain the referenced .csproj).</summary>
 public static class FixBuildPlanRefiner
 {
     private static readonly Regex BuildCsprojRegex = new(

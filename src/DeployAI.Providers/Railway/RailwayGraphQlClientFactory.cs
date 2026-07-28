@@ -5,16 +5,19 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Creates a short-lived, per-call StrawberryShake GraphQL client session authenticated with a given credential's token.</summary>
 public sealed class RailwayGraphQlClientFactory
 {
     public const string GraphQlEndpoint = "https://backboard.railway.com/graphql/v2";
 
     internal IHttpClientFactory? TestHttpClientFactory { get; init; }
 
+    /// <summary>Creates a new authenticated GraphQL session; dispose it after the call completes.</summary>
     public RailwayGraphQlSession CreateSession(ProviderCredentials credentials) =>
         new(credentials, TestHttpClientFactory);
 }
 
+/// <summary>A disposable scope wrapping one generated <see cref="IRailwayClient"/> instance and its DI container.</summary>
 public sealed class RailwayGraphQlSession : IAsyncDisposable
 {
     private readonly ServiceProvider _serviceProvider;
@@ -44,6 +47,7 @@ public sealed class RailwayGraphQlSession : IAsyncDisposable
     }
 }
 
+/// <summary>Builds the HttpClient the generated Railway GraphQL client sends requests through, with the bearer token attached.</summary>
 internal sealed class RailwayGraphQlHttpClientFactory(ProviderCredentials credentials) : IHttpClientFactory
 {
     public HttpClient CreateClient(string name)

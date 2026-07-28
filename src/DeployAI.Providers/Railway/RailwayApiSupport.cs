@@ -4,8 +4,15 @@ using StrawberryShake;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Shared GraphQL result handling, id encoding, and misc helpers used across the
+/// <see cref="RailwayProvider"/> partial classes. Railway's <c>providerProjectId</c> is a composite
+/// "serviceId|environmentId" string (see <see cref="BuildProviderProjectId"/>/<see cref="ParseProviderProjectId"/>)
+/// since a Railway service alone doesn't identify which environment to act on.
+/// </summary>
 internal static class RailwayApiSupport
 {
+    /// <summary>Unwraps a GraphQL result, throwing a <see cref="DeployAIException"/> if it has errors or no data.</summary>
     public static T EnsureData<T>(IOperationResult<T> result)
         where T : class
     {
@@ -13,6 +20,7 @@ internal static class RailwayApiSupport
         return result.Data!;
     }
 
+    /// <summary>Throws a <see cref="DeployAIException"/> if a GraphQL result has errors or no data, without returning the data.</summary>
     public static void EnsureSuccess<T>(IOperationResult<T> result)
         where T : class
     {
@@ -28,6 +36,7 @@ internal static class RailwayApiSupport
         }
     }
 
+    /// <summary>Unwraps a GraphQL result, returning null instead of throwing when the error matches <paramref name="ignoreError"/> (for expected/recoverable error conditions).</summary>
     public static T? TryGetData<T>(IOperationResult<T> result, Func<string?, bool> ignoreError)
         where T : class
     {
@@ -82,9 +91,11 @@ internal static class RailwayApiSupport
         return null;
     }
 
+    /// <summary>Encodes a service+environment pair into the composite id DeployAI stores as a Railway deploy target's providerProjectId.</summary>
     public static string BuildProviderProjectId(string serviceId, string environmentId) =>
         $"{serviceId}|{environmentId}";
 
+    /// <summary>Decodes a composite providerProjectId back into its service id and environment id.</summary>
     public static (string ServiceId, string EnvironmentId) ParseProviderProjectId(string providerProjectId)
     {
         var parts = providerProjectId.Split('|', 2, StringSplitOptions.TrimEntries);
@@ -101,6 +112,7 @@ internal static class RailwayApiSupport
     public static string NormalizeGitHubRepo(string repoFullName) =>
         repoFullName.Trim().Replace("https://github.com/", string.Empty, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Heuristically detects whether an env var looks like a secret (name contains SECRET/PASSWORD/TOKEN/KEY, or a long value), so its value can be hidden when listing.</summary>
     public static bool LooksLikeSecret(string name, string? value)
     {
         if (string.IsNullOrWhiteSpace(value))

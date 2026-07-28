@@ -5,6 +5,7 @@ namespace DeployAI.Providers.Railway;
 
 public sealed partial class RailwayProvider
 {
+    /// <summary>Lists env vars, hiding values that look like secrets (per <see cref="RailwayApiSupport.LooksLikeSecret"/>) rather than returning them in plain text.</summary>
     public async Task<IReadOnlyList<ProviderEnvVar>> ListEnvVarsAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -88,6 +89,7 @@ public sealed partial class RailwayProvider
         RailwayApiSupport.EnsureSuccess(result);
     }
 
+    /// <summary>Resolves a service's parent project id - Railway's variable mutations need it even though callers only have the service id.</summary>
     private async Task<string> GetProjectIdForServiceAsync(
         ProviderCredentials credentials,
         string serviceId,
@@ -108,6 +110,7 @@ public sealed partial class RailwayProvider
         return projectId;
     }
 
+    /// <summary>Resolves a service's project id and workspace id together, for operations that need both (e.g. resolving public domains).</summary>
     private async Task<(string ProjectId, string? WorkspaceId)> GetServiceContextAsync(
         ProviderCredentials credentials,
         string serviceId,

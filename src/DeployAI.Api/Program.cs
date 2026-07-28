@@ -24,7 +24,20 @@ var appOptions = builder.Configuration.GetSection(AppOptions.SectionName).Get<Ap
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    // Several controllers declare a nested request DTO with the same short name (e.g.
+    // ProvisionRailwayDatabasesRequest exists on both ProjectsController and
+    // RailwayManagementController) - Swashbuckle's default schemaId is just the type name, so it
+    // throws on the first collision. Use the full type name (including declaring type) instead.
+    options.CustomSchemaIds(type => type.ToString());
+
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, "DeployAI.Api.xml");
+    if (File.Exists(xmlPath))
+    {
+        options.IncludeXmlComments(xmlPath);
+    }
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSignalR();
 

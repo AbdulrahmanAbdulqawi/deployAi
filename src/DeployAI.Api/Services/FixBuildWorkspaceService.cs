@@ -70,6 +70,7 @@ public interface IFixBuildWorkspaceService
         CancellationToken cancellationToken);
 }
 
+/// <summary>Downloads and extracts a repo into a temp workspace to build/verify a fix, resolving the build plan via <see cref="FixBuildPlanResolver"/> and running it via <see cref="ProcessBuildRunner"/>.</summary>
 public sealed class FixBuildWorkspaceService : IFixBuildWorkspaceService
 {
     private readonly IGitHubService _gitHubService;

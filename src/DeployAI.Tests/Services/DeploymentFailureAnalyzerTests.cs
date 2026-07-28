@@ -144,6 +144,26 @@ public class DeploymentFailureAnalyzerTests
     }
 
     [Fact]
+    public void Analyze_VercelInvalidHeaderSourcePattern_OffersClaudeFix()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "Deploying...",
+            "Header at index 1 has invalid `source` pattern \"/(.*\\.(js|css|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp))\"."
+        };
+
+        var result = analyzer.Analyze("vercel", logs);
+
+        Assert.Equal(DeploymentFailureCategory.CodeBuild, result.Category);
+        Assert.True(result.CanRequestClaudeFix);
+        Assert.Contains("vercel.json", result.ReferencedFiles);
+        Assert.NotNull(result.ErrorExcerpt);
+        Assert.Contains("invalid headers source pattern", result.Summary);
+        Assert.Contains("invalid `source` pattern", result.ErrorExcerpt);
+    }
+
+    [Fact]
     public void Analyze_ExcludesWarningsFromErrorExcerpt()
     {
         var analyzer = new DeploymentFailureAnalyzer();
@@ -161,6 +181,43 @@ public class DeploymentFailureAnalyzerTests
         Assert.Contains("error CS0246", result.ErrorExcerpt);
         Assert.Contains("Build failed", result.ErrorExcerpt);
         Assert.DoesNotContain("warning CS8618", result.ErrorExcerpt);
+    }
+
+    [Fact]
+    public void Analyze_RailwayDockerfileInvalid_OffersClaudeFix()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "scheduling build on Metal builder \"builder-jlbdir\"",
+            "unpacking archive",
+            "dockerfile invalid: flag '--mount=type=cache,target=/root/.cache/uv' is missing an id argument at Line 15",
+            "Publishing did not go through on Railway."
+        };
+
+        var result = analyzer.Analyze("railway", logs);
+
+        Assert.Equal(DeploymentFailureCategory.CodeBuild, result.Category);
+        Assert.True(result.CanRequestClaudeFix);
+        Assert.Contains("Dockerfile", result.ReferencedFiles);
+        Assert.NotNull(result.ErrorExcerpt);
+        Assert.Contains("dockerfile invalid", result.ErrorExcerpt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Analyze_RailwayOpaqueImageFailure_DoesNotOfferClaudeFix()
+    {
+        var analyzer = new DeploymentFailureAnalyzer();
+        var logs = new[]
+        {
+            "scheduling build on Metal builder \"builder-peybnn\"",
+            "Railway BuildImage: Failed to build an image. Please check the build logs for more details."
+        };
+
+        var result = analyzer.Analyze("railway", logs);
+
+        Assert.Equal(DeploymentFailureCategory.Infrastructure, result.Category);
+        Assert.False(result.CanRequestClaudeFix);
     }
 
     [Fact]

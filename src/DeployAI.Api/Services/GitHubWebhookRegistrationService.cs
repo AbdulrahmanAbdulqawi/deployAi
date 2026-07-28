@@ -9,8 +9,10 @@ using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Creates/removes the actual GitHub push webhook on a repo when a project's auto-deploy setting is toggled.</summary>
 public interface IGitHubWebhookRegistrationService
 {
+    /// <summary>Registers or deregisters the repo's GitHub webhook to match the desired auto-deploy state.</summary>
     Task SetAutoDeployAsync(Project project, bool enabled, CancellationToken cancellationToken);
 }
 

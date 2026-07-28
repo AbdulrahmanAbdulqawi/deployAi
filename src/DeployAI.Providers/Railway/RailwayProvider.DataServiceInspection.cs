@@ -2,6 +2,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Reads a provisioned Postgres/Redis service's connection details directly from its Railway env vars (RAILWAY_PRIVATE_DOMAIN, POSTGRES_*).</summary>
 public sealed partial class RailwayProvider : IProviderDataServiceInspection
 {
     public async Task<DataServiceMetadata> GetMetadataAsync(

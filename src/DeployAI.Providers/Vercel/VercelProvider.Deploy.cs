@@ -6,6 +6,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
 
+/// <summary>Resolves the git source and project settings payload needed to trigger a Vercel deployment.</summary>
 public sealed partial class VercelProvider
 {
     private async Task<VercelProjectWithLink> GetProjectAsync(
@@ -25,6 +26,7 @@ public sealed partial class VercelProvider
         return project;
     }
 
+    /// <summary>Builds the deployment's git source: prefers the project's linked repo id, falling back to org/repo from the environment or link, and requires one or the other to exist.</summary>
     private static Dictionary<string, object?> BuildGitSource(
         string branch,
         VercelProjectLink? link,
@@ -75,6 +77,7 @@ public sealed partial class VercelProvider
         return gitSource;
     }
 
+    /// <summary>Builds the deployment's project settings override, starting from the project's current settings and layering the target's environment entries on top.</summary>
     private static Dictionary<string, object?> BuildProjectSettings(
         VercelProjectWithLink project,
         IReadOnlyDictionary<string, string> environment)

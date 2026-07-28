@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Implements deployment setup file generation/PR/merge/branch-adoption, delegating actual file generation to <see cref="IDeploymentFileGeneratorSelector"/>.</summary>
 public sealed class DeploymentSetupService : IDeploymentSetupService
 {
     private readonly DeployAIDbContext _db;

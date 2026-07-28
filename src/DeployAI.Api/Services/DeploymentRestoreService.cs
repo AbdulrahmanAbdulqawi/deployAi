@@ -8,16 +8,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Rolls a project back to its previous successful deployment, using each provider's own rollback capability where supported.</summary>
 public interface IDeploymentRestoreService
 {
+    /// <summary>Rolls back from a (typically failed) deployment to the project's last successful one.</summary>
     Task<RestoreDeploymentResult> RestorePreviousAsync(Guid deploymentId, Guid userId, CancellationToken cancellationToken);
 }
 
+/// <summary>The result of a rollback attempt - overall status and per-target outcome.</summary>
 public sealed record RestoreDeploymentResult(
     Guid DeploymentId,
     string Status,
     IReadOnlyList<RestoreTargetResult> Targets);
 
+/// <summary>One target's rollback outcome - succeeded, or a message explaining why not (e.g. provider doesn't support rollback).</summary>
 public sealed record RestoreTargetResult(string ProviderName, string Status, string? Message);
 
 public sealed class DeploymentRestoreService : IDeploymentRestoreService

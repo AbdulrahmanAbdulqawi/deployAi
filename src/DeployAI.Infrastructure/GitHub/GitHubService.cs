@@ -226,8 +226,7 @@ public sealed class GitHubService : IGitHubService
     {
         using var request = CreateAuthorizedRequest(HttpMethod.Get, "https://api.github.com/user", accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var profile = await response.Content.ReadFromJsonAsync<GitHubUserProfile>(cancellationToken);        return profile ?? throw new InvalidOperationException("GitHub profile response was empty.");
     }
 
@@ -236,8 +235,7 @@ public sealed class GitHubService : IGitHubService
         var url = $"https://api.github.com/user/repos?sort=updated&per_page={perPage}&page={page}";
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var repos = await response.Content.ReadFromJsonAsync<List<GitHubRepo>>(cancellationToken) ?? [];        if (!string.IsNullOrWhiteSpace(search))
         {
             repos = repos
@@ -262,8 +260,7 @@ public sealed class GitHubService : IGitHubService
             return null;
         }
 
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         return await response.Content.ReadFromJsonAsync<GitHubRepo>(cancellationToken);
     }
 
@@ -272,8 +269,7 @@ public sealed class GitHubService : IGitHubService
         var url = $"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100";
         using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         return await response.Content.ReadFromJsonAsync<List<GitHubBranch>>(cancellationToken) ?? [];    }
 
     public async Task<IReadOnlyList<GitHubContentItem>> ListContentsAsync(
@@ -301,13 +297,7 @@ public sealed class GitHubService : IGitHubService
             return [];
         }
 
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
-        }
-
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var payload = await response.Content.ReadFromJsonAsync<List<GitHubContentItem>>(cancellationToken) ?? [];
         return payload
             .Where(item => string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase))            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
@@ -339,13 +329,7 @@ public sealed class GitHubService : IGitHubService
             return [];
         }
 
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
-        }
-
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var payload = await response.Content.ReadFromJsonAsync<List<GitHubContentItem>>(cancellationToken) ?? [];
         return payload
             .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)            .ToList();
@@ -392,13 +376,7 @@ public sealed class GitHubService : IGitHubService
             return null;
         }
 
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
-        }
-
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var payload = await response.Content.ReadFromJsonAsync<GitHubFileContent>(cancellationToken);
         if (payload is null || !string.Equals(payload.Encoding, "base64", StringComparison.OrdinalIgnoreCase))
         {
@@ -442,13 +420,7 @@ public sealed class GitHubService : IGitHubService
         using var request = CreateAuthorizedRequest(HttpMethod.Put, url, accessToken);
         request.Content = JsonContent.Create(body);
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            throw new DeployAIException("github_rate_limited", "GitHub is busy right now. Wait a moment and try again.");
-        }
-
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var payload = await response.Content.ReadFromJsonAsync<GitHubContentUpsertResponse>(cancellationToken);
         return string.IsNullOrWhiteSpace(payload?.Commit?.Sha) ? null : payload.Commit.Sha;
     }
@@ -473,8 +445,7 @@ public sealed class GitHubService : IGitHubService
             return null;
         }
 
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var commit = await response.Content.ReadFromJsonAsync<GitHubCommitHead>(cancellationToken);
         return string.IsNullOrWhiteSpace(commit?.Sha) ? null : commit.Sha;
     }
@@ -496,8 +467,7 @@ public sealed class GitHubService : IGitHubService
             return null;
         }
 
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         var payload = await response.Content.ReadFromJsonAsync<GitHubRefResponse>(cancellationToken);
         return payload?.Object.Sha;
     }
@@ -525,16 +495,14 @@ public sealed class GitHubService : IGitHubService
         var refUrl = $"https://api.github.com/repos/{owner}/{repo}/git/refs/heads/{Uri.EscapeDataString(branch)}";
         using var refRequest = CreateAuthorizedRequest(HttpMethod.Get, refUrl, accessToken);
         var refResponse = await _httpClient.SendAsync(refRequest, cancellationToken);
-        EnsureGitHubAuthorized(refResponse);
-        refResponse.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(refResponse);
         var refPayload = await refResponse.Content.ReadFromJsonAsync<GitHubRefResponse>(cancellationToken);
         var parentSha = refPayload?.Object.Sha ?? baseSha;
 
         var commitInfoUrl = $"https://api.github.com/repos/{owner}/{repo}/git/commits/{parentSha}";
         using var commitInfoRequest = CreateAuthorizedRequest(HttpMethod.Get, commitInfoUrl, accessToken);
         var commitInfoResponse = await _httpClient.SendAsync(commitInfoRequest, cancellationToken);
-        EnsureGitHubAuthorized(commitInfoResponse);
-        commitInfoResponse.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(commitInfoResponse);
         var commitInfoJson = await commitInfoResponse.Content.ReadFromJsonAsync<JsonElement>(cancellationToken);
         var baseTreeSha = commitInfoJson.GetProperty("tree").GetProperty("sha").GetString();
         if (string.IsNullOrWhiteSpace(baseTreeSha))
@@ -550,8 +518,7 @@ public sealed class GitHubService : IGitHubService
         using var treeRequest = CreateAuthorizedRequest(HttpMethod.Post, treeUrl, accessToken);
         treeRequest.Content = JsonContent.Create(new GitHubTreeRequest(baseTreeSha, treeBlobs));
         var treeResponse = await _httpClient.SendAsync(treeRequest, cancellationToken);
-        EnsureGitHubAuthorized(treeResponse);
-        treeResponse.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(treeResponse);
         var treePayload = await treeResponse.Content.ReadFromJsonAsync<GitHubTreeResponse>(cancellationToken);
         if (string.IsNullOrWhiteSpace(treePayload?.Sha))
         {
@@ -562,8 +529,7 @@ public sealed class GitHubService : IGitHubService
         using var createCommitRequest = CreateAuthorizedRequest(HttpMethod.Post, createCommitUrl, accessToken);
         createCommitRequest.Content = JsonContent.Create(new GitHubCommitRequest(commitMessage, treePayload.Sha, [parentSha]));
         var createCommitResponse = await _httpClient.SendAsync(createCommitRequest, cancellationToken);
-        EnsureGitHubAuthorized(createCommitResponse);
-        createCommitResponse.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(createCommitResponse);
         var newCommit = await createCommitResponse.Content.ReadFromJsonAsync<GitHubCommitResponse>(cancellationToken);
         if (string.IsNullOrWhiteSpace(newCommit?.Sha))
         {
@@ -573,8 +539,7 @@ public sealed class GitHubService : IGitHubService
         using var updateRefRequest = CreateAuthorizedRequest(HttpMethod.Patch, refUrl, accessToken);
         updateRefRequest.Content = JsonContent.Create(new GitHubUpdateRefRequest(newCommit.Sha, false));
         var updateRefResponse = await _httpClient.SendAsync(updateRefRequest, cancellationToken);
-        EnsureGitHubAuthorized(updateRefResponse);
-        updateRefResponse.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(updateRefResponse);
         return newCommit.Sha;
     }
 
@@ -592,8 +557,7 @@ public sealed class GitHubService : IGitHubService
         using var request = CreateAuthorizedRequest(HttpMethod.Post, url, accessToken);
         request.Content = JsonContent.Create(new GitHubPullRequestRequest(title, headBranch, baseBranch, body));
         var response = await _httpClient.SendAsync(request, cancellationToken);
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         return await response.Content.ReadFromJsonAsync<GitHubPullRequestResponse>(cancellationToken);
     }
 
@@ -628,8 +592,7 @@ public sealed class GitHubService : IGitHubService
             return null;
         }
 
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         return await response.Content.ReadFromJsonAsync<GitHubCommitInfo>(cancellationToken);
     }
 
@@ -646,8 +609,7 @@ public sealed class GitHubService : IGitHubService
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
         var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        EnsureGitHubAuthorized(response);
-        response.EnsureSuccessStatusCode();
+        EnsureGitHubSuccess(response);
         return await response.Content.ReadAsStreamAsync(cancellationToken);
     }
 
@@ -713,6 +675,34 @@ public sealed class GitHubService : IGitHubService
         }
 
         return path.Trim().Trim('/');
+    }
+
+    private static void EnsureGitHubSuccess(HttpResponseMessage response)
+    {
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new DeployAIException(
+                "github_rate_limited",
+                "GitHub is busy right now. Wait a moment and try again.");
+        }
+
+        if (response.StatusCode is HttpStatusCode.BadGateway
+            or HttpStatusCode.ServiceUnavailable
+            or HttpStatusCode.GatewayTimeout)
+        {
+            throw new DeployAIException(
+                "github_unavailable",
+                "We couldn't reach GitHub right now. Try again in a moment.");
+        }
+
+        EnsureGitHubAuthorized(response);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "github_unavailable",
+                "We couldn't reach GitHub right now. Try again in a moment.");
+        }
     }
 
     private static void EnsureGitHubAuthorized(HttpResponseMessage response)

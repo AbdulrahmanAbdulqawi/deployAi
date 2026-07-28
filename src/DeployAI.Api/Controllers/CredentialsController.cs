@@ -10,6 +10,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Manages the current user's stored provider connections (Vercel/Railway/Coolify API
+/// tokens/instance URLs), used as the credential a project's deploy targets authenticate with.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/credentials")]
@@ -35,6 +39,7 @@ public sealed class CredentialsController : ControllerBase
         _tokens = tokens;
     }
 
+    /// <summary>Lists the current user's stored provider connections.</summary>
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -59,6 +64,13 @@ public sealed class CredentialsController : ControllerBase
         return Ok(new { credentials });
     }
 
+    /// <summary>
+    /// Validates and stores a new provider connection (or, for Railway, updates the user's single
+    /// existing Railway connection; for Coolify, updates an existing connection with the same
+    /// label instead of creating a duplicate). Fails with <c>provider_token_invalid</c> if the
+    /// provider rejects the token.
+    /// </summary>
+    /// <param name="request">Provider name, token, optional label, and (Coolify only) instance URL.</param>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCredentialRequest request, CancellationToken cancellationToken)
     {
@@ -148,6 +160,11 @@ public sealed class CredentialsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Deletes a stored connection. Fails with <c>credential_in_use</c> if any deploy target still
+    /// references it - the target must be updated to a different connection first.
+    /// </summary>
+    /// <param name="id">The connection to delete.</param>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {
@@ -169,6 +186,8 @@ public sealed class CredentialsController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>Lists the provider-side projects/applications visible to a stored connection.</summary>
+    /// <param name="id">The connection to query through.</param>
     [HttpGet("{id:guid}/projects")]
     public async Task<IActionResult> ListProviderProjects(Guid id, CancellationToken cancellationToken)
     {

@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
 using DeployAI.Core.Providers;
@@ -6,8 +8,80 @@ using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider
+public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
 {
+    public async Task UpdateApplicationConfigAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        UpdateProviderApplicationConfigRequest request,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        var buildPack = CoolifyApiSupport.ResolveBuildPack(
+            request.CoolifyBuildPack,
+            request.DockerfilePath,
+            request.Framework,
+            request.OutputDirectory,
+            request.BuildCommand);
+
+        var body = new Dictionary<string, object?>
+        {
+            ["build_pack"] = buildPack,
+            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework),
+            // Coolify caches the Traefik labels it generates at first deploy in custom_labels and
+            // never regenerates them on redeploy unless this field is cleared - without this, a
+            // build pack/port change here silently has no effect on the live proxy until someone
+            // notices and clears it by hand (see the manual fix this method replaces). Like
+            // custom_nginx_configuration, Coolify's validator requires this field to be base64
+            // encoded - and rejects an empty string as "not base64" (its regex likely requires at
+            // least one base64 character), so encode an empty JSON array instead of an empty string.
+            ["custom_labels"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("[]"))
+        };
+
+        if (!string.IsNullOrWhiteSpace(request.RootDirectory))
+        {
+            body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
+        {
+            body["publish_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.OutputDirectory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BuildCommand))
+        {
+            body["build_command"] = request.BuildCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.InstallCommand))
+        {
+            body["install_command"] = request.InstallCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.StartCommand))
+        {
+            body["start_command"] = request.StartCommand;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.DockerfilePath))
+        {
+            body["dockerfile_location"] = request.DockerfilePath;
+        }
+
+        using var patchRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}");
+        patchRequest.Content = JsonContent.Create(body);
+        var response = await _httpClient.SendAsync(patchRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not update Coolify application config ({(int)response.StatusCode}).");
+        }
+    }
+
     public async Task<ProviderProject> CreateProjectAsync(
         ProviderCredentials credentials,
         CreateProviderProjectRequest request,
@@ -92,7 +166,7 @@ public sealed partial class CoolifyProvider
         if (!string.IsNullOrWhiteSpace(request.OutputDirectory) &&
             string.Equals(buildPack, CoolifyBuildPackValues.Static, StringComparison.OrdinalIgnoreCase))
         {
-            body["publish_directory"] = request.OutputDirectory;
+            body["publish_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.OutputDirectory);
             body["is_static"] = true;
         }
 
@@ -369,19 +443,7 @@ public sealed partial class CoolifyProvider
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        using var request = CreateRequest(HttpMethod.Get, session, $"applications/{providerProjectId}/envs");
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new DeployAIException(
-                "coolify_api_error",
-                CoolifyApiSupport.ParseErrorMessage(responseBody)
-                    ?? $"Could not list Coolify environment variables ({(int)response.StatusCode}).");
-        }
-
-        var envs = await response.Content.ReadFromJsonAsync<List<CoolifyEnvironmentVariable>>(cancellationToken) ?? [];
+        var envs = await ListRawEnvVarsAsync(session, providerProjectId, cancellationToken);
         return envs
             .Where(env => !string.IsNullOrWhiteSpace(env.Key))
             .Select(env => new ProviderEnvVar(
@@ -395,6 +457,86 @@ public sealed partial class CoolifyProvider
             .ToList();
     }
 
+    /// <summary>
+    /// Fetches the application's variables exactly as Coolify returns them: one entry per record,
+    /// in Coolify's own order, duplicates included. <see cref="ListEnvVarsAsync"/> reshapes and
+    /// re-sorts for callers; reconciliation needs the raw order, because which record Coolify's
+    /// bulk upsert writes to depends on it.
+    /// </summary>
+    private async Task<IReadOnlyList<CoolifyEnvironmentVariable>> ListRawEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Get, session, $"applications/{providerProjectId}/envs");
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not list Coolify environment variables ({(int)response.StatusCode}).");
+        }
+
+        return JsonSerializer.Deserialize<List<CoolifyEnvironmentVariable>>(responseBody) ?? [];
+    }
+
+    /// <summary>
+    /// Removes duplicate variable records from an application, keeping the first record for each
+    /// key, and returns how many were deleted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="UpsertEnvVarsAsync"/> stops new duplicates being created, but it cannot repair
+    /// an application that already has them, and on such an application it makes the situation
+    /// actively misleading: Coolify's bulk handler resolves a key with
+    /// <c>-&gt;where('key', $key)-&gt;first()</c>, so it updates the first record and leaves every
+    /// later one untouched. Those later records keep whatever value they were created with and
+    /// silently stop tracking reality, while which one the container actually receives is not
+    /// something DeployAI controls.
+    /// </para>
+    /// <para>
+    /// Keeping the first record therefore is not a preference — it is the only choice consistent
+    /// with where subsequent writes land. One live application was found holding 32 records for 16
+    /// keys, and every stale Postgres copy pointed at a database that no longer existed on the
+    /// instance at all.
+    /// </para>
+    /// </remarks>
+    public async Task<int> ReconcileDuplicateEnvVarsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        return await ReconcileDuplicateEnvVarsAsync(session, providerProjectId, cancellationToken);
+    }
+
+    private async Task<int> ReconcileDuplicateEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var envs = await ListRawEnvVarsAsync(session, providerProjectId, cancellationToken);
+
+        // Ordinal grouping: Coolify stores variables in Postgres, where `where('key', $key)` is
+        // case-sensitive, so KEY and Key are two distinct records and neither shadows the other.
+        // Grouping case-insensitively here would delete a record Coolify still resolves.
+        var stale = envs
+            .Where(env => !string.IsNullOrWhiteSpace(env.Key) && !string.IsNullOrWhiteSpace(env.Uuid))
+            .GroupBy(env => env.Key!, StringComparer.Ordinal)
+            .SelectMany(group => group.Skip(1))
+            .ToList();
+
+        foreach (var duplicate in stale)
+        {
+            await DeleteEnvVarAsync(session, providerProjectId, duplicate.Uuid!, cancellationToken);
+        }
+
+        return stale.Count;
+    }
+
     public async Task<ProviderEnvVar> UpsertEnvVarAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -402,56 +544,93 @@ public sealed partial class CoolifyProvider
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        var existing = await ListEnvVarsAsync(credentials, providerProjectId, cancellationToken);
-        var match = existing.FirstOrDefault(env =>
+
+        // Coolify's bulk endpoint resolves each entry by key server-side, updating when the key
+        // exists and creating when it does not, in a single request.
+        //
+        // This used to list the app's env vars and then POST or PATCH based on what it saw. That
+        // read-then-write was not atomic: two syncs running against the same application could
+        // both observe a key as absent and both POST it, and Coolify's create endpoint does not
+        // dedupe by key. The result was applications carrying two records per key -- including
+        // two DATABASE_URLs pointing at different Postgres instances, where which one reached the
+        // container was left to chance. Going through /envs/bulk removes the client-side window
+        // entirely; see UpsertEnvVarsAsync for the batched form.
+        var applied = await UpsertEnvVarsAsync(
+            session,
+            providerProjectId,
+            [request],
+            cancellationToken);
+
+        var match = applied.FirstOrDefault(env =>
             string.Equals(env.Key, request.Key, StringComparison.OrdinalIgnoreCase));
 
-        if (match is not null)
-        {
-            using var patchRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}/envs");
-            patchRequest.Content = JsonContent.Create(BuildEnvVarPayload(request));
-            var patchResponse = await _httpClient.SendAsync(patchRequest, cancellationToken);
-            var patchBody = await patchResponse.Content.ReadAsStringAsync(cancellationToken);
-            if (!patchResponse.IsSuccessStatusCode)
-            {
-                throw new DeployAIException(
-                    "coolify_api_error",
-                    CoolifyApiSupport.ParseErrorMessage(patchBody)
-                        ?? $"Could not update Coolify environment variable ({(int)patchResponse.StatusCode}).");
-            }
-
-            var updated = await patchResponse.Content.ReadFromJsonAsync<CoolifyEnvironmentVariable>(cancellationToken);
-            return new ProviderEnvVar(
-                updated?.Uuid ?? match.Id,
-                request.Key,
-                null,
-                request.Type,
-                request.Targets.ToList(),
-                true);
-        }
-
-        using var createRequest = CreateRequest(HttpMethod.Post, session, $"applications/{providerProjectId}/envs");
-        createRequest.Content = JsonContent.Create(BuildEnvVarPayload(request));
-        var createResponse = await _httpClient.SendAsync(createRequest, cancellationToken);
-        var createBody = await createResponse.Content.ReadAsStringAsync(cancellationToken);
-        if (!createResponse.IsSuccessStatusCode)
-        {
-            throw new DeployAIException(
-                "coolify_api_error",
-                CoolifyApiSupport.ParseErrorMessage(createBody)
-                    ?? $"Could not create Coolify environment variable ({(int)createResponse.StatusCode}).");
-        }
-
-        var created = await createResponse.Content.ReadFromJsonAsync<CoolifyEnvironmentVariable>(cancellationToken)
-            ?? throw new InvalidOperationException("Coolify returned an empty env var response.");
-
         return new ProviderEnvVar(
-            created.Uuid ?? request.Key,
+            match?.Uuid ?? request.Key,
             request.Key,
             null,
             request.Type,
             request.Targets.ToList(),
-            created.IsShownOnce == true);
+            match?.IsShownOnce == true);
+    }
+
+    /// <summary>
+    /// Applies every supplied variable in one <c>PATCH /envs/bulk</c> call. Prefer this over
+    /// calling <see cref="UpsertEnvVarAsync"/> in a loop: it is one round trip instead of N, and
+    /// it keeps the whole set inside a single server-side upsert rather than interleaving with a
+    /// concurrent sync partway through.
+    /// </summary>
+    private async Task<IReadOnlyList<CoolifyEnvironmentVariable>> UpsertEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        IReadOnlyList<UpsertProviderEnvVarRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        if (requests.Count == 0)
+        {
+            return [];
+        }
+
+        using var bulkRequest = CreateRequest(
+            HttpMethod.Patch,
+            session,
+            $"applications/{providerProjectId}/envs/bulk");
+        // Every flag must be sent explicitly on every entry. Coolify's bulk handler reads them as
+        // `$item->get('is_literal') ?? false` and then assigns unconditionally, so omitting a flag
+        // does not leave it alone -- it writes false. Sending only key/value would silently clear
+        // is_literal (Coolify then interpolates $ and {} in the value, corrupting generated
+        // passwords and keys), is_shown_once (secrets become readable) and is_multiline on every
+        // variable this touches. is_runtime/is_buildtime are guarded by `has()` on Coolify's side,
+        // but are sent for the same reason: so the wire payload states intent rather than relying
+        // on a default.
+        bulkRequest.Content = JsonContent.Create(new
+        {
+            data = requests
+                .Select(BuildEnvVarPayload)
+                .ToArray()
+        });
+
+        var response = await _httpClient.SendAsync(bulkRequest, cancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                CoolifyApiSupport.ParseErrorMessage(responseBody)
+                    ?? $"Could not set Coolify environment variables ({(int)response.StatusCode}).");
+        }
+
+        // Coolify documents a 201 carrying the updated variables, but the body is advisory here --
+        // the write already succeeded. Treat an unexpected shape as "applied, uuid unknown" rather
+        // than failing a request that went through.
+        try
+        {
+            return JsonSerializer.Deserialize<List<CoolifyEnvironmentVariable>>(responseBody) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>
@@ -466,19 +645,23 @@ public sealed partial class CoolifyProvider
             ["key"] = request.Key,
             ["value"] = request.Value,
             // Coolify interpolates unescaped values; literal keeps $ and {} intact, which
-            // matters for generated keys and passwords.
+            // matters for generated keys and passwords. Both this and is_multiline are stated on
+            // every payload rather than only when true: Coolify's bulk handler assigns them from
+            // `?? false`, so an omitted flag is written as false rather than left alone.
             ["is_literal"] = true,
-            ["is_multiline"] = request.Value.Contains('\n')
+            ["is_multiline"] = request.Value.Contains('\n'),
+            ["is_shown_once"] = ProviderEnvVarTypes.IsSecret(request.Type)
         };
 
         if (ProviderEnvVarTypes.IsBuildTime(request.Type))
         {
-            payload["is_build_time"] = true;
-        }
-
-        if (ProviderEnvVarTypes.IsSecret(request.Type))
-        {
-            payload["is_shown_once"] = true;
+            // is_buildtime, not is_build_time: the latter is not a field Coolify accepts. The
+            // single-env endpoint rejects unknown fields outright and the bulk endpoint drops them
+            // in `only()`, so the misspelling meant build-time was never actually marked. Left
+            // conditional because Coolify defaults it to true on create and guards it with `has()`
+            // on update -- sending false for runtime-only variables would take away build access
+            // they currently have.
+            payload["is_buildtime"] = true;
         }
 
         if (request.Targets.Any(target => string.Equals(target, "preview", StringComparison.OrdinalIgnoreCase)))
@@ -496,6 +679,15 @@ public sealed partial class CoolifyProvider
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
+        await DeleteEnvVarAsync(session, providerProjectId, envVarId, cancellationToken);
+    }
+
+    private async Task DeleteEnvVarAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        string envVarId,
+        CancellationToken cancellationToken)
+    {
         using var request = CreateRequest(
             HttpMethod.Delete,
             session,
@@ -541,6 +733,7 @@ public sealed partial class CoolifyProvider
         }
     }
 
+    /// <summary>Lists the projects, servers, and GitHub Apps visible on a Coolify connection, for the setup UI.</summary>
     public async Task<CoolifyInfrastructureSnapshot> ListInfrastructureAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
@@ -555,6 +748,7 @@ public sealed partial class CoolifyProvider
             githubApps.Select(MapInfrastructureResource).ToList());
     }
 
+    /// <summary>Lists the environments (e.g. production, staging) within a Coolify project.</summary>
     public async Task<IReadOnlyList<CoolifyInfrastructureResource>> ListProjectEnvironmentsAsync(
         ProviderCredentials credentials,
         string projectUuid,
@@ -567,6 +761,7 @@ public sealed partial class CoolifyProvider
             .ToList();
     }
 
+    /// <summary>Resolves which Coolify project to create the application in: an explicit uuid if given, else the first existing project, else a newly created one.</summary>
     private async Task<string> ResolveProjectUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,
@@ -617,6 +812,7 @@ public sealed partial class CoolifyProvider
         return created.Uuid;
     }
 
+    /// <summary>Resolves which Coolify server to deploy to: an explicit uuid if given, else the first configured server. Throws if none exist.</summary>
     private async Task<string> ResolveServerUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,
@@ -646,6 +842,7 @@ public sealed partial class CoolifyProvider
         return servers[0].Uuid;
     }
 
+    /// <summary>Resolves which environment to deploy to: an explicit name/uuid if given and found, else "production" if it exists, else the first environment.</summary>
     private async Task<CoolifyEnvironmentOption> ResolveEnvironmentAsync(
         CoolifyApiSupport.CoolifySession session,
         string projectUuid,
@@ -676,6 +873,7 @@ public sealed partial class CoolifyProvider
                ?? environments[0];
     }
 
+    /// <summary>Resolves the Coolify GitHub App for a private repo: an explicit uuid if given, else the sole configured app. Throws if none or more than one exist and none was chosen.</summary>
     private async Task<string> ResolveGithubAppUuidAsync(
         CoolifyApiSupport.CoolifySession session,
         CreateProviderProjectRequest request,

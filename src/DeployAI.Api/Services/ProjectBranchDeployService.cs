@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Implements switching a project's default branch and optionally triggering a deployment from it, validating the branch actually exists on GitHub first.</summary>
 public sealed class ProjectBranchDeployService : IProjectBranchDeployService
 {
     private readonly DeployAIDbContext _db;

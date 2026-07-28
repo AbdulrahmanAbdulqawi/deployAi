@@ -4,6 +4,11 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Private helpers for <c>RailwayProvider.Database.cs</c>: idempotently ensures the env vars a
+/// provisioned Postgres/Redis service needs to actually work (credentials, connection strings,
+/// data directory), only touching vars that are missing or wrong so re-running is a no-op.
+/// </summary>
 public sealed partial class RailwayProvider
 {
     private async Task<bool> EnsurePostgresPluginVariablesAsync(

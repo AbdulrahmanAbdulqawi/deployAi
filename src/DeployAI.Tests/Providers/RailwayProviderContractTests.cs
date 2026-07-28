@@ -965,6 +965,168 @@ public class RailwayProviderContractTests
     }
 
     [Fact]
+    public async Task StreamLogsAsync_FailedWithSparseLogs_DrainsGraceAndEventErrors()
+    {
+        var previousInterval = RailwayProvider.PollInterval;
+        var previousGrace = RailwayProvider.PostFailureLogGraceRounds;
+        RailwayProvider.PollInterval = TimeSpan.Zero;
+        RailwayProvider.PostFailureLogGraceRounds = 2;
+
+        try
+        {
+            var handler = new MockHttpMessageHandler();
+            var statusPolls = 0;
+            var buildPolls = 0;
+            handler.When(HttpMethod.Post, "https://backboard.railway.com/graphql/v2")
+                .Respond(request =>
+                {
+                    var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+                    if (body.Contains("DeploymentStatus", StringComparison.Ordinal))
+                    {
+                        statusPolls++;
+                        var status = statusPolls == 1 ? "BUILDING" : "FAILED";
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = GraphQlContent(
+                                $"{{\"data\":{{\"deployment\":{{\"id\":\"dep_1\",\"status\":\"{status}\",\"url\":null,\"diagnosis\":null,\"meta\":null}}}}}}")
+                        };
+                    }
+
+                    if (body.Contains("deploymentEvents", StringComparison.Ordinal))
+                    {
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = GraphQlContent("""
+                                {
+                                  "data": {
+                                    "deploymentEvents": {
+                                      "edges": [
+                                        {
+                                          "node": {
+                                            "step": "BUILD_IMAGE",
+                                            "completedAt": null,
+                                            "payload": {
+                                              "error": "builder unavailable",
+                                              "reason": null,
+                                              "detail": null
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                                """)
+                        };
+                    }
+
+                    if (body.Contains("buildLogs(deploymentId:", StringComparison.Ordinal))
+                    {
+                        buildPolls++;
+                        if (buildPolls == 1)
+                        {
+                            return new HttpResponseMessage(HttpStatusCode.OK)
+                            {
+                                Content = GraphQlContent("""
+                                    {
+                                      "data": {
+                                        "buildLogs": [
+                                          { "message": "scheduling build on Metal builder \"builder-x\"", "timestamp": "2024-01-01T00:00:00Z" }
+                                        ]
+                                      }
+                                    }
+                                    """)
+                            };
+                        }
+
+                        if (buildPolls == 3)
+                        {
+                            return new HttpResponseMessage(HttpStatusCode.OK)
+                            {
+                                Content = GraphQlContent("""
+                                    {
+                                      "data": {
+                                        "buildLogs": [
+                                          { "message": "scheduling build on Metal builder \"builder-x\"", "timestamp": "2024-01-01T00:00:00Z" },
+                                          { "message": "error building docker: context canceled", "timestamp": "2024-01-01T00:00:01Z" }
+                                        ]
+                                      }
+                                    }
+                                    """)
+                            };
+                        }
+
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = GraphQlContent("""
+                                {
+                                  "data": {
+                                    "buildLogs": [
+                                      { "message": "scheduling build on Metal builder \"builder-x\"", "timestamp": "2024-01-01T00:00:00Z" }
+                                    ]
+                                  }
+                                }
+                                """)
+                        };
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = GraphQlContent("""{"data":{"deploymentLogs":[]}}""")
+                    };
+                });
+
+            var provider = CreateProvider(handler);
+            var logs = new List<string>();
+            await foreach (var line in provider.StreamLogsAsync(new ProviderCredentials("token"), "dep_1", CancellationToken.None))
+            {
+                logs.Add(line);
+            }
+
+            Assert.Contains("scheduling build on Metal builder \"builder-x\"", logs);
+            Assert.Contains("error building docker: context canceled", logs);
+            Assert.Contains(logs, line => line.Contains("builder unavailable", StringComparison.Ordinal));
+            Assert.True(buildPolls >= 3);
+        }
+        finally
+        {
+            RailwayProvider.PollInterval = previousInterval;
+            RailwayProvider.PostFailureLogGraceRounds = previousGrace;
+        }
+    }
+
+    [Fact]
+    public void MapDeploymentStatus_UsesFailureDetailWhenPresent()
+    {
+        var status = RailwayGraphQlMapping.MapDeploymentStatus(
+            DeployAI.Providers.Railway.GraphQL.DeploymentStatus.Failed,
+            null,
+            "Railway BUILD_IMAGE: builder unavailable");
+
+        Assert.Equal(DeploymentStatusKind.Failed, status.Status);
+        Assert.Equal("Railway BUILD_IMAGE: builder unavailable", status.ErrorMessage);
+    }
+
+    [Fact]
+    public void ExtractFailureDetail_ParsesDiagnosisJsonMessage()
+    {
+        var detail = RailwayGraphQlMapping.ExtractFailureDetail(
+            """{"message":"Metal builder capacity exhausted"}""",
+            null);
+
+        Assert.Equal("Metal builder capacity exhausted", detail);
+    }
+
+    [Fact]
+    public void ExtractFailureDetail_IgnoresDeployMetaReason()
+    {
+        var meta = """{"plan":"hobby","reason":"deploy","rootDirectory":"src","repo":"owner/repo"}""";
+        var detail = RailwayGraphQlMapping.ExtractFailureDetail(null, meta);
+
+        Assert.Null(detail);
+    }
+
+    [Fact]
     public async Task EnsurePostgresAsync_ReusesExistingService_WhenPostgresAlreadyInProject()
     {
         var handler = new MockHttpMessageHandler();

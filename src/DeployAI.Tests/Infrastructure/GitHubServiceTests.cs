@@ -75,4 +75,19 @@ public class GitHubServiceTests
 
         Assert.Equal("github_auth_expired", exception.ErrorCode);
     }
+
+    [Fact]
+    public async Task GetFileContentAsync_ThrowsFriendlyError_WhenGitHubReturnsBadGateway()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, "https://api.github.com/repos/owner/repo/contents/package.json")
+            .Respond(HttpStatusCode.BadGateway);
+
+        var service = CreateService(handler);
+
+        var exception = await Assert.ThrowsAsync<DeployAI.Core.Exceptions.DeployAIException>(() =>
+            service.GetFileContentAsync("token", "owner", "repo", "package.json", null, CancellationToken.None));
+
+        Assert.Equal("github_unavailable", exception.ErrorCode);
+    }
 }

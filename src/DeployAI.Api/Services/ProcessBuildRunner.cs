@@ -4,8 +4,10 @@ using System.Text;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Runs install/build commands and arbitrary agent-chosen commands as sandboxed child processes, with secrets stripped from the environment and output truncated to a max length.</summary>
 public interface IProcessBuildRunner
 {
+    /// <summary>Runs an install command (if any) then a build command in sequence, in the given working directory, killing the process if it exceeds the timeout.</summary>
     Task<FixBuildResult> RunAsync(
         string workingDirectory,
         string? installCommand,
@@ -23,6 +25,7 @@ public interface IProcessBuildRunner
         CancellationToken cancellationToken);
 }
 
+/// <summary>Implements <see cref="IProcessBuildRunner"/> using .NET's <see cref="Process"/> API directly, with a strict allowlist of forwarded environment variables.</summary>
 public sealed class ProcessBuildRunner : IProcessBuildRunner
 {
     // Only these host environment variables are forwarded to build/command processes. Everything

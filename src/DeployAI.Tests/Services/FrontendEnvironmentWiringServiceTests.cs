@@ -1491,4 +1491,224 @@ public class FrontendEnvironmentWiringServiceTests
                     Content = new StringContent(string.Empty)
                 });
     }
+
+    [Fact]
+    public async Task SyncCrossProviderEnvironmentAsync_SyncsBothPairs_WhenProjectHasVercelRailwayAndCoolifyPairs()
+    {
+        // Regression test for the bug where a project with two complete provider pairs (Vercel+Railway
+        // and Coolify+Coolify) only ever had one pair synced - whichever FindWebsiteDeployTarget/
+        // FindServerDeployTarget matched first - silently starving the other pair of CORS/env wiring
+        // and drift detection forever. Both pairs must be evaluated now.
+        await using var db = CreateDb();
+        var projectId = await SeedMixedDualPairProjectAsync(db);
+
+        var vercelManagement = new Mock<IProviderManagement>();
+        vercelManagement.SetupGet(m => m.ProviderName).Returns("vercel");
+        vercelManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_1", "API_URL", "https://wrong.example.com", "encrypted", [], false)
+            ]);
+        vercelManagement.As<IWebsiteApiProxySupport>()
+            .Setup(p => p.ResolvePublicWebsiteUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "prj_web",
+                It.IsAny<string?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://idaara-livid.vercel.app");
+
+        var railwayManagement = new Mock<IProviderManagement>();
+        railwayManagement.SetupGet(m => m.ProviderName).Returns("railway");
+        railwayManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "svc_api|env_1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_1", "App__FrontendUrl", "https://idaara.vercel.app", "plain", [], false)
+            ]);
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_1", "API_URL", "https://wrong.example.com", "plain", [], false)
+            ]);
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_api",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new ProviderEnvVar("env_2", "App__FrontendUrl", "https://wrong-web.example.com", "plain", [], false)
+            ]);
+
+        var railwayOperations = new Mock<IProviderServiceOperations>();
+        railwayOperations.SetupGet(o => o.ProviderName).Returns("railway");
+        railwayOperations.Setup(o => o.GetServiceStatusAsync(
+                It.IsAny<ProviderCredentials>(),
+                "svc_api|env_1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderServiceStatus("running", "https://api.example.com", null));
+
+        var urlResolver = new Mock<IProviderApplicationUrlResolver>();
+        urlResolver.SetupGet(r => r.ProviderName).Returns("coolify");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_api",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://coolify-api.example.com");
+        urlResolver.Setup(r => r.ResolveApplicationUrlAsync(
+                It.IsAny<ProviderCredentials>(),
+                "app_web",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync("https://coolify-web.example.com");
+
+        var resolverFactory = new Mock<IProviderApplicationUrlResolverFactory>();
+        resolverFactory.Setup(f => f.GetResolver("coolify")).Returns(urlResolver.Object);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("vercel")).Returns(vercelManagement.Object);
+        factory.Setup(f => f.GetManagement("railway")).Returns(railwayManagement.Object);
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+
+        var serviceOperationsFactory = new Mock<IProviderServiceOperationsFactory>();
+        serviceOperationsFactory.Setup(f => f.GetServiceOperations("railway")).Returns(railwayOperations.Object);
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(
+            db,
+            factory,
+            serviceOperationsFactory,
+            tokens,
+            applicationUrlResolverFactory: resolverFactory);
+
+        var result = await service.SyncCrossProviderEnvironmentAsync(
+            projectId,
+            new EnvironmentSyncOptions(
+                DetectDriftOnly: true,
+                RunVerification: false,
+                Source: "scheduled"),
+            CancellationToken.None);
+
+        Assert.True(result.DriftDetected);
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Vercel API_URL mismatch", StringComparison.Ordinal));
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Railway App__FrontendUrl mismatch", StringComparison.Ordinal));
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Coolify API_URL mismatch", StringComparison.Ordinal));
+        Assert.Contains(result.DriftDetails, detail => detail.Contains("Coolify App__FrontendUrl mismatch", StringComparison.Ordinal));
+    }
+
+
+    /// <summary>
+    /// A single project with two complete provider pairs at once: Vercel (website) + Railway
+    /// (server), and Coolify (website) + Coolify (server) full-stack - the scenario that used to
+    /// leave one pair permanently un-synced because resolution picked only the first match.
+    /// </summary>
+    private static async Task<Guid> SeedMixedDualPairProjectAsync(DeployAIDbContext db)
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var vercelCredentialId = Guid.NewGuid();
+        var railwayCredentialId = Guid.NewGuid();
+        var coolifyCredentialId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 3,
+            GitHubLogin = "mixed-tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ProviderCredentials.AddRange(
+            new ProviderCredential
+            {
+                Id = vercelCredentialId,
+                UserId = userId,
+                ProviderName = "vercel",
+                Label = "Vercel",
+                TokenEncrypted = [1],
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new ProviderCredential
+            {
+                Id = railwayCredentialId,
+                UserId = userId,
+                ProviderName = "railway",
+                Label = "Railway",
+                TokenEncrypted = [2],
+                CreatedAt = DateTimeOffset.UtcNow
+            },
+            new ProviderCredential
+            {
+                Id = coolifyCredentialId,
+                UserId = userId,
+                ProviderName = "coolify",
+                Label = "Coolify",
+                TokenEncrypted = [3],
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Mixed stack",
+            GitHubRepoFullName = "tester/mixed",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "vercel",
+                    CredentialId = vercelCredentialId,
+                    ProviderProjectId = "prj_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "railway",
+                    CredentialId = railwayCredentialId,
+                    ProviderProjectId = "svc_api|env_1",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_web",
+                    ConfigJson = """{"role":"website","framework":"angular"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                },
+                new DeployTarget
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = coolifyCredentialId,
+                    ProviderProjectId = "app_api",
+                    ConfigJson = """{"role":"server","framework":"dotnet"}""",
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+        return projectId;
+    }
+
 }

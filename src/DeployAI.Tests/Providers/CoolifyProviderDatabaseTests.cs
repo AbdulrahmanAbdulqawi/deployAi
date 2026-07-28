@@ -230,10 +230,14 @@ public class CoolifyProviderDatabaseTests
               "postgres_connection_string": "postgres://user:pass@db:5432/app"
             }
             """);
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """[{ "uuid": "env-1", "key": "DATABASE_URL" }]""");
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "env-1", "key": "DATABASE_URL" }""");
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "DATABASE_URL", "value": "postgres://user:pass@db:5432/app" }
+            ]
+            """);
 
         var provider = CreateProvider(handler);
         var exception = await Record.ExceptionAsync(() => provider.LinkDatabaseVariablesAsync(
@@ -243,6 +247,46 @@ public class CoolifyProviderDatabaseTests
             CancellationToken.None));
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task LinkDatabaseVariablesAsync_RemovesDuplicateRecordsLeftByEarlierRuns()
+    {
+        // This is the path the duplicates arrived on, back when the upsert read before it wrote,
+        // and the one where they do the most damage: a stale second DATABASE_URL points the
+        // container at a database that may no longer exist. An affected app should be repaired by
+        // being deployed, not by someone deleting rows by hand in Coolify's UI.
+        //
+        // env-1 (the survivor) has no DELETE handler, so deleting it fails this test.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/databases/db-1")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            {
+              "postgres_connection_string": "postgres://user:pass@db:5432/app"
+            }
+            """);
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """[{ "uuid": "env-1", "key": "DATABASE_URL" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "DATABASE_URL", "value": "postgres://user:pass@db:5432/app" },
+              { "uuid": "env-stale", "key": "DATABASE_URL", "value": "postgres://user:pass@gone:5432/app" },
+              { "uuid": "env-2", "key": "POSTGRES_URL", "value": "postgres://user:pass@db:5432/app" }
+            ]
+            """);
+        var deleteStaleCopy = handler
+            .When(HttpMethod.Delete, $"{InstanceUrl}/api/v1/applications/app-api/envs/env-stale")
+            .Respond(HttpStatusCode.OK, "application/json", "{}");
+
+        var provider = CreateProvider(handler);
+        await provider.LinkDatabaseVariablesAsync(
+            Credentials,
+            "app-api",
+            [new DatabaseVariableLink("DATABASE_URL", "db-1")],
+            CancellationToken.None);
+
+        Assert.Equal(1, handler.GetMatchCount(deleteStaleCopy));
     }
 
     [Fact]
@@ -321,13 +365,13 @@ public class CoolifyProviderDatabaseTests
             """);
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
             .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
             .Respond(async req =>
             {
                 upsertBody = await req.Content!.ReadAsStringAsync();
                 return new HttpResponseMessage(HttpStatusCode.Created)
                 {
-                    Content = new StringContent("""{ "uuid": "env-1", "key": "ConnectionStrings__Default" }""")
+                    Content = new StringContent("""[{ "uuid": "env-1", "key": "ConnectionStrings__Default" }]""")
                 };
             });
 
@@ -353,10 +397,14 @@ public class CoolifyProviderDatabaseTests
               "internal_db_url": "redis://:secret@redis:6379"
             }
             """);
+        handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-api/envs/bulk")
+            .Respond(HttpStatusCode.Created, "application/json", """[{ "uuid": "env-1", "key": "ConnectionStrings__Redis" }]""");
         handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.OK, "application/json", "[]");
-        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/app-api/envs")
-            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "env-1", "key": "ConnectionStrings__Redis" }""");
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "ConnectionStrings__Redis", "value": "redis://:secret@redis:6379" }
+            ]
+            """);
 
         var provider = CreateProvider(handler);
         var exception = await Record.ExceptionAsync(() => provider.LinkDatabaseVariablesAsync(

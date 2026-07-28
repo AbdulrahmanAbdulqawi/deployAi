@@ -110,6 +110,11 @@ public sealed partial class CoolifyProvider : IProviderServiceOperations, IProvi
         return new ProviderServiceStatus(status, deployUrl, null);
     }
 
+    /// <summary>
+    /// Triggers a Coolify redeploy using whatever config the application already has - callers that
+    /// need to push updated build/port/directory config first should call
+    /// <see cref="UpdateApplicationConfigAsync"/> before this.
+    /// </summary>
     public async Task RedeployServiceAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -147,6 +152,7 @@ public sealed partial class CoolifyProvider : IProviderServiceOperations, IProvi
             "Coolify can't promote a previous deployment. Redeploy the commit you want, or stop " +
             "the app while you sort the problem out.");
 
+    /// <summary>Maps Coolify's raw application status string to DeployAI's coarse status vocabulary (running/failed/deploying/not_deployed/unknown).</summary>
     private static string MapApplicationStatus(string? status, string? deployUrl)
     {
         if (string.IsNullOrWhiteSpace(status))

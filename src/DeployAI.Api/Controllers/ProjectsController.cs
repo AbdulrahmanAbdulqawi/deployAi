@@ -10,6 +10,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Manages a user's deploy projects: creation (from explicit targets or a classified deployment
+/// plan), reading, updating deploy target config, health, Railway database provisioning, branch
+/// switching, and teardown.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/projects")]
@@ -38,6 +43,7 @@ public sealed class ProjectsController : ControllerBase
         _webhookRegistration = webhookRegistration;
     }
 
+    /// <summary>Lists the current user's projects with each one's latest deployment status.</summary>
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken cancellationToken)
     {
@@ -126,6 +132,13 @@ public sealed class ProjectsController : ControllerBase
         return (false, null);
     }
 
+    /// <summary>
+    /// Creates a project from explicit deploy targets (already-created provider projects/apps).
+    /// Fails with <c>project_already_exists</c> if the user already has a project for this repo.
+    /// If a Railway/Coolify server target is included, also detects and provisions any databases
+    /// the repo needs as a side effect.
+    /// </summary>
+    /// <param name="request">Name, repo, default branch, and the deploy targets to attach.</param>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateProjectRequest request, CancellationToken cancellationToken)
     {
@@ -210,6 +223,13 @@ public sealed class ProjectsController : ControllerBase
         return Created($"/api/projects/{project.Id}", await MapProjectAsync(project.Id, cancellationToken));
     }
 
+    /// <summary>
+    /// Creates a project from a classified deployment plan (as returned by
+    /// <c>GitHubController.GetDeploymentPlan</c>) instead of explicit targets - convenience wrapper
+    /// around <see cref="Create"/> that converts plan parts into deploy targets, dropping any
+    /// database part (databases are provisioned separately, not passed as a target).
+    /// </summary>
+    /// <param name="request">The classified plan parts plus name/repo/branch and database inclusion flags.</param>
     [HttpPost("from-plan")]
     public async Task<IActionResult> CreateFromPlan(
         [FromBody] CreateProjectFromPlanRequest request,
@@ -236,6 +256,8 @@ public sealed class ProjectsController : ControllerBase
         return await Create(createRequest, cancellationToken);
     }
 
+    /// <summary>Gets a single project, including its deploy targets and latest deployment.</summary>
+    /// <param name="id">The project to fetch (must be owned by the current user).</param>
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> Get(Guid id, CancellationToken cancellationToken)
     {
@@ -249,6 +271,13 @@ public sealed class ProjectsController : ControllerBase
         return Ok(await MapProjectAsync(id, cancellationToken));
     }
 
+    /// <summary>
+    /// Updates project fields and/or deploy target config. Target config changes are saved to
+    /// DeployAI's own record immediately, but for Coolify targets only take effect on the
+    /// provider's side at the next deploy (pushed automatically then), not instantly here.
+    /// </summary>
+    /// <param name="id">The project to update.</param>
+    /// <param name="request">Fields to change; omit a field/leave targets null to leave it as-is.</param>
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateProjectRequest request, CancellationToken cancellationToken)
     {
@@ -286,6 +315,8 @@ public sealed class ProjectsController : ControllerBase
         return Ok(await MapProjectAsync(id, cancellationToken));
     }
 
+    /// <summary>Gets the most recently recorded health-check summary for a project, if any has run.</summary>
+    /// <param name="id">The project to check.</param>
     [HttpGet("{id:guid}/health")]
     public async Task<IActionResult> GetHealth(Guid id, CancellationToken cancellationToken)
     {
@@ -317,6 +348,12 @@ public sealed class ProjectsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Explicitly provisions Postgres and/or Redis on a project's Railway server, wiring the
+    /// resulting connection string(s) as env vars. Requires an existing Railway server target.
+    /// </summary>
+    /// <param name="id">The project to provision databases for.</param>
+    /// <param name="request">Which database engines to provision.</param>
     [HttpPost("{id:guid}/railway-databases")]
     public async Task<IActionResult> ProvisionRailwayDatabases(
         Guid id,
@@ -355,6 +392,12 @@ public sealed class ProjectsController : ControllerBase
         return Ok(await MapProjectAsync(id, cancellationToken));
     }
 
+    /// <summary>
+    /// Detects which databases a project's repo needs (from docker-compose/appsettings/Prisma) and
+    /// provisions exactly those on Railway automatically, rather than the caller choosing engines
+    /// explicitly like <see cref="ProvisionRailwayDatabases"/>.
+    /// </summary>
+    /// <param name="id">The project to auto-provision databases for.</param>
     [HttpPost("{id:guid}/railway-databases/auto")]
     public async Task<IActionResult> AutoProvisionRailwayDatabases(Guid id, CancellationToken cancellationToken)
     {
@@ -387,12 +430,18 @@ public sealed class ProjectsController : ControllerBase
         return Ok(await MapProjectAsync(id, cancellationToken));
     }
 
+    private static string TargetKey(string providerName, string? role) =>
+        $"{providerName.Trim().ToLowerInvariant()}|{role?.Trim().ToLowerInvariant()}";
+
     private static void ApplyTargetUpdates(Project project, IReadOnlyList<ProjectTargetRequest> targets)
     {
+        // Keyed by provider+role (not just provider) so a project can hold more than one
+        // target per provider - e.g. a Coolify full-stack app has separate website and
+        // server targets that both use providerName "coolify".
         var existingAppTargets = project.DeployTargets
             .Where(t => !DeployTargetConfig.Parse(t.ConfigJson).IsDatabaseTarget)
-            .ToDictionary(t => t.ProviderName, StringComparer.OrdinalIgnoreCase);
-        var updatedProviders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(t => TargetKey(t.ProviderName, DeployTargetConfig.Parse(t.ConfigJson).Role));
+        var updatedKeys = new HashSet<string>();
 
         foreach (var target in targets)
         {
@@ -402,8 +451,9 @@ public sealed class ProjectsController : ControllerBase
                 continue;
             }
 
-            updatedProviders.Add(target.ProviderName);
-            if (existingAppTargets.TryGetValue(target.ProviderName, out var existing))
+            var key = TargetKey(target.ProviderName, config.Role);
+            updatedKeys.Add(key);
+            if (existingAppTargets.TryGetValue(key, out var existing))
             {
                 existing.CredentialId = target.CredentialId;
                 existing.ProviderProjectId = target.ProviderProjectId;
@@ -423,14 +473,20 @@ public sealed class ProjectsController : ControllerBase
             });
         }
 
-        foreach (var removable in existingAppTargets.Values
-            .Where(t => !updatedProviders.Contains(t.ProviderName))
+        foreach (var removable in existingAppTargets
+            .Where(kvp => !updatedKeys.Contains(kvp.Key))
+            .Select(kvp => kvp.Value)
             .ToList())
         {
             project.DeployTargets.Remove(removable);
         }
     }
 
+    /// <summary>
+    /// Switches a project's default branch and, optionally, immediately triggers a deployment from it.
+    /// </summary>
+    /// <param name="id">The project to update.</param>
+    /// <param name="request">The branch to switch to and whether to deploy it now.</param>
     [HttpPost("{id:guid}/use-branch-and-deploy")]
     public async Task<IActionResult> UseBranchAndDeploy(
         Guid id,
@@ -453,6 +509,11 @@ public sealed class ProjectsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Deletes a project and tears down its provider-side resources too (deploy targets,
+    /// databases, webhooks) - not just the DeployAI record.
+    /// </summary>
+    /// <param name="id">The project to delete.</param>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(
         Guid id,

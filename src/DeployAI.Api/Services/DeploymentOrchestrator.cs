@@ -13,6 +13,12 @@ using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// Creates deployment records and queues a background job (<see cref="DeploymentJobRunner"/>,
+/// below) per target to actually run each deploy. This file also defines
+/// <see cref="DeploymentJobRunner"/>, which does the real per-target work: pushing Coolify config,
+/// provisioning databases, wiring cross-provider env vars, and calling the provider to deploy.
+/// </summary>
 public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
 {
     private readonly DeployAIDbContext _db;
@@ -281,6 +287,11 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
     }
 }
 
+/// <summary>
+/// Runs one deploy target's worth of work as a Hangfire background job: pushes Coolify config
+/// (if applicable), provisions databases, wires cross-provider env vars, triggers the provider
+/// deploy, streams logs, and updates the target/deployment status when it completes.
+/// </summary>
 public sealed class DeploymentJobRunner
 {
     private readonly DeployAIDbContext _db;
@@ -291,6 +302,7 @@ public sealed class DeploymentJobRunner
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
+    private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
     private readonly DeployAI.Infrastructure.Options.AnthropicOptions _anthropicOptions;
@@ -306,6 +318,7 @@ public sealed class DeploymentJobRunner
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
+        IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
         Microsoft.Extensions.Options.IOptions<DeployAI.Infrastructure.Options.AnthropicOptions> anthropicOptions,
@@ -320,6 +333,7 @@ public sealed class DeploymentJobRunner
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
+        _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
         _anthropicOptions = anthropicOptions.Value;
@@ -327,6 +341,7 @@ public sealed class DeploymentJobRunner
         _logger = logger;
     }
 
+    /// <summary>Entry point invoked by Hangfire for a single deployment target; a no-op if the target was already cancelled.</summary>
     public async Task RunAsync(Guid deploymentTargetId, CancellationToken cancellationToken)
     {
         var target = await _db.DeploymentTargets
@@ -513,6 +528,28 @@ public sealed class DeploymentJobRunner
                 environment["commitSha"] = deployment.GitCommitSha;
             }
 
+            if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                _applicationConfigSyncFactory.GetConfigSync(target.ProviderName) is { } configSync)
+            {
+                // Coolify only picks up build pack/port/command changes made in DeployAI's UI
+                // (ApplyTargetUpdates) if they're pushed to its application config explicitly - and
+                // it caches generated Traefik labels across redeploys unless they're cleared too, so
+                // push current config before every deploy rather than relying on whatever was set at
+                // creation time.
+                await configSync.UpdateApplicationConfigAsync(
+                    credentials,
+                    deployTarget.ProviderProjectId,
+                    new UpdateProviderApplicationConfigRequest(
+                        targetConfig.Framework,
+                        targetConfig.RootDirectory,
+                        targetConfig.OutputDirectory,
+                        targetConfig.BuildCommand,
+                        targetConfig.InstallCommand,
+                        targetConfig.StartCommand,
+                        targetConfig.DockerfilePath),
+                    cancellationToken);
+            }
+
             var response = await provider.TriggerDeploymentAsync(
                 credentials,
                 deployTarget.ProviderProjectId,
@@ -545,6 +582,29 @@ public sealed class DeploymentJobRunner
 
             if (target.Status == DeploymentStatuses.Failed && !string.IsNullOrWhiteSpace(status.ErrorMessage))
             {
+                // #region agent log
+                try
+                {
+                    var payload = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        sessionId = "b63a0f",
+                        hypothesisId = "D",
+                        location = "DeploymentOrchestrator.cs:appendErrorMessage",
+                        message = "inject_generic_error_log_line",
+                        data = new
+                        {
+                            targetId = target.Id,
+                            provider = target.ProviderName,
+                            providerDeploymentId = target.ProviderDeploymentId,
+                            sequenceBefore = sequence,
+                            errorMessage = status.ErrorMessage
+                        },
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    });
+                    System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
+                }
+                catch { /* debug ingest */ }
+                // #endregion
                 sequence++;
                 await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, status.ErrorMessage!, cancellationToken);
             }
@@ -706,6 +766,34 @@ public sealed class DeploymentJobRunner
                 .ToListAsync(cancellationToken);
 
             var analysis = _failureAnalyzer.Analyze(failedTarget.ProviderName, logLines);
+            // #region agent log
+            try
+            {
+                var payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    sessionId = "b63a0f",
+                    runId = "post-fix",
+                    hypothesisId = "E",
+                    location = "DeploymentOrchestrator.cs:failureAnalysis",
+                    message = "failure_analysis_result",
+                    data = new
+                    {
+                        targetId = failedTarget.Id,
+                        provider = failedTarget.ProviderName,
+                        logLineCount = logLines.Count,
+                        logPreview = logLines.Take(5).ToArray(),
+                        category = analysis.Category.ToString(),
+                        summary = analysis.Summary,
+                        canRequestClaudeFix = analysis.CanRequestClaudeFix,
+                        referencedFileCount = analysis.ReferencedFiles.Count,
+                        hasExcerpt = !string.IsNullOrWhiteSpace(analysis.ErrorExcerpt)
+                    },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+                System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
+            }
+            catch { /* debug ingest */ }
+            // #endregion
             failedTarget.FailureAnalysisJson = DeploymentFailureAnalysisJson.ToJson(analysis);
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $"""

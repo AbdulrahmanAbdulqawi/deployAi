@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Scheduled job that periodically drift-checks (without applying changes) every Vercel+Railway project's cross-provider env wiring, so drift surfaces proactively rather than only when a user notices something's broken.</summary>
 public sealed class EnvironmentDriftCheckJob
 {
     private readonly DeployAIDbContext _db;
@@ -16,6 +17,7 @@ public sealed class EnvironmentDriftCheckJob
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
     }
 
+    /// <summary>Entry point invoked on schedule: finds every Vercel+Railway project and runs a drift-only env sync for each.</summary>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         // Any multi-target project, not just Railway+Vercel — a Coolify split full-stack drifts

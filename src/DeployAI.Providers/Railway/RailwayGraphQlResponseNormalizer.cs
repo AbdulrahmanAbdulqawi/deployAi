@@ -3,8 +3,15 @@ using System.Text.Json;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>
+/// Railway's GraphQL responses don't include <c>__typename</c> discriminators on connection/edge/node
+/// objects, which the StrawberryShake-generated client needs to deserialize them - this walks the
+/// raw JSON and injects the expected typenames (inferred from the connection's property name and
+/// node shape) before the generated client ever sees it.
+/// </summary>
 internal static class RailwayGraphQlResponseNormalizer
 {
+    /// <summary>Rewrites a raw GraphQL response JSON body with injected __typename fields, or returns it unchanged if it contains GraphQL errors.</summary>
     internal static string Normalize(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -190,6 +197,15 @@ internal static class RailwayGraphQlResponseNormalizer
                 continue;
             }
 
+            if (property.Name == "payload" && property.Value.ValueKind == JsonValueKind.Object &&
+                (property.Value.TryGetProperty("error", out _) ||
+                 property.Value.TryGetProperty("reason", out _) ||
+                 property.Value.TryGetProperty("detail", out _)))
+            {
+                WriteTypedObject(writer, property.Value, "DeploymentEventPayload");
+                continue;
+            }
+
             if (property.Name == "workspaces" && property.Value.ValueKind == JsonValueKind.Array)
             {
                 writer.WriteStartArray();
@@ -318,6 +334,7 @@ internal static class RailwayGraphQlResponseNormalizer
             "services" => "ProjectServicesConnection",
             "serviceInstances" => "ServiceServiceInstancesConnection",
             "volumeInstances" => "EnvironmentVolumeInstancesConnection",
+            "deploymentEvents" => "QueryDeploymentEventsConnection",
             _ => "Connection"
         };
 
@@ -330,11 +347,17 @@ internal static class RailwayGraphQlResponseNormalizer
             "services" => "ProjectServicesConnectionEdge",
             "serviceInstances" => "ServiceServiceInstancesConnectionEdge",
             "volumeInstances" => "EnvironmentVolumeInstancesConnectionEdge",
+            "deploymentEvents" => "QueryDeploymentEventsConnectionEdge",
             _ => "ConnectionEdge"
         };
 
     private static string InferNodeTypename(JsonElement node)
     {
+        if (node.TryGetProperty("step", out _) && node.TryGetProperty("payload", out _))
+        {
+            return "DeploymentEvent";
+        }
+
         if (node.TryGetProperty("serializedConfig", out _))
         {
             return "Template";
@@ -391,5 +414,5 @@ internal static class RailwayGraphQlResponseNormalizer
     }
 
     private static bool IsJsonScalarProperty(string propertyName) =>
-        propertyName is "variables" or "serializedConfig";
+        propertyName is "variables" or "serializedConfig" or "diagnosis" or "meta";
 }

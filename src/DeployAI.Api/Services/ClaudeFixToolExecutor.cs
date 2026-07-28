@@ -3,6 +3,7 @@ using System.Text.Json;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Executes the tool calls Claude makes during a fix-generation agent run (read/write file, run command) against an <see cref="IFixBuildSession"/> sandbox, tracking changed files and enforcing a command-count limit.</summary>
 internal sealed class ClaudeFixToolExecutor
 {
     private readonly IFixBuildSession _buildSession;

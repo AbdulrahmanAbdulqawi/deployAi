@@ -2,8 +2,14 @@ using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>
+/// The actual readiness rule set for split-origin (Angular + .NET) deployments: which files must
+/// exist, and beyond that, whether their *content* actually wires things up correctly (interceptor
+/// registered, CORS configured, no legacy proxy rewrites, auth cookie/route conventions followed).
+/// </summary>
 internal static class SplitOriginReadinessEvaluator
 {
+    /// <summary>Lists every split-origin file as a "Recommended" regeneration target, for force-regenerating a repo's setup files regardless of current state.</summary>
     internal static IReadOnlyList<MissingDeploymentFile> BuildRegenerationTargets(
         IReadOnlyList<DeploymentPlanPart> parts)
     {
@@ -23,6 +29,7 @@ internal static class SplitOriginReadinessEvaluator
             .ToArray();
     }
 
+    /// <summary>Lists every file path that needs to be fetched from GitHub to fully evaluate split-origin readiness.</summary>
     internal static IReadOnlyList<string> BuildAllScanPaths(DeploymentPlanPart websitePart, DeploymentPlanPart serverPart)
     {
         var clientRoot = NormalizeRoot(websitePart.RootDirectory);
@@ -44,6 +51,12 @@ internal static class SplitOriginReadinessEvaluator
         ];
     }
 
+    /// <summary>
+    /// Evaluates a repo's fetched file contents against every split-origin wiring rule: required
+    /// files present (Blocking if missing), interceptor registered, no proxy-rewrite anti-pattern,
+    /// auth route/cookie conventions, CORS setup, and a handful of Recommended-severity best
+    /// practices (health endpoint route, docs, withCredentials, absolute hub URL).
+    /// </summary>
     internal static IReadOnlyList<MissingDeploymentFile> Evaluate(
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart,
@@ -240,6 +253,7 @@ internal static class SplitOriginReadinessEvaluator
         return missing;
     }
 
+    /// <summary>A repo/plan is ready if none of its issues are Blocking severity - Recommended/Warning issues don't block readiness.</summary>
     internal static bool IsReady(IReadOnlyList<MissingDeploymentFile> issues) =>
         issues.All(issue => issue.Severity != DeploymentFileSeverity.Blocking);
 

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace DeployAI.Api.Services.DeploymentTemplates;
 
+/// <summary>Loads and indexes the on-disk deployment template files (catalog.json + template bodies under DeploymentTemplates/) once, lazily, for lookup by scenario and template id.</summary>
 public sealed class DeploymentTemplateCatalog
 {
     private const int MaxAiReferenceTemplates = 8;
@@ -53,6 +54,7 @@ public sealed class DeploymentTemplateCatalog
         return File.ReadAllText(fullPath);
     }
 
+    /// <summary>Finds a template by its exact id.</summary>
     internal DeploymentTemplateDefinition? FindTemplateById(string templateId) =>
         Templates.FirstOrDefault(template => template.Id.Equals(templateId, StringComparison.Ordinal));
 
@@ -92,11 +94,13 @@ public sealed class DeploymentTemplateCatalog
             .FirstOrDefault();
     }
 
+    /// <summary>Lists every template registered for a scenario.</summary>
     internal IReadOnlyList<DeploymentTemplateDefinition> FindTemplatesForScenario(string scenarioId) =>
         Templates
             .Where(template => template.ScenarioId.Equals(scenarioId, StringComparison.Ordinal))
             .ToArray();
 
+    /// <summary>Builds the "Reference Templates" prompt section from the top-priority resolved templates (capped at <see cref="MaxAiReferenceTemplates"/>), for Claude to adapt rather than copy verbatim.</summary>
     internal static string BuildAiReferenceSection(IReadOnlyList<ResolvedDeploymentTemplate> resolvedTemplates)
     {
         if (resolvedTemplates.Count == 0)
@@ -134,6 +138,7 @@ public sealed class DeploymentTemplateCatalog
         return builder.ToString().TrimEnd();
     }
 
+    /// <summary>Lists full-file templates that were already rendered directly (no Claude call needed for these), so the prompt can tell Claude not to regenerate them.</summary>
     internal static string BuildPreGeneratedSection(IReadOnlyList<ResolvedDeploymentTemplate> resolvedTemplates)
     {
         var preGenerated = resolvedTemplates

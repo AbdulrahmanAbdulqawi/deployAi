@@ -3,8 +3,10 @@ using DeployAI.Data.Entities;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Maps a project's raw deploy targets into the UI-friendly application/data service split used by the services list and settings pages.</summary>
 public static class ProjectServiceMapper
 {
+    /// <summary>Splits a project's deploy targets into application vs. data services and computes the Railway/Postgres/Redis inclusion flags.</summary>
     public static ProjectServicesResponse MapProjectServices(Project project)
     {
         var applicationServices = new List<ProjectServiceView>();

@@ -5,6 +5,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
 
+/// <summary>Manages Vercel's project-level routing rules (for same-origin API proxying) and resolves a project's live production domains.</summary>
 public sealed partial class VercelProvider : IWebsiteApiProxySupport
 {
     public async Task EnsureApiProxyRoutesAsync(
@@ -364,6 +365,7 @@ public sealed partial class VercelProvider : IWebsiteApiProxySupport
         await VercelApiSupport.EnsureSuccessAsync(response, cancellationToken);
     }
 
+    /// <summary>Vercel routing changes are staged and only take effect once promoted - finds the non-live version to promote and activates it.</summary>
     private async Task PromoteStagedRoutesAsync(
         ProviderCredentials credentials,
         string projectId,

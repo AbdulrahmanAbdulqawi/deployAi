@@ -24,7 +24,7 @@ public class CoolifyBuildPackTests
     }
 
     [Fact]
-    public void ResolveBuildPack_UsesStaticWhenOutputDirectoryProvided()
+    public void ResolveBuildPack_UsesStaticWhenOutputDirectoryProvidedWithNoBuildCommand()
     {
         var request = new CreateProviderProjectRequest(
             "app",
@@ -95,6 +95,31 @@ public class CoolifyBuildPackTests
         var request = new CreateProviderProjectRequest("app", "owner/repo", null, OutputDirectory: "dist");
 
         Assert.Equal("80", CoolifyApiSupport.ResolveExposedPort(CoolifyBuildPackValues.Static, request));
+    }
+
+    [Fact]
+    public void ResolveBuildPack_UsesNixpacksWhenOutputDirectoryHasBuildCommand()
+    {
+        // "static" skips the build step entirely - an app with a build command (Angular,
+        // React, etc.) needs nixpacks to actually compile before serving OutputDirectory.
+        var request = new CreateProviderProjectRequest(
+            "app",
+            "owner/repo",
+            "angular",
+            OutputDirectory: "dist/app/browser",
+            BuildCommand: "npm run build");
+        Assert.Equal(CoolifyBuildPackValues.Nixpacks, CoolifyApiSupport.ResolveBuildPack(request));
+    }
+
+    [Fact]
+    public void ResolveExposedPort_UsesDotNetDefaultForDockerfileBuilds()
+    {
+        Assert.Equal("8080", CoolifyApiSupport.ResolveExposedPort(
+            CoolifyBuildPackValues.Dockerfile, exposedPort: null, framework: null));
+        Assert.Equal("80", CoolifyApiSupport.ResolveExposedPort(
+            CoolifyBuildPackValues.Static, exposedPort: null, framework: null));
+        Assert.Equal("3000", CoolifyApiSupport.ResolveExposedPort(
+            CoolifyBuildPackValues.Nixpacks, exposedPort: null, framework: null));
     }
 
     [Fact]

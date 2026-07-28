@@ -3,6 +3,7 @@ using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
+/// <summary>Generates missing setup files entirely from templates, no Claude call - the non-AI path selected when AI setup is disabled or unavailable.</summary>
 public sealed class TemplateDeploymentFileGenerator : IDeploymentFileGenerator
 {
     private readonly DeploymentFileScaffolder _scaffolder;

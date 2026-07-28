@@ -11,6 +11,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Browses the current user's GitHub repos on their behalf (using their stored GitHub OAuth
+/// token) and inspects a repo's contents to classify how it should be deployed - build commands,
+/// frameworks, database requirements, and the overall multi-part deployment plan.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/github")]
@@ -50,6 +55,11 @@ public sealed class GitHubController : ControllerBase
         _storageFactory = storageFactory;
         _encryption = encryption;
     }
+
+    /// <summary>Lists the current user's GitHub repos, optionally filtered by name.</summary>
+    /// <param name="page">1-based page number.</param>
+    /// <param name="perPage">Page size.</param>
+    /// <param name="search">Optional substring filter on repo name.</param>
     [HttpGet("repos")]
     public async Task<IActionResult> ListRepos([FromQuery] int page = 1, [FromQuery] int perPage = 30, [FromQuery] string? search = null, CancellationToken cancellationToken = default)
     {
@@ -68,6 +78,9 @@ public sealed class GitHubController : ControllerBase
         });
     }
 
+    /// <summary>Lists the branches of a repo.</summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
     [HttpGet("repos/{owner}/{repo}/branches")]
     public async Task<IActionResult> ListBranches(string owner, string repo, CancellationToken cancellationToken)
     {
@@ -76,6 +89,11 @@ public sealed class GitHubController : ControllerBase
         return Ok(new { branches = branches.Select(b => new { name = b.Name }) });
     }
 
+    /// <summary>Lists the directories at a given path/ref in a repo, for the "pick a root folder" UI.</summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="path">Path to list; empty/null lists the repo root.</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the repo's default branch.</param>
     [HttpGet("repos/{owner}/{repo}/contents")]
     public async Task<IActionResult> ListContents(
         string owner,
@@ -104,6 +122,15 @@ public sealed class GitHubController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Classifies a repo into a full deployment plan (one part per website/server/database piece,
+    /// each with a suggested provider, framework, and build config). Takes into account whether the
+    /// user has a Coolify connection, since that changes which plan shapes are viable. May return a
+    /// clarifying question instead of a confident plan when the repo's structure is ambiguous.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the repo's default branch.</param>
     [HttpGet("repos/{owner}/{repo}/deployment-plan")]
     public async Task<IActionResult> GetDeploymentPlan(
         string owner,
@@ -392,6 +419,14 @@ public sealed class GitHubController : ControllerBase
         return new string(result);
     }
 
+    /// <summary>
+    /// Detects the frontend build profile for a given folder (Angular vs. plain package.json),
+    /// reading <c>angular.json</c>/<c>package.json</c> to infer build/install commands and output dir.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="path">Folder to inspect; empty/null inspects the repo root.</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the repo's default branch.</param>
     [HttpGet("repos/{owner}/{repo}/build-profile")]
     public async Task<IActionResult> GetBuildProfile(
         string owner,
@@ -419,6 +454,14 @@ public sealed class GitHubController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Detects the backend build profile for a given folder (.NET/Node/Dockerfile-based), used to
+    /// pre-fill the server deploy target's build/start commands and framework.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="path">Folder to inspect; empty/null inspects the repo root.</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the repo's default branch.</param>
     [HttpGet("repos/{owner}/{repo}/server-build-profile")]
     public async Task<IActionResult> GetServerBuildProfile(
         string owner,
@@ -444,6 +487,14 @@ public sealed class GitHubController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Detects whether a repo needs a Postgres and/or Redis database, by inspecting
+    /// docker-compose files, appsettings.json connection strings, and a Prisma schema if present.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="path">Server folder to inspect for appsettings.json; empty/null uses the repo root.</param>
+    /// <param name="ref">Branch, tag, or commit SHA; null uses the repo's default branch.</param>
     [HttpGet("repos/{owner}/{repo}/database-requirements")]
     public async Task<IActionResult> GetDatabaseRequirements(
         string owner,

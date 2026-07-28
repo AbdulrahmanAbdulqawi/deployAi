@@ -4,8 +4,10 @@ using DeployAI.Providers.Railway.GraphQL;
 
 namespace DeployAI.Providers.Railway;
 
+/// <summary>Resolves which Railway workspace an operation should run against, since OAuth-scoped tokens can be authorized for multiple workspaces.</summary>
 public sealed partial class RailwayProvider
 {
+    /// <summary>Resolves a workspace to create new resources in: the first workspace the token is authorized for.</summary>
     private async Task<string> ResolveWorkspaceIdAsync(
         ProviderCredentials credentials,
         CancellationToken cancellationToken)
@@ -22,6 +24,7 @@ public sealed partial class RailwayProvider
             "We couldn't find a Railway workspace for this connection. Disconnect Railway in Connections, connect again, and choose at least one workspace on the consent screen.");
     }
 
+    /// <summary>Resolves the workspace an existing project belongs to: a known hint if given, else a direct project query, else scanning authorized workspaces for it.</summary>
     private async Task<string> ResolveWorkspaceIdForProjectAsync(
         ProviderCredentials credentials,
         string projectId,

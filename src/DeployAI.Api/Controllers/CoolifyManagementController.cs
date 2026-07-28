@@ -11,6 +11,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DeployAI.Api.Controllers;
 
+/// <summary>
+/// Browses a connected Coolify instance's own resources (projects, servers, GitHub Apps,
+/// environments) and creates new Coolify applications - the provider-specific setup steps a
+/// Coolify deploy target needs that Vercel/Railway don't.
+/// </summary>
 [ApiController]
 [Authorize]
 [Route("api/credentials")]
@@ -36,6 +41,8 @@ public sealed class CoolifyManagementController : ControllerBase
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
     }
 
+    /// <summary>Lists the projects, servers, and GitHub Apps visible on a Coolify connection.</summary>
+    /// <param name="credentialId">A stored Coolify connection owned by the current user.</param>
     [HttpGet("{credentialId:guid}/coolify/infrastructure")]
     public async Task<IActionResult> ListInfrastructure(
         Guid credentialId,
@@ -55,6 +62,9 @@ public sealed class CoolifyManagementController : ControllerBase
         });
     }
 
+    /// <summary>Lists the environments (e.g. production, staging) within a Coolify project.</summary>
+    /// <param name="credentialId">A stored Coolify connection owned by the current user.</param>
+    /// <param name="projectUuid">The Coolify project's UUID.</param>
     [HttpGet("{credentialId:guid}/coolify/projects/{projectUuid}/environments")]
     public async Task<IActionResult> ListProjectEnvironments(
         Guid credentialId,
@@ -71,6 +81,12 @@ public sealed class CoolifyManagementController : ControllerBase
         return Ok(new { environments });
     }
 
+    /// <summary>
+    /// Creates a new application on the target Coolify instance for a GitHub repo - this is the
+    /// step that actually provisions the app on Coolify's side, separate from linking it into a
+    /// DeployAI project (done afterward via <c>ProjectsController</c>).
+    /// </summary>
+    /// <param name="request">Repo, branch, build config, and the Coolify project/server/environment to create it in.</param>
     [HttpPost("coolify/projects")]
     public async Task<IActionResult> CreateCoolifyProject(
         [FromBody] CreateCoolifyProjectRequest request,

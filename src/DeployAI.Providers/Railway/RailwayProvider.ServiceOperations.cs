@@ -4,6 +4,7 @@ namespace DeployAI.Providers.Railway;
 
 public sealed partial class RailwayProvider : IProviderServiceOperations
 {
+    /// <summary>Reads a service's latest deployment status/URL/timestamp for the environment encoded in <paramref name="providerProjectId"/>.</summary>
     public async Task<ProviderServiceStatus> GetServiceStatusAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -51,6 +52,7 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
         return new ProviderServiceStatus("unknown", null, null);
     }
 
+    /// <summary>Redeploys a service, ensuring it has a public domain assigned as part of the redeploy (unlike Coolify's redeploy, which doesn't touch domains).</summary>
     public Task RedeployServiceAsync(
         ProviderCredentials credentials,
         string providerProjectId,
@@ -60,6 +62,7 @@ public sealed partial class RailwayProvider : IProviderServiceOperations
         return RedeployServiceInstanceAsync(credentials, serviceId, environmentId, ensurePublicDomain: true, cancellationToken);
     }
 
+    /// <summary>Deletes a service and any volumes attached to it (volumes aren't cleaned up automatically by Railway on service delete).</summary>
     public async Task DeleteServiceAsync(
         ProviderCredentials credentials,
         string providerProjectId,

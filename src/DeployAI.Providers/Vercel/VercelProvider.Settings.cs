@@ -3,6 +3,7 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
 
+/// <summary>PATCHes Vercel project settings (build/root directory config) from various input shapes - a raw dictionary, a create-project request, or a target's environment entries.</summary>
 public sealed partial class VercelProvider
 {
     private async Task ApplyProjectSettingsAsync(

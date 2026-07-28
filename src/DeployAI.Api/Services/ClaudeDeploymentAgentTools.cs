@@ -2,6 +2,7 @@ namespace DeployAI.Api.Services;
 
 using System.Text.Json;
 
+/// <summary>Defines the Anthropic tool-use tool schemas (submit files, run command, read/write file, memory) offered to Claude for deployment setup and fix-generation agent runs.</summary>
 internal static class ClaudeDeploymentAgentTools
 {
     internal const string SubmitFilesToolName = "submit_deployment_files";

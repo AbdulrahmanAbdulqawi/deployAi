@@ -5,8 +5,10 @@ using DeployAI.Core.Providers;
 
 namespace DeployAI.Providers.Vercel;
 
+/// <summary>Shared request-building, error-mapping, and settings-resolution helpers used across the <see cref="VercelProvider"/> partial classes.</summary>
 public static partial class VercelApiSupport
 {
+    /// <summary>Sanitizes a project name to Vercel's allowed character set (lowercase, alphanumeric, dots/hyphens/underscores), truncated to 100 characters.</summary>
     public static string SanitizeProjectName(string name)
     {
         var sanitized = name.Trim().ToLowerInvariant();
@@ -20,6 +22,7 @@ public static partial class VercelApiSupport
         return sanitized.Length > 100 ? sanitized[..100] : sanitized;
     }
 
+    /// <summary>Normalizes a GitHub repo reference to "owner/repo" form, stripping a full URL prefix and trailing ".git" if present.</summary>
     public static string NormalizeGitHubRepo(string repoFullName)
     {
         var normalized = repoFullName.Trim();
@@ -52,6 +55,7 @@ public static partial class VercelApiSupport
         return $"dist/{folderName}";
     }
 
+    /// <summary>Fills in SPA build defaults (npm install/build, inferred Angular output dir) for a root directory, without overwriting settings already present.</summary>
     public static void ApplySpaBuildDefaults(IDictionary<string, object?> settings, string rootDirectory)
     {
         var normalized = rootDirectory.Trim().Trim('/');
@@ -69,6 +73,7 @@ public static partial class VercelApiSupport
         }
     }
 
+    /// <summary>Maps a target's environment entries to Vercel project settings, applying Angular SPA defaults (build/install commands, inferred output dir/framework) whenever a root directory is set.</summary>
     public static Dictionary<string, object?> BuildSettingsFromEnvironment(IReadOnlyDictionary<string, string> environment)
     {
         var settings = new Dictionary<string, object?>();
@@ -117,6 +122,7 @@ public static partial class VercelApiSupport
         return settings;
     }
 
+    /// <summary>Converts a create-project request's build fields into the same environment-entry shape used elsewhere, so the same settings resolution applies at creation time too.</summary>
     public static Dictionary<string, object?> BuildSettingsFromCreateRequest(CreateProviderProjectRequest request)
     {
         var environment = new Dictionary<string, string>();
@@ -148,6 +154,7 @@ public static partial class VercelApiSupport
         return BuildSettingsFromEnvironment(environment);
     }
 
+    /// <summary>Ensures a URL has an https:// (or existing http://) scheme and no trailing slash, for consistent origin comparisons.</summary>
     public static string NormalizeExternalOrigin(string url)
     {
         var trimmed = url.Trim();
@@ -160,6 +167,11 @@ public static partial class VercelApiSupport
         return trimmed.TrimEnd('/');
     }
 
+    /// <summary>
+    /// Picks the "real" production alias out of a project's assigned aliases, preferring a
+    /// project-name-prefixed *.vercel.app alias, then a bare projectname.vercel.app, then any
+    /// non-preview alias, then falling back to the default projectname.vercel.app guess.
+    /// </summary>
     public static string? ExtractPrimaryProductionAlias(IReadOnlyList<string>? aliases, string? projectName)
     {
         if (aliases is not null && aliases.Count > 0)
@@ -217,6 +229,7 @@ public static partial class VercelApiSupport
         return null;
     }
 
+    /// <summary>Detects a preview/branch/team-scoped deployment URL (as opposed to a real production domain) by its hostname shape.</summary>
     internal static bool IsPreviewAlias(string alias)
     {
         var host = NormalizeAliasHost(alias);
@@ -247,6 +260,7 @@ public static partial class VercelApiSupport
             .Replace("http://", string.Empty, StringComparison.OrdinalIgnoreCase)
             .TrimEnd('/');
 
+    /// <summary>Throws a <see cref="DeployAIException"/> with a user-friendly message (see <see cref="MapFriendlyMessage"/>) if the response failed.</summary>
     public static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         if (response.IsSuccessStatusCode)
@@ -259,6 +273,7 @@ public static partial class VercelApiSupport
         throw new DeployAIException("vercel_api_error", MapFriendlyMessage(vercelMessage, body));
     }
 
+    /// <summary>Extracts Vercel's raw error message from an error response body, or null if it can't be parsed.</summary>
     public static string? ParseErrorMessage(string body)
     {
         try
@@ -272,6 +287,7 @@ public static partial class VercelApiSupport
         }
     }
 
+    /// <summary>Rewrites known Vercel error shapes (GitHub App not installed, repo link limit, name conflict, invalid name) into actionable user-facing messages.</summary>
     private static string MapFriendlyMessage(string? vercelMessage, string body)
     {
         var message = vercelMessage ?? string.Empty;

@@ -148,4 +148,113 @@ public class DeploymentTargetResolutionTests
         Assert.NotNull(server);
         Assert.True(DeploymentTargetResolution.IsCoolifyFullStack(targets));
     }
+
+    [Fact]
+    public void ResolveProviderPairs_ReturnsBothPairs_ForMixedVercelRailwayAndCoolifyProject()
+    {
+        var vercelWebsiteDeployTarget = new DeployTarget
+        {
+            Id = Guid.NewGuid(),
+            ProviderName = ProviderNameValues.Vercel,
+            ConfigJson = """{"role":"website","framework":"angular"}"""
+        };
+        var railwayServerDeployTarget = new DeployTarget
+        {
+            Id = Guid.NewGuid(),
+            ProviderName = ProviderNameValues.Railway,
+            ConfigJson = """{"role":"server","framework":"dotnet"}"""
+        };
+        var coolifyWebsiteDeployTarget = new DeployTarget
+        {
+            Id = Guid.NewGuid(),
+            ProviderName = ProviderNameValues.Coolify,
+            ConfigJson = """{"role":"website","framework":"angular"}"""
+        };
+        var coolifyServerDeployTarget = new DeployTarget
+        {
+            Id = Guid.NewGuid(),
+            ProviderName = ProviderNameValues.Coolify,
+            ConfigJson = """{"role":"server","framework":"dotnet"}"""
+        };
+
+        var targets = new[]
+        {
+            new DeploymentTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Vercel,
+                DeployTarget = vercelWebsiteDeployTarget
+            },
+            new DeploymentTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Railway,
+                DeployTarget = railwayServerDeployTarget
+            },
+            new DeploymentTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Coolify,
+                DeployTarget = coolifyWebsiteDeployTarget
+            },
+            new DeploymentTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Coolify,
+                DeployTarget = coolifyServerDeployTarget
+            }
+        };
+
+        var pairs = DeploymentTargetResolution.ResolveProviderPairs(targets);
+
+        Assert.Equal(2, pairs.Count);
+        Assert.Contains(pairs, pair =>
+            pair.Website.ProviderName == ProviderNameValues.Vercel &&
+            pair.Server.ProviderName == ProviderNameValues.Railway);
+        Assert.Contains(pairs, pair =>
+            pair.Website.ProviderName == ProviderNameValues.Coolify &&
+            pair.Server.ProviderName == ProviderNameValues.Coolify);
+    }
+
+    [Fact]
+    public void ResolveProviderPairs_DeployTargetOverload_ReturnsBothPairs_ForMixedProject()
+    {
+        var targets = new[]
+        {
+            new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Vercel,
+                ConfigJson = """{"role":"website","framework":"angular"}"""
+            },
+            new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Railway,
+                ConfigJson = """{"role":"server","framework":"dotnet"}"""
+            },
+            new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Coolify,
+                ConfigJson = """{"role":"website","framework":"angular"}"""
+            },
+            new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProviderName = ProviderNameValues.Coolify,
+                ConfigJson = """{"role":"server","framework":"dotnet"}"""
+            }
+        };
+
+        var pairs = DeploymentTargetResolution.ResolveProviderPairs(targets);
+
+        Assert.Equal(2, pairs.Count);
+        Assert.Contains(pairs, pair =>
+            pair.Website.ProviderName == ProviderNameValues.Vercel &&
+            pair.Server.ProviderName == ProviderNameValues.Railway);
+        Assert.Contains(pairs, pair =>
+            pair.Website.ProviderName == ProviderNameValues.Coolify &&
+            pair.Server.ProviderName == ProviderNameValues.Coolify);
+    }
 }

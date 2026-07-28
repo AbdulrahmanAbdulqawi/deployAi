@@ -1,5 +1,9 @@
 namespace DeployAI.Core.Providers;
 
+/// <summary>
+/// An environment variable on a provider project. <see cref="Value"/> is null when
+/// <see cref="ValueHidden"/> is true (the provider doesn't return secret values on read).
+/// </summary>
 public sealed record ProviderEnvVar(
     string Id,
     string Key,
@@ -8,6 +12,7 @@ public sealed record ProviderEnvVar(
     IReadOnlyList<string> Targets,
     bool ValueHidden);
 
+/// <summary>Everything needed to create a new project/application on a provider for a GitHub repo.</summary>
 public sealed record CreateProviderProjectRequest(
     string Name,
     string GitHubRepoFullName,
@@ -49,6 +54,7 @@ public sealed record CreateProviderProjectRequest(
     /// </summary>
     string? ExposedPort = null);
 
+/// <summary>A key/value to create or update as an environment variable on a provider project.</summary>
 public sealed record UpsertProviderEnvVarRequest(
     string Key,
     string Value,
