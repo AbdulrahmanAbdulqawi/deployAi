@@ -91,12 +91,16 @@ rotate it.
 
 Recorded so they get closed rather than re-done by hand.
 
-- **Env var duplicates already in the wild have no cleanup path.** The write race is fixed --
+- **Duplicate repair only runs on the database-linking path.** The write race is fixed --
   `CoolifyProvider.UpsertEnvVarAsync` now goes through Coolify's `PATCH /envs/bulk`, which
-  resolves by key server-side, instead of the old non-atomic list-then-create. But nothing
-  detects or repairs applications that already carry duplicates from before the fix. One app was
-  observed with 32 records for 16 keys, including two `DATABASE_URL`s pointing at *different*
-  Postgres instances.
+  resolves by key server-side, instead of the old non-atomic list-then-create. Repair now exists
+  too: `ReconcileDuplicateEnvVarsAsync` deletes every record after the first for a key, which is
+  the only safe rule because Coolify's bulk handler resolves with `->where('key', $key)->first()`
+  and so writes to the first record and leaves later ones stale. But it is only wired into
+  `LinkDatabaseVariablesAsync`. An application that carries duplicates and never gets a database
+  link is still never repaired, and there is no way to ask for a repair without deploying. One app
+  was observed with 32 records for 16 keys, including two `DATABASE_URL`s pointing at *different*
+  Postgres instances -- and the stale copies pointed at a database that no longer existed at all.
 - **Callers still upsert one key at a time.** `UpsertEnvVarsAsync` can apply a whole set in a
   single request, but `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still
   loop key by key. Batching would cut N round trips to one and leave no window for a concurrent

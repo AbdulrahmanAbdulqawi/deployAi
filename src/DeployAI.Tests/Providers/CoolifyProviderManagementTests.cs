@@ -149,6 +149,90 @@ public class CoolifyProviderManagementTests
     }
 
     [Fact]
+    public async Task ReconcileDuplicateEnvVarsAsync_KeepsFirstRecordPerKeyAndDeletesTheRest()
+    {
+        // Coolify's bulk handler resolves a key with ->where('key', $key)->first(), so the first
+        // record is where every later write lands. The records after it are stale by construction:
+        // they keep whatever they were created with and never receive an update again.
+        //
+        // No DELETE handler is registered for the survivors (env-1, env-3). MockHttp has no
+        // matching handler for those requests, so deleting a survivor fails this test rather than
+        // passing quietly -- asserting only the delete count would not catch it.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "DATABASE_URL", "value": "postgres://user:pw@live:5432/app" },
+              { "uuid": "env-2", "key": "DATABASE_URL", "value": "postgres://user:pw@decommissioned:5432/app" },
+              { "uuid": "env-3", "key": "REDIS_URL", "value": "redis://cache:6379" },
+              { "uuid": "env-4", "key": "DATABASE_URL", "value": "postgres://user:pw@older:5432/app" }
+            ]
+            """);
+        var deleteSecondCopy = handler
+            .When(HttpMethod.Delete, $"{InstanceUrl}/api/v1/applications/app-1/envs/env-2")
+            .Respond(HttpStatusCode.OK, "application/json", "{}");
+        var deleteThirdCopy = handler
+            .When(HttpMethod.Delete, $"{InstanceUrl}/api/v1/applications/app-1/envs/env-4")
+            .Respond(HttpStatusCode.OK, "application/json", "{}");
+
+        var provider = CreateProvider(handler);
+        var removed = await provider.ReconcileDuplicateEnvVarsAsync(
+            Credentials,
+            "app-1",
+            CancellationToken.None);
+
+        Assert.Equal(2, removed);
+        Assert.Equal(1, handler.GetMatchCount(deleteSecondCopy));
+        Assert.Equal(1, handler.GetMatchCount(deleteThirdCopy));
+    }
+
+    [Fact]
+    public async Task ReconcileDuplicateEnvVarsAsync_LeavesAnApplicationWithoutDuplicatesUntouched()
+    {
+        // No DELETE handler is registered at all, so any delete attempt fails the test.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "DATABASE_URL", "value": "postgres://user:pw@live:5432/app" },
+              { "uuid": "env-2", "key": "REDIS_URL", "value": "redis://cache:6379" }
+            ]
+            """);
+
+        var provider = CreateProvider(handler);
+        var removed = await provider.ReconcileDuplicateEnvVarsAsync(
+            Credentials,
+            "app-1",
+            CancellationToken.None);
+
+        Assert.Equal(0, removed);
+    }
+
+    [Fact]
+    public async Task ReconcileDuplicateEnvVarsAsync_TreatsKeysDifferingOnlyByCaseAsDistinct()
+    {
+        // Coolify stores variables in Postgres, where the key lookup is case-sensitive. These are
+        // two independently resolvable records, not a duplicate pair, and deleting either would
+        // drop a value the container still receives.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1/envs")
+            .Respond("application/json", """
+            [
+              { "uuid": "env-1", "key": "DATABASE_URL", "value": "postgres://user:pw@live:5432/app" },
+              { "uuid": "env-2", "key": "database_url", "value": "postgres://user:pw@other:5432/app" }
+            ]
+            """);
+
+        var provider = CreateProvider(handler);
+        var removed = await provider.ReconcileDuplicateEnvVarsAsync(
+            Credentials,
+            "app-1",
+            CancellationToken.None);
+
+        Assert.Equal(0, removed);
+    }
+
+    [Fact]
     public async Task UpsertEnvVarAsync_SurfacesCoolifyErrorMessage()
     {
         var handler = new MockHttpMessageHandler();

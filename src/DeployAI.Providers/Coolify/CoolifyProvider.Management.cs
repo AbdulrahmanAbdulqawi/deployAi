@@ -189,6 +189,31 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
+        var envs = await ListRawEnvVarsAsync(session, providerProjectId, cancellationToken);
+        return envs
+            .Where(env => !string.IsNullOrWhiteSpace(env.Key))
+            .Select(env => new ProviderEnvVar(
+                env.Uuid ?? env.Key!,
+                env.Key!,
+                env.IsShownOnce == true ? null : env.Value,
+                "plain",
+                [],
+                env.IsShownOnce == true))
+            .OrderBy(env => env.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Fetches the application's variables exactly as Coolify returns them: one entry per record,
+    /// in Coolify's own order, duplicates included. <see cref="ListEnvVarsAsync"/> reshapes and
+    /// re-sorts for callers; reconciliation needs the raw order, because which record Coolify's
+    /// bulk upsert writes to depends on it.
+    /// </summary>
+    private async Task<IReadOnlyList<CoolifyEnvironmentVariable>> ListRawEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
         using var request = CreateRequest(HttpMethod.Get, session, $"applications/{providerProjectId}/envs");
         var response = await _httpClient.SendAsync(request, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -201,18 +226,61 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
                     ?? $"Could not list Coolify environment variables ({(int)response.StatusCode}).");
         }
 
-        var envs = await response.Content.ReadFromJsonAsync<List<CoolifyEnvironmentVariable>>(cancellationToken) ?? [];
-        return envs
-            .Where(env => !string.IsNullOrWhiteSpace(env.Key))
-            .Select(env => new ProviderEnvVar(
-                env.Uuid ?? env.Key!,
-                env.Key!,
-                env.IsShownOnce == true ? null : env.Value,
-                "plain",
-                [],
-                env.IsShownOnce == true))
-            .OrderBy(env => env.Key, StringComparer.OrdinalIgnoreCase)
+        return JsonSerializer.Deserialize<List<CoolifyEnvironmentVariable>>(responseBody) ?? [];
+    }
+
+    /// <summary>
+    /// Removes duplicate variable records from an application, keeping the first record for each
+    /// key, and returns how many were deleted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="UpsertEnvVarsAsync"/> stops new duplicates being created, but it cannot repair
+    /// an application that already has them, and on such an application it makes the situation
+    /// actively misleading: Coolify's bulk handler resolves a key with
+    /// <c>-&gt;where('key', $key)-&gt;first()</c>, so it updates the first record and leaves every
+    /// later one untouched. Those later records keep whatever value they were created with and
+    /// silently stop tracking reality, while which one the container actually receives is not
+    /// something DeployAI controls.
+    /// </para>
+    /// <para>
+    /// Keeping the first record therefore is not a preference — it is the only choice consistent
+    /// with where subsequent writes land. One live application was found holding 32 records for 16
+    /// keys, and every stale Postgres copy pointed at a database that no longer existed on the
+    /// instance at all.
+    /// </para>
+    /// </remarks>
+    public async Task<int> ReconcileDuplicateEnvVarsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+        return await ReconcileDuplicateEnvVarsAsync(session, providerProjectId, cancellationToken);
+    }
+
+    private async Task<int> ReconcileDuplicateEnvVarsAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        CancellationToken cancellationToken)
+    {
+        var envs = await ListRawEnvVarsAsync(session, providerProjectId, cancellationToken);
+
+        // Ordinal grouping: Coolify stores variables in Postgres, where `where('key', $key)` is
+        // case-sensitive, so KEY and Key are two distinct records and neither shadows the other.
+        // Grouping case-insensitively here would delete a record Coolify still resolves.
+        var stale = envs
+            .Where(env => !string.IsNullOrWhiteSpace(env.Key) && !string.IsNullOrWhiteSpace(env.Uuid))
+            .GroupBy(env => env.Key!, StringComparer.Ordinal)
+            .SelectMany(group => group.Skip(1))
             .ToList();
+
+        foreach (var duplicate in stale)
+        {
+            await DeleteEnvVarAsync(session, providerProjectId, duplicate.Uuid!, cancellationToken);
+        }
+
+        return stale.Count;
     }
 
     public async Task<ProviderEnvVar> UpsertEnvVarAsync(
@@ -310,6 +378,15 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
+        await DeleteEnvVarAsync(session, providerProjectId, envVarId, cancellationToken);
+    }
+
+    private async Task DeleteEnvVarAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string providerProjectId,
+        string envVarId,
+        CancellationToken cancellationToken)
+    {
         using var request = CreateRequest(
             HttpMethod.Delete,
             session,

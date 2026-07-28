@@ -188,6 +188,13 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
                     cancellationToken);
             }
         }
+
+        // Applications provisioned before the /envs/bulk fix still carry duplicate records, and
+        // this is both the path that created them and the one where they do the most damage: a
+        // stale second DATABASE_URL points the container at a database that may have been
+        // decommissioned. Repairing here means an affected app is fixed by being deployed, rather
+        // than by someone opening Coolify's UI and deleting rows by hand.
+        await ReconcileDuplicateEnvVarsAsync(session, appProviderProjectId, cancellationToken);
     }
 
     /// <summary>Strips a trailing "|env" suffix (if present) to get the raw Coolify database uuid.</summary>
