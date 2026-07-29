@@ -123,6 +123,60 @@ public sealed class HetznerStorageProvider : IObjectStorageProvider
         return new StorageBucket(name, DateTimeOffset.UtcNow);
     }
 
+    public async Task<StorageRoundTrip> VerifyRoundTripAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        CancellationToken cancellationToken)
+    {
+        // Prefixed and timestamp-free so a leftover probe is recognisable, and unique so two
+        // concurrent deploys cannot delete each other's.
+        var key = $"deployai-probe/{Guid.NewGuid():N}";
+        var payload = "deployai storage probe"u8.ToArray();
+        var step = "write";
+
+        using var client = CreateClient(credentials);
+
+        try
+        {
+            using var body = new MemoryStream(payload);
+            await client.PutObjectAsync(
+                new PutObjectRequest
+                {
+                    BucketName = bucket,
+                    Key = key,
+                    InputStream = body,
+                    ContentType = "text/plain",
+                    AutoCloseStream = false
+                },
+                cancellationToken);
+
+            step = "read";
+            using var response = await client.GetObjectAsync(bucket, key, cancellationToken);
+            using var buffer = new MemoryStream();
+            await response.ResponseStream.CopyToAsync(buffer, cancellationToken);
+
+            if (buffer.Length != payload.Length)
+            {
+                return new StorageRoundTrip(
+                    false,
+                    "read",
+                    $"Read back {buffer.Length} bytes after writing {payload.Length}.");
+            }
+
+            step = "delete";
+            await client.DeleteObjectAsync(bucket, key, cancellationToken);
+
+            return StorageRoundTrip.Ok;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Left behind on failure rather than cleaned up: a probe that could be written but not
+            // read is evidence, and deleting it destroys the only artefact worth inspecting. The
+            // step and message travel back in the result for the caller to log and report.
+            return new StorageRoundTrip(false, step, ex.Message);
+        }
+    }
+
     public async Task SetBucketCorsAsync(
         ProviderCredentials credentials,
         string bucket,

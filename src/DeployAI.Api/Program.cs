@@ -98,6 +98,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IDeploymentOrchestrator, DeploymentOrchestrator>();
 builder.Services.AddScoped<DeploymentJobRunner>();
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
+builder.Services.AddScoped<IObjectStorageVerifier, ObjectStorageVerifier>();
 builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();
 builder.Services.AddSingleton<DeployAI.Infrastructure.GitHub.IObjectStorageNeedDetector, DeployAI.Infrastructure.GitHub.ObjectStorageNeedDetector>();
 builder.Services.AddScoped<IObjectStorageAutoProvisioner, ObjectStorageAutoProvisioner>();

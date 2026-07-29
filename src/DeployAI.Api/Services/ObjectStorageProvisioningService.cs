@@ -10,7 +10,12 @@ namespace DeployAI.Api.Services;
 
 public sealed record ObjectStorageProvisioningResult(
     string Bucket,
-    IReadOnlyList<string> AppliedKeys);
+    IReadOnlyList<string> AppliedKeys,
+    /// <summary>
+    /// What was proven about the bucket, not just what was configured on it. Null only when
+    /// verification could not be attempted.
+    /// </summary>
+    ObjectStorageVerification? Verification = null);
 
 public interface IObjectStorageProvisioningService
 {
@@ -38,17 +43,23 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IEncryptionService _encryption;
+    private readonly IObjectStorageVerifier _verifier;
+    private readonly ILogger<ObjectStorageProvisioningService> _logger;
 
     public ObjectStorageProvisioningService(
         DeployAIDbContext db,
         IObjectStorageProviderFactory storageFactory,
         IProviderManagementFactory managementFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IObjectStorageVerifier verifier,
+        ILogger<ObjectStorageProvisioningService> logger)
     {
         _db = db;
         _storageFactory = storageFactory;
         _managementFactory = managementFactory;
         _encryption = encryption;
+        _verifier = verifier;
+        _logger = logger;
     }
 
     public async Task<ObjectStorageProvisioningResult?> ProvisionAsync(
@@ -160,7 +171,22 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
         storage.Target.ConfigJson = storage.Config.ToJson();
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new ObjectStorageProvisioningResult(bucket.Name, applied);
+        // Everything above configured the bucket. This is the only part that finds out whether it
+        // works. Advisory -- a failed check must not undo a provision that otherwise succeeded --
+        // but never silent, because "configured" is exactly what four broken storage setups all
+        // looked like.
+        ObjectStorageVerification? verification = null;
+        try
+        {
+            verification = await _verifier.VerifyAsync(
+                provider, storageCredentials, payload.Endpoint, bucket.Name, websiteOrigins, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not verify object storage for project {ProjectId}.", project.Id);
+        }
+
+        return new ObjectStorageProvisioningResult(bucket.Name, applied, verification);
     }
 
     /// <summary>

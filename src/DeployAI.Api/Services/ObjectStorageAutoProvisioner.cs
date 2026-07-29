@@ -90,7 +90,12 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
         {
             try
             {
-                await _provisioning.ProvisionAsync(project.UserId, project.Id, cancellationToken);
+                var refreshed = await _provisioning.ProvisionAsync(project.UserId, project.Id, cancellationToken);
+
+                // Quiet when an unchanged bucket verifies -- re-affirming it every deploy is not
+                // news. Loud the moment it does not, because a bucket that stops working looks
+                // exactly like one that works until somebody tries to upload.
+                return new ObjectStorageAutoOutcome(true, UnhealthyMessage(refreshed?.Verification));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -98,9 +103,6 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
                 return new ObjectStorageAutoOutcome(true,
                     $"This app's object storage could not be refreshed: {ex.Message}");
             }
-
-            // Quiet on success: re-affirming an unchanged bucket on every deploy is not news.
-            return new ObjectStorageAutoOutcome(true, null);
         }
 
         var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
@@ -144,10 +146,20 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
         try
         {
             var result = await _provisioning.ProvisionAsync(project.UserId, project.Id, cancellationToken);
-            return result is null
-                ? new ObjectStorageAutoOutcome(true, $"This app stores files ({reasons}), but a bucket could not be provisioned.")
-                : new ObjectStorageAutoOutcome(true,
-                    $"Provisioned object storage '{result.Bucket}' and set {string.Join(", ", result.AppliedKeys)} — {reasons}.");
+            if (result is null)
+            {
+                return new ObjectStorageAutoOutcome(true,
+                    $"This app stores files ({reasons}), but a bucket could not be provisioned.");
+            }
+
+            // The verification findings go in the same line as the provisioning result, so what was
+            // proven sits next to what was configured rather than in a separate log nobody reads.
+            var proven = result.Verification is { Findings.Count: > 0 }
+                ? " " + string.Join(" ", result.Verification.Findings)
+                : string.Empty;
+
+            return new ObjectStorageAutoOutcome(true,
+                $"Provisioned object storage '{result.Bucket}' and set {string.Join(", ", result.AppliedKeys)} — {reasons}.{proven}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -200,6 +212,15 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
 
         return null;
     }
+
+    /// <summary>
+    /// The findings of a verification that failed, or null when there is nothing wrong to report.
+    /// Keeps the quiet-on-success rule in one place rather than at each call site.
+    /// </summary>
+    private static string? UnhealthyMessage(ObjectStorageVerification? verification) =>
+        verification is { Ok: false, Findings.Count: > 0 }
+            ? string.Join(" ", verification.Findings)
+            : null;
 
     private async Task<IReadOnlyList<string>> ReadManifestsAsync(
         string token, string owner, string repo, IReadOnlyList<string> directories,

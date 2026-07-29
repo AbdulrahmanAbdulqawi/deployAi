@@ -259,7 +259,14 @@ public class ObjectStorageProvisioningTests
                 Storage = storage,
                 Management = management,
                 Service = new ObjectStorageProvisioningService(
-                    db, storageFactory.Object, managementFactory.Object, encryption.Object)
+                    db,
+                    storageFactory.Object,
+                    managementFactory.Object,
+                    encryption.Object,
+                    // Verification has its own tests; here it must simply not interfere with
+                    // provisioning, which is why a failing one still returns a result.
+                    Mock.Of<IObjectStorageVerifier>(),
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<ObjectStorageProvisioningService>.Instance)
             };
         }
 
