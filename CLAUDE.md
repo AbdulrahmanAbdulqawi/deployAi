@@ -123,11 +123,21 @@ Recorded so they get closed rather than re-done by hand.
   empty result either way. Until it distinguishes them, a repo whose configuration lives somewhere
   the scan does not look still deploys with nothing set — which is how an API reached production
   and crash-looped on `Jwt configuration missing`.
-- **The scan only reads a repository's root, plus one server path.** It looks for
-  `docker-compose.yml`, `.env.example`, `README.md` and `appsettings.json` at the root, and
-  `appsettings.json` under an explicitly supplied `serverPath`. A monorepo that nests its API
-  deeper — `backend/src/YemenHub.Api` — is invisible to it, and the Dockerfile and CI-workflow
-  scanners the detector implements are never fed by the endpoint at all.
+- **Seven scanners each guess where an app lives, and a wrong guess is silent.** `env-schema`,
+  `RepositoryClassifier` and `RailwayDatabaseProvisioningService` read the repo root;
+  `SsrWebsiteBuildProvisioner` reads one app directory; only `ServerDockerfileProvisioner` and
+  `ObjectStorageAutoProvisioner` look one level down, each via its own bespoke patch. A monorepo
+  that nests its API — `backend/src/YemenHub.Api` — is invisible to the rest, and an empty scan is
+  indistinguishable from "this repo has no such file", so the dependent capability quietly does not
+  run. Four separate instances of this were hit in one day; two were patched per-caller, which is
+  why it keeps recurring. `docs/12-repository-scanning.md` specifies the shared resolver that fixes
+  it once, and the pre-deploy configuration check it unlocks.
+- **Nothing compares the deployed ref's required configuration against what the target has.**
+  Merging a branch that introduced a Media module needing `Storage:*` took every route down:
+  `AmazonS3Client` threw before `builder.Build()`, and Coolify gave up after eleven restarts. The
+  migration chain validated and the build was green; neither can catch this. DeployAI now has both
+  halves separately — reading an app's config files, and reading what a target actually has (the
+  environment listing) — so this is short work once the scanner above exists.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
