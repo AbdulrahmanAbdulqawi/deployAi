@@ -302,6 +302,7 @@ public sealed class DeploymentJobRunner
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
+    private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
     private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
@@ -319,6 +320,7 @@ public sealed class DeploymentJobRunner
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
+        IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
         IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
@@ -335,6 +337,7 @@ public sealed class DeploymentJobRunner
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
+        _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
@@ -466,6 +469,37 @@ public sealed class DeploymentJobRunner
                     _logger.LogWarning(
                         buildEx,
                         "Could not refresh the generated Dockerfile for server target {TargetId}; continuing.",
+                        target.Id);
+                }
+
+                // An app that stores files needs a bucket before it meets its first upload. Left to
+                // the user to notice and ask for, it does not happen: the app falls back to the
+                // container filesystem, accepts the upload, reports success, and loses the file on
+                // the next deploy. Reads the repository and provisions when the evidence says so.
+                //
+                // Advisory, like the Dockerfile step above: a bucket that cannot be created must not
+                // fail a deploy that would otherwise succeed. It is always reported, though — every
+                // outcome that matters ends up in the deploy log the user reads.
+                try
+                {
+                    var storage = await _objectStorageAutoProvisioner.EnsureAsync(
+                        project, deployTarget, deployment.Branch, cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(storage.Message))
+                    {
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            await NextSequenceAsync(target.Id, cancellationToken),
+                            storage.Message,
+                            cancellationToken);
+                    }
+                }
+                catch (Exception storageEx) when (storageEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        storageEx,
+                        "Object storage check failed for server target {TargetId}; continuing.",
                         target.Id);
                 }
             }
