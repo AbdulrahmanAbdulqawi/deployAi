@@ -70,6 +70,36 @@ public class ObjectStorageAutoProvisionerTests
     }
 
     [Fact]
+    public async Task EnsureAsync_SaysStorageWasNotChecked_WhenVerificationDidNotRun()
+    {
+        // Reporting only failures made "verified clean" and "never checked" byte-identical, so the
+        // only way to tell them apart was DeployAI's own HTTP client logs. An absent check has to
+        // say it is absent.
+        var (provisioner, project, target, provisioning) = Create(MonorepoRepository(), alreadyLinked: true);
+        provisioning.Setup(p => p.ProvisionAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ObjectStorageProvisioningResult("yemenconnect", ["Storage__Bucket"], Verification: null));
+
+        var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
+
+        Assert.Contains("could not be checked", outcome.Message);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_ReportsAPassingCheck_NotJustAFailingOne()
+    {
+        var (provisioner, project, target, provisioning) = Create(MonorepoRepository(), alreadyLinked: true);
+        provisioning.Setup(p => p.ProvisionAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ObjectStorageProvisioningResult(
+                "yemenconnect",
+                ["Storage__Bucket"],
+                new ObjectStorageVerification(true, ["Storage verified: wrote, read and deleted a test object."])));
+
+        var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
+
+        Assert.Contains("Storage verified", outcome.Message);
+    }
+
+    [Fact]
     public async Task EnsureAsync_StaysQuiet_ForAnAppThatStoresNoFiles()
     {
         var github = new Mock<IGitHubService>();

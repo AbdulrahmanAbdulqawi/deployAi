@@ -91,11 +91,7 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
             try
             {
                 var refreshed = await _provisioning.ProvisionAsync(project.UserId, project.Id, cancellationToken);
-
-                // Quiet when an unchanged bucket verifies -- re-affirming it every deploy is not
-                // news. Loud the moment it does not, because a bucket that stops working looks
-                // exactly like one that works until somebody tries to upload.
-                return new ObjectStorageAutoOutcome(true, UnhealthyMessage(refreshed?.Verification));
+                return new ObjectStorageAutoOutcome(true, VerificationMessage(refreshed?.Verification));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -214,13 +210,19 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
     }
 
     /// <summary>
-    /// The findings of a verification that failed, or null when there is nothing wrong to report.
-    /// Keeps the quiet-on-success rule in one place rather than at each call site.
+    /// What to say about a verification — including when it passed, and when it could not run.
     /// </summary>
-    private static string? UnhealthyMessage(ObjectStorageVerification? verification) =>
-        verification is { Ok: false, Findings.Count: > 0 }
+    /// <remarks>
+    /// This reported only failures at first, on the reasoning that re-affirming an unchanged bucket
+    /// every deploy is not news. That was wrong in the specific way this whole file exists to avoid:
+    /// it made "verified clean" and "never checked" produce byte-identical output, so the only way to
+    /// tell them apart was to read DeployAI's own HTTP client logs. Nobody does that. A passing
+    /// check is one short line; an absent one says so.
+    /// </remarks>
+    private static string VerificationMessage(ObjectStorageVerification? verification) =>
+        verification is { Findings.Count: > 0 }
             ? string.Join(" ", verification.Findings)
-            : null;
+            : "Object storage could not be checked this deploy, so whether uploads work is unknown.";
 
     private async Task<IReadOnlyList<string>> ReadManifestsAsync(
         string token, string owner, string repo, IReadOnlyList<string> directories,
