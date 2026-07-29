@@ -75,12 +75,31 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
             return new ObjectStorageAutoOutcome(false, null);
         }
 
-        // Already has a bucket: nothing to decide, and re-reading the repo would only risk
-        // re-provisioning something that is already wired.
+        // Already linked: the decision is made, so the repository scan is skipped — but the
+        // provisioning itself still runs. It is idempotent, and it is what keeps the bucket's CORS
+        // rule pointing at the site's current origin and the five keys present on the server.
+        //
+        // Returning early here instead was a bug of exactly the kind this file exists to prevent:
+        // an operation that only runs at creation time. The bucket was created before DeployAI
+        // could set CORS on it, and once the link existed nothing ever revisited it, so the rule
+        // was never applied and uploads kept failing their preflight. The same short-circuit would
+        // have silently broken uploads on any domain change.
         var alreadyLinked = project.DeployTargets
             .Any(t => DeployTargetConfig.Parse(t.ConfigJson).IsStorageTarget);
         if (alreadyLinked)
         {
+            try
+            {
+                await _provisioning.ProvisionAsync(project.UserId, project.Id, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not refresh object storage for project {ProjectId}.", project.Id);
+                return new ObjectStorageAutoOutcome(true,
+                    $"This app's object storage could not be refreshed: {ex.Message}");
+            }
+
+            // Quiet on success: re-affirming an unchanged bucket on every deploy is not news.
             return new ObjectStorageAutoOutcome(true, null);
         }
 

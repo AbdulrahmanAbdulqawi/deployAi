@@ -31,7 +31,7 @@ public class ObjectStorageAutoProvisionerTests
         // provisioned, and the app would have gone on writing uploads into its container.
         var github = MonorepoRepository();
 
-        var (provisioner, project, target) = Create(github);
+        var (provisioner, project, target, provisioning) = Create(github);
         var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
 
         Assert.True(outcome.Needed);
@@ -44,13 +44,29 @@ public class ObjectStorageAutoProvisionerTests
     {
         // The keys are the user's own, so DeployAI cannot invent them. Silence here is what leaves
         // an app accepting uploads it will lose on the next deploy.
-        var (provisioner, project, target) = Create(MonorepoRepository(), withStorageConnection: false);
+        var (provisioner, project, target, provisioning) = Create(MonorepoRepository(), withStorageConnection: false);
 
         var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
 
         Assert.True(outcome.Needed);
         Assert.Contains("no object storage is connected", outcome.Message);
         Assert.Contains("lost on the next deploy", outcome.Message);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_StillReprovisions_WhenTheAppAlreadyHasABucket()
+    {
+        // Provisioning is what keeps the bucket's CORS rule pointing at the site's current origin
+        // and the five keys present on the server. Returning early once the link existed was an
+        // operation that only ran at creation time: the bucket had been created before DeployAI
+        // could set CORS, nothing revisited it, and every upload kept failing its preflight.
+        var (provisioner, project, target, provisioning) = Create(MonorepoRepository(), alreadyLinked: true);
+
+        var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
+
+        Assert.True(outcome.Needed);
+        provisioning.Verify(p => p.ProvisionAsync(
+            project.UserId, project.Id, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -62,7 +78,7 @@ public class ObjectStorageAutoProvisionerTests
         StubFile(github, "backend/src/YemenHub.Api/appsettings.json",
             """{"ConnectionStrings":{"Postgres":"Host=db"}}""");
 
-        var (provisioner, project, target) = Create(github);
+        var (provisioner, project, target, provisioning) = Create(github);
         var outcome = await provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
 
         Assert.False(outcome.Needed);
@@ -89,9 +105,10 @@ public class ObjectStorageAutoProvisionerTests
         return github;
     }
 
-    private static (ObjectStorageAutoProvisioner, Project, DeployTarget) Create(
+    private static (ObjectStorageAutoProvisioner Provisioner, Project Project, DeployTarget Target, Mock<IObjectStorageProvisioningService> Provisioning) Create(
         Mock<IGitHubService> github,
-        bool withStorageConnection = true)
+        bool withStorageConnection = true,
+        bool alreadyLinked = false)
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -142,6 +159,17 @@ public class ObjectStorageAutoProvisionerTests
             CreatedAt = DateTimeOffset.UtcNow
         };
         project.DeployTargets.Add(target);
+        if (alreadyLinked)
+        {
+            project.DeployTargets.Add(new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                ProviderName = "hetzner-storage",
+                ConfigJson = """{"role":"storage","linkedServiceName":"yemenconnect"}""",
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        }
 
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("gh-token");
@@ -159,7 +187,8 @@ public class ObjectStorageAutoProvisionerTests
                 provisioning.Object,
                 NullLogger<ObjectStorageAutoProvisioner>.Instance),
             project,
-            target);
+            target,
+            provisioning);
     }
 
     private static GitHubContentItem Dir(string path) => new(Path.GetFileName(path), path, "dir");
