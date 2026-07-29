@@ -89,11 +89,17 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
         var config = DeployTargetConfig.Parse(serverTarget.ConfigJson);
         var serviceDir = Normalize(config.ServiceDirectory ?? config.RootDirectory);
 
+        // The service directory of a modular solution holds project directories and no files of its
+        // own, so reading only that level finds neither appsettings.json nor a csproj. Descending
+        // one level is what makes a monorepo visible: without it the scan came back empty for
+        // exactly the app this was written for, and empty reads as "stores no files".
+        var directories = await ScanDirectoriesAsync(token, parts[0], parts[1], serviceDir, branch, cancellationToken);
+
         var need = _detector.Detect(new ObjectStorageScanInputs(
-            AppsettingsContent: await ReadAsync(token, parts[0], parts[1], Join(serviceDir, "appsettings.json"), branch, cancellationToken),
+            AppsettingsContent: await ReadFirstAsync(token, parts[0], parts[1], directories, "appsettings.json", branch, cancellationToken),
             ComposeContent: await ReadAsync(token, parts[0], parts[1], "docker-compose.yml", branch, cancellationToken),
             DotEnvExampleContent: await ReadAsync(token, parts[0], parts[1], ".env.example", branch, cancellationToken),
-            ManifestContents: await ReadManifestsAsync(token, parts[0], parts[1], serviceDir, branch, cancellationToken)));
+            ManifestContents: await ReadManifestsAsync(token, parts[0], parts[1], directories, branch, cancellationToken)));
 
         if (!need.Needed)
         {
@@ -134,32 +140,69 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
         }
     }
 
-    private async Task<IReadOnlyList<string>> ReadManifestsAsync(
+    /// <summary>
+    /// The service directory plus its immediate children, which is where a modular solution keeps
+    /// the project that actually holds the configuration. One level only: deeper is a repository
+    /// crawl, and the cost is paid on every deploy.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ScanDirectoriesAsync(
         string token, string owner, string repo, string serviceDir, string branch, CancellationToken cancellationToken)
     {
-        var candidates = new List<string> { "package.json", "requirements.txt" };
-        if (!string.IsNullOrEmpty(serviceDir))
+        var directories = new List<string> { serviceDir };
+
+        try
         {
-            candidates.Add(Join(serviceDir, "package.json"));
-            candidates.Add(Join(serviceDir, "requirements.txt"));
+            var items = await _gitHub.ListAllContentsAsync(token, owner, repo, serviceDir, branch, cancellationToken);
+            directories.AddRange(items
+                .Where(i => string.Equals(i.Type, "dir", StringComparison.OrdinalIgnoreCase))
+                .Select(i => i.Path));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list {Directory} while scanning for storage use.", serviceDir);
         }
 
-        var contents = new List<string>();
-        foreach (var path in candidates)
+        return directories;
+    }
+
+    /// <summary>The first directory that has the file — the nearest one wins.</summary>
+    private async Task<string?> ReadFirstAsync(
+        string token, string owner, string repo, IReadOnlyList<string> directories,
+        string fileName, string branch, CancellationToken cancellationToken)
+    {
+        foreach (var directory in directories)
         {
-            var content = await ReadAsync(token, owner, repo, path, branch, cancellationToken);
+            var content = await ReadAsync(token, owner, repo, Join(directory, fileName), branch, cancellationToken);
             if (!string.IsNullOrWhiteSpace(content))
             {
-                contents.Add(content);
+                return content;
             }
         }
 
-        // The csproj name is not knowable up front, so the service directory is listed for one.
-        if (!string.IsNullOrEmpty(serviceDir))
+        return null;
+    }
+
+    private async Task<IReadOnlyList<string>> ReadManifestsAsync(
+        string token, string owner, string repo, IReadOnlyList<string> directories,
+        string branch, CancellationToken cancellationToken)
+    {
+        var contents = new List<string>();
+
+        foreach (var directory in directories)
         {
+            foreach (var name in (string[])["package.json", "requirements.txt"])
+            {
+                var content = await ReadAsync(token, owner, repo, Join(directory, name), branch, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    contents.Add(content);
+                }
+            }
+
+            // A csproj's name is not knowable up front, so the directory is listed for one.
             try
             {
-                var items = await _gitHub.ListAllContentsAsync(token, owner, repo, serviceDir, branch, cancellationToken);
+                var items = await _gitHub.ListAllContentsAsync(token, owner, repo, directory, branch, cancellationToken);
                 foreach (var csproj in items.Where(i => i.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)))
                 {
                     var content = await ReadAsync(token, owner, repo, csproj.Path, branch, cancellationToken);
@@ -171,7 +214,7 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogDebug(ex, "Could not list {Directory} while scanning for storage use.", serviceDir);
+                _logger.LogDebug(ex, "Could not list {Directory} while scanning for storage use.", directory);
             }
         }
 
