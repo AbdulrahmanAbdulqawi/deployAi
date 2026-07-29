@@ -96,6 +96,38 @@ public class ObjectStorageProvisioningTests
     }
 
     [Fact]
+    public async Task ProvisionAsync_LetsTheWebsiteUploadToTheBucket()
+    {
+        // The browser PUTs to the bucket directly with a presigned URL, so the API's CORS policy is
+        // not in that request's path. A new bucket allows no origin, so the preflight came back
+        // 403 Forbidden and the upload never started -- from an app whose keys, signing and
+        // provisioning were all correct.
+        var h = Harness.Create(websiteUrl: "http://site.example.com");
+
+        await h.Service.ProvisionAsync(UserId, h.ProjectId, CancellationToken.None);
+
+        h.Storage.Verify(s => s.SetBucketCorsAsync(
+            It.IsAny<ProviderCredentials>(),
+            "yemenconnect",
+            It.Is<IReadOnlyList<string>>(o => o.Contains("http://site.example.com")),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProvisionAsync_LeavesBucketCorsAlone_WhenTheWebsiteHasNoKnownUrl()
+    {
+        // Writing a rule with no origins would replace whatever is there with one allowing
+        // nothing, which is worse than not touching it.
+        var h = Harness.Create(websiteUrl: null);
+
+        await h.Service.ProvisionAsync(UserId, h.ProjectId, CancellationToken.None);
+
+        h.Storage.Verify(s => s.SetBucketCorsAsync(
+            It.IsAny<ProviderCredentials>(), It.IsAny<string>(),
+            It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task ProvisionAsync_RefusesWhenThereIsNoServerToWireInto()
     {
         // Creating a bucket nothing can reach is worse than declining: it costs money and looks done.
@@ -117,7 +149,7 @@ public class ObjectStorageProvisioningTests
         public Mock<IObjectStorageProvider> Storage { get; init; } = null!;
         public Mock<IProviderManagement> Management { get; init; } = null!;
 
-        public static Harness Create(bool includeServer = true)
+        public static Harness Create(bool includeServer = true, string? websiteUrl = null)
         {
             var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -167,6 +199,31 @@ public class ObjectStorageProvisioningTests
                 UpdatedAt = DateTimeOffset.UtcNow,
                 DeployTargets = targets
             });
+            if (websiteUrl is not null)
+            {
+                // A website that has deployed successfully: its URL is the Origin a browser sends.
+                var deployment = new Deployment
+                {
+                    Id = Guid.NewGuid(),
+                    ProjectId = projectId,
+                    Branch = "main",
+                    TriggeredBy = "user",
+                    Status = DeploymentStatuses.Success,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                deployment.Targets.Add(new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deployment.Id,
+                    DeployTargetId = targets.First(t => t.ProviderProjectId == "web-uuid").Id,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.Success,
+                    DeployUrl = websiteUrl,
+                    CompletedAt = DateTimeOffset.UtcNow
+                });
+                db.Deployments.Add(deployment);
+            }
+
             db.SaveChanges();
             db.ChangeTracker.Clear();
 

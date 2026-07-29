@@ -123,6 +123,56 @@ public sealed class HetznerStorageProvider : IObjectStorageProvider
         return new StorageBucket(name, DateTimeOffset.UtcNow);
     }
 
+    public async Task SetBucketCorsAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        IReadOnlyList<string> allowedOrigins,
+        CancellationToken cancellationToken)
+    {
+        var origins = allowedOrigins
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Select(origin => origin.Trim().TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (origins.Count == 0)
+        {
+            // Writing an empty rule would replace whatever is there with one that allows nothing,
+            // which is worse than leaving the bucket alone.
+            return;
+        }
+
+        using var client = CreateClient(credentials);
+
+        await client.PutCORSConfigurationAsync(
+            new PutCORSConfigurationRequest
+            {
+                BucketName = bucket.Trim(),
+                Configuration = new CORSConfiguration
+                {
+                    Rules =
+                    [
+                        new CORSRule
+                        {
+                            Id = "deployai-browser-uploads",
+                            AllowedOrigins = origins,
+                            // PUT for a presigned upload; GET and HEAD so the same page can read
+                            // back what it just wrote.
+                            AllowedMethods = ["PUT", "GET", "HEAD"],
+                            // The presigned URL signs content-type, so the browser sends it and the
+                            // preflight asks for it by name. Refusing it fails the preflight.
+                            AllowedHeaders = ["*"],
+                            // Without this the upload succeeds but the page cannot read the ETag,
+                            // which is how a client confirms what it stored.
+                            ExposeHeaders = ["ETag"],
+                            MaxAgeSeconds = 3000
+                        }
+                    ]
+                }
+            },
+            cancellationToken);
+    }
+
     /// <summary>S3 bucket naming rules, checked before the call so the error is legible.</summary>
     private static bool IsValidBucketName(string name) =>
         name.Length is >= 3 and <= 63 &&

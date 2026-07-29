@@ -134,6 +134,17 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
 
         var bucket = await provider.CreateBucketAsync(storageCredentials, bucketName, cancellationToken);
 
+        // The browser PUTs to the bucket directly using a presigned URL, so the API's CORS policy
+        // is not in that request's path -- the bucket's own is. A new bucket allows no origin, so
+        // the preflight returns 403 and the upload never starts, from an app that is otherwise
+        // correctly wired. Told here, on every deploy, because a site's origin changes with its
+        // domain.
+        var websiteOrigins = await ResolveWebsiteOriginsAsync(project.Id, cancellationToken);
+        if (websiteOrigins.Count > 0)
+        {
+            await provider.SetBucketCorsAsync(storageCredentials, bucket.Name, websiteOrigins, cancellationToken);
+        }
+
         var connection = new ObjectStorageConnection(
             payload.Endpoint,
             payload.Region,
@@ -150,6 +161,41 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
         await _db.SaveChangesAsync(cancellationToken);
 
         return new ObjectStorageProvisioningResult(bucket.Name, applied);
+    }
+
+    /// <summary>
+    /// The origins a browser will upload from: the website's last known deployed URL. Taken from
+    /// the deployment record rather than guessed, because that is the address the browser actually
+    /// sends as <c>Origin</c>, and a rule for any other value silently allows nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ResolveWebsiteOriginsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var urls = await _db.DeploymentTargets
+            .Where(dt => dt.Deployment.ProjectId == projectId
+                         && dt.DeployUrl != null
+                         && dt.Status == DeploymentStatuses.Success)
+            .OrderByDescending(dt => dt.CompletedAt)
+            .Select(dt => new { dt.DeployUrl, dt.DeployTargetId })
+            .Take(20)
+            .ToListAsync(cancellationToken);
+
+        var websiteTargetIds = await _db.DeployTargets
+            .Where(t => t.ProjectId == projectId)
+            .Select(t => new { t.Id, t.ConfigJson })
+            .ToListAsync(cancellationToken);
+
+        var websiteIds = websiteTargetIds
+            .Where(t => DeploymentPartRoles.Is(DeployTargetConfig.Parse(t.ConfigJson).Role, DeploymentPartRoles.Website))
+            .Select(t => t.Id)
+            .ToHashSet();
+
+        return urls
+            .Where(u => websiteIds.Contains(u.DeployTargetId))
+            .Select(u => u.DeployUrl!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private async Task<IReadOnlyList<string>> ApplyEnvVarsAsync(

@@ -51,6 +51,25 @@ public interface IObjectStorageProvider
         string bucket,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Allows a browser at <paramref name="allowedOrigins"/> to upload to and read from the bucket.
+    /// </summary>
+    /// <remarks>
+    /// A presigned upload URL is handed to the browser, which PUTs to the bucket directly — the
+    /// server is not in that request's path, so the API's own CORS policy has no bearing on it. The
+    /// bucket has its own, and a new bucket allows nothing: the preflight comes back 403 and the
+    /// upload never starts. Every provisioned bucket therefore has to be told which site may use it.
+    /// <para>
+    /// Idempotent, like <see cref="CreateBucketAsync"/> — provisioning runs on every deploy, and a
+    /// site's origin changes when its domain does.
+    /// </para>
+    /// </remarks>
+    Task SetBucketCorsAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        IReadOnlyList<string> allowedOrigins,
+        CancellationToken cancellationToken);
+
     Task<StorageObjectPage> ListObjectsAsync(
         ProviderCredentials credentials,
         string bucket,
