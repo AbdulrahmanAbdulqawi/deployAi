@@ -201,6 +201,8 @@ public class ObjectStorageAutoProvisionerTests
             });
         }
 
+        var resolver = new RepositoryLayoutResolver(github.Object);
+
         var encryption = new Mock<IEncryptionService>();
         encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("gh-token");
 
@@ -211,7 +213,10 @@ public class ObjectStorageAutoProvisionerTests
         return (
             new ObjectStorageAutoProvisioner(
                 db,
-                github.Object,
+                // The real resolver over the mocked GitHub service: these tests exist to prove the
+                // monorepo descent works, so stubbing the resolver would remove what they check.
+                resolver,
+                resolver,
                 encryption.Object,
                 new ObjectStorageNeedDetector(),
                 provisioning.Object,

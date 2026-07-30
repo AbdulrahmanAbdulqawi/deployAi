@@ -41,7 +41,8 @@ public interface IObjectStorageAutoProvisioner
 public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
 {
     private readonly DeployAIDbContext _db;
-    private readonly IGitHubService _gitHub;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
+    private readonly IRepositoryReader _reader;
     private readonly IEncryptionService _encryption;
     private readonly IObjectStorageNeedDetector _detector;
     private readonly IObjectStorageProvisioningService _provisioning;
@@ -49,14 +50,16 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
 
     public ObjectStorageAutoProvisioner(
         DeployAIDbContext db,
-        IGitHubService gitHub,
+        IRepositoryLayoutResolver layoutResolver,
+        IRepositoryReader reader,
         IEncryptionService encryption,
         IObjectStorageNeedDetector detector,
         IObjectStorageProvisioningService provisioning,
         ILogger<ObjectStorageAutoProvisioner> logger)
     {
         _db = db;
-        _gitHub = gitHub;
+        _layoutResolver = layoutResolver;
+        _reader = reader;
         _encryption = encryption;
         _detector = detector;
         _provisioning = provisioning;
@@ -106,17 +109,36 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
         var config = DeployTargetConfig.Parse(serverTarget.ConfigJson);
         var serviceDir = Normalize(config.ServiceDirectory ?? config.RootDirectory);
 
-        // The service directory of a modular solution holds project directories and no files of its
-        // own, so reading only that level finds neither appsettings.json nor a csproj. Descending
-        // one level is what makes a monorepo visible: without it the scan came back empty for
-        // exactly the app this was written for, and empty reads as "stores no files".
-        var directories = await ScanDirectoriesAsync(token, parts[0], parts[1], serviceDir, branch, cancellationToken);
+        // One shared resolver rather than this caller's own idea of where to look. It descends a
+        // level when the service directory holds only project directories, which is what makes a
+        // monorepo visible -- without it the scan came back empty for exactly the app this was
+        // written for, and empty reads as "stores no files".
+        var layout = await _layoutResolver.ResolveAsync(
+            token, parts[0], parts[1], branch, serviceDir, cancellationToken);
+
+        // A scan that could list nothing is not a scan that found nothing. Saying so beats reporting
+        // "this app stores no files" about a repository nobody could see.
+        if (layout.IsInconclusive)
+        {
+            _logger.LogWarning(
+                "Could not read {Repo}@{Branch} under '{Directory}', so whether it stores files is unknown.",
+                project.GitHubRepoFullName, branch, serviceDir);
+            return new ObjectStorageAutoOutcome(false,
+                $"Could not read this app's files under '{serviceDir}', so DeployAI cannot tell whether it needs storage.");
+        }
+
+        var appsettings = await _reader.FindAsync(
+            token, parts[0], parts[1], branch, layout, "appsettings.json", cancellationToken);
+        var dotEnv = await _reader.FindAsync(
+            token, parts[0], parts[1], branch, layout, ".env.example", cancellationToken);
+        var compose = await _reader.FindAsync(
+            token, parts[0], parts[1], branch, layout, "docker-compose.yml", cancellationToken);
 
         var need = _detector.Detect(new ObjectStorageScanInputs(
-            AppsettingsContent: await ReadFirstAsync(token, parts[0], parts[1], directories, "appsettings.json", branch, cancellationToken),
-            ComposeContent: await ReadAsync(token, parts[0], parts[1], "docker-compose.yml", branch, cancellationToken),
-            DotEnvExampleContent: await ReadAsync(token, parts[0], parts[1], ".env.example", branch, cancellationToken),
-            ManifestContents: await ReadManifestsAsync(token, parts[0], parts[1], directories, branch, cancellationToken)));
+            AppsettingsContent: appsettings?.Content,
+            ComposeContent: compose?.Content,
+            DotEnvExampleContent: dotEnv?.Content,
+            ManifestContents: await ReadManifestsAsync(token, parts[0], parts[1], branch, layout, cancellationToken)));
 
         if (!need.Needed)
         {
@@ -168,48 +190,6 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
     }
 
     /// <summary>
-    /// The service directory plus its immediate children, which is where a modular solution keeps
-    /// the project that actually holds the configuration. One level only: deeper is a repository
-    /// crawl, and the cost is paid on every deploy.
-    /// </summary>
-    private async Task<IReadOnlyList<string>> ScanDirectoriesAsync(
-        string token, string owner, string repo, string serviceDir, string branch, CancellationToken cancellationToken)
-    {
-        var directories = new List<string> { serviceDir };
-
-        try
-        {
-            var items = await _gitHub.ListAllContentsAsync(token, owner, repo, serviceDir, branch, cancellationToken);
-            directories.AddRange(items
-                .Where(i => string.Equals(i.Type, "dir", StringComparison.OrdinalIgnoreCase))
-                .Select(i => i.Path));
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug(ex, "Could not list {Directory} while scanning for storage use.", serviceDir);
-        }
-
-        return directories;
-    }
-
-    /// <summary>The first directory that has the file — the nearest one wins.</summary>
-    private async Task<string?> ReadFirstAsync(
-        string token, string owner, string repo, IReadOnlyList<string> directories,
-        string fileName, string branch, CancellationToken cancellationToken)
-    {
-        foreach (var directory in directories)
-        {
-            var content = await ReadAsync(token, owner, repo, Join(directory, fileName), branch, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                return content;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// What to say about a verification — including when it passed, and when it could not run.
     /// </summary>
     /// <remarks>
@@ -224,62 +204,32 @@ public sealed class ObjectStorageAutoProvisioner : IObjectStorageAutoProvisioner
             ? string.Join(" ", verification.Findings)
             : "Object storage could not be checked this deploy, so whether uploads work is unknown.";
 
+    /// <summary>
+    /// Every dependency manifest along the layout's search path. A .csproj name is not knowable up
+    /// front, so those are listed by suffix rather than guessed at.
+    /// </summary>
     private async Task<IReadOnlyList<string>> ReadManifestsAsync(
-        string token, string owner, string repo, IReadOnlyList<string> directories,
-        string branch, CancellationToken cancellationToken)
+        string token, string owner, string repo, string branch,
+        RepositoryLayout layout, CancellationToken cancellationToken)
     {
         var contents = new List<string>();
 
-        foreach (var directory in directories)
+        foreach (var name in (string[])["package.json", "requirements.txt"])
         {
-            foreach (var name in (string[])["package.json", "requirements.txt"])
+            var found = await _reader.FindAsync(token, owner, repo, branch, layout, name, cancellationToken);
+            if (found is not null)
             {
-                var content = await ReadAsync(token, owner, repo, Join(directory, name), branch, cancellationToken);
-                if (!string.IsNullOrWhiteSpace(content))
-                {
-                    contents.Add(content);
-                }
-            }
-
-            // A csproj's name is not knowable up front, so the directory is listed for one.
-            try
-            {
-                var items = await _gitHub.ListAllContentsAsync(token, owner, repo, directory, branch, cancellationToken);
-                foreach (var csproj in items.Where(i => i.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)))
-                {
-                    var content = await ReadAsync(token, owner, repo, csproj.Path, branch, cancellationToken);
-                    if (!string.IsNullOrWhiteSpace(content))
-                    {
-                        contents.Add(content);
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogDebug(ex, "Could not list {Directory} while scanning for storage use.", directory);
+                contents.Add(found.Content);
             }
         }
+
+        var csprojs = await _reader.FindAllBySuffixAsync(
+            token, owner, repo, branch, layout, ".csproj", cancellationToken);
+        contents.AddRange(csprojs.Select(c => c.Content));
 
         return contents;
     }
 
-    private async Task<string?> ReadAsync(
-        string token, string owner, string repo, string path, string branch, CancellationToken cancellationToken)
-    {
-        try
-        {
-            return await _gitHub.GetFileContentAsync(token, owner, repo, path, branch, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogDebug(ex, "Could not read {Path} while scanning for storage use.", path);
-            return null;
-        }
-    }
-
     private static string Normalize(string? path) =>
         path?.Trim().Replace('\\', '/').Trim('/') ?? string.Empty;
-
-    private static string Join(string directory, string file) =>
-        string.IsNullOrEmpty(directory) ? file : $"{directory}/{file}";
 }
