@@ -247,15 +247,19 @@ Recorded so they get closed rather than re-done by hand.
   `DeploymentEndpointProbes.cs`. Object storage is now the exception and the template: it does a
   signed write-read-delete and a real browser preflight on every deploy, and reports whether it
   passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
-  **Second confirmed instance:** yemenConnect's `/public/stats` — the endpoint its landing page calls
-  on every visit — returned 500 on every request for the entire life of the deployment, while
-  `/health` returned 200 and both targets went green. Route discovery cannot fix this generically:
-  the app's OpenAPI document is behind the same fallback auth policy as everything else (`401`), so
-  there is nothing to enumerate from outside. The signal that *is* available is the app's own output —
-  it logged `ExceptionHandlerMiddleware[1] An unhandled exception has occurred` on every call, and
-  DeployAI can already read runtime logs. Reading them for a minute after a deploy and reporting
-  unhandled exceptions would have caught it, and would catch the whole class without knowing a single
-  route.
+  **The app's own output is now read on every deploy** (`RuntimeExceptionCheck`), which closes the
+  general case rather than one route: an application that is failing says so, in its own words,
+  whatever language it is written in. It found the second confirmed instance — yemenConnect's
+  `/public/stats`, the endpoint its landing page calls on every visit, 500ing on every request for
+  the life of the deployment while `/health` returned 200 and both targets went green. Route probing
+  could not have: the app's OpenAPI document sits behind the same fallback auth policy as everything
+  else (`401`), so there is nothing to enumerate from outside.
+  **It is scanned before the build as well as after, and the "before" is the half that matters most:**
+  the outgoing container has served real traffic, so its log holds the failures only real usage
+  produces. A route that 500s for every visitor logs nothing until a visitor arrives, so an
+  after-only check catches crashes at startup and misses everything request-shaped.
+  What remains: nothing acts on the finding — a deploy proceeds, and an app that logged a thousand
+  errors an hour deploys as quietly as one that logged none.
 - **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
   The *routing* is fixed: the list reads live per target and shows which app each variable is on,
   and adding, editing and deleting all carry that target through to the provider. What is still
