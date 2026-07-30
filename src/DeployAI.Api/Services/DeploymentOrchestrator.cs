@@ -304,6 +304,7 @@ public sealed class DeploymentJobRunner
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
     private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
     private readonly IRequiredConfigurationCheck _requiredConfiguration;
+    private readonly IProviderManagementFactory _providerManagementFactory;
     private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
@@ -323,6 +324,7 @@ public sealed class DeploymentJobRunner
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
         IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
         IRequiredConfigurationCheck requiredConfiguration,
+        IProviderManagementFactory providerManagementFactory,
         IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
@@ -341,6 +343,7 @@ public sealed class DeploymentJobRunner
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
         _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
         _requiredConfiguration = requiredConfiguration;
+        _providerManagementFactory = providerManagementFactory;
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
@@ -538,6 +541,42 @@ public sealed class DeploymentJobRunner
             var provider = _providerFactory.GetProvider(target.ProviderName);
             var token = await _tokens.GetTokenAsync(deployTarget.Credential, cancellationToken);
             var credentials = new ProviderCredentials(token);
+
+            // Duplicate env-var records: repair on every deploy, for every target. This existed and
+            // was tested, but ran from one place -- the database-linking path -- so an app that
+            // never linked a database was never repaired, and a website never is. One project's
+            // frontend was carrying three duplicated keys for exactly that reason.
+            //
+            // Placed here rather than in the role-specific branches above because it is the target
+            // that can hold duplicates, not the role.
+            try
+            {
+                var management = _providerManagementFactory.GetManagement(target.ProviderName);
+                if (management is not null && !string.IsNullOrWhiteSpace(deployTarget.ProviderProjectId))
+                {
+                    var removed = await management.ReconcileDuplicateEnvVarsAsync(
+                        credentials, deployTarget.ProviderProjectId!, cancellationToken);
+
+                    if (removed > 0)
+                    {
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            await NextSequenceAsync(target.Id, cancellationToken),
+                            $"Removed {removed} duplicate environment variable record(s) on this app. "
+                            + "Duplicates make the value an app reads differ from the one shown.",
+                            cancellationToken);
+                    }
+                }
+            }
+            catch (Exception reconcileEx) when (reconcileEx is not OperationCanceledException)
+            {
+                // Advisory: a repair that fails must not stop a deploy that would otherwise work.
+                _logger.LogWarning(
+                    reconcileEx,
+                    "Could not reconcile duplicate env vars for target {TargetId}; continuing.",
+                    target.Id);
+            }
 
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
             {
