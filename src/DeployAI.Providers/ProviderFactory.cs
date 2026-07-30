@@ -187,6 +187,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
+        services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddHttpClient<Coolify.CoolifyProvider>();
         services.AddSingleton<Coolify.CoolifyProvider>();
         services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
