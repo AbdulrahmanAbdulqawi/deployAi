@@ -88,6 +88,87 @@ public class RequiredConfigurationCheckTests
         Assert.DoesNotContain("PORT", result.Missing);
     }
 
+    /// <summary>
+    /// yemenConnect's real pair of files. appsettings.json has no Jwt, Tickets or Bootstrap section
+    /// at all — those live only in the Development file — which is why the check built to catch a
+    /// crash-loop on "Jwt configuration missing" said nothing about Jwt on the very repository that
+    /// crash-looped.
+    /// </summary>
+    private const string BaseAppsettings = """
+        {
+          "Logging": { "LogLevel": { "Default": "Information" } },
+          "ConnectionStrings": { "Postgres": "Host=localhost;Database=yemenhub" },
+          "Storage": { "Endpoint": "", "Bucket": "yemenhub-media" }
+        }
+        """;
+
+    private const string DevelopmentAppsettings = """
+        {
+          "Logging": { "LogLevel": { "Default": "Information" } },
+          "ConnectionStrings": { "Postgres": "Host=localhost;Database=yemenhub" },
+          "Jwt": { "Issuer": "yemenhub-dev", "SigningKey": "dev-only-key" },
+          "Tickets": { "SigningKey": "dev-only-ticket-key" },
+          "Storage": { "Endpoint": "http://localhost:9000", "Bucket": "yemenhub-media" }
+        }
+        """;
+
+    [Fact]
+    public async Task NamesASectionConfiguredOnlyForDevelopmentThatTheAppHasNothingFrom()
+    {
+        var result = await Check(
+            present: ["Storage__Endpoint"],
+            appsettings: BaseAppsettings,
+            developmentAppsettings: DevelopmentAppsettings);
+
+        Assert.Contains("Jwt", result.UnconfiguredSections!);
+        Assert.Contains("Tickets", result.UnconfiguredSections!);
+        Assert.Contains("appsettings.Development.json", result.Message);
+        Assert.Contains("not\ndefaults for production".Replace("\n", " "), result.Message);
+    }
+
+    [Fact]
+    public async Task StaysQuietAboutASectionTheAppHasAnySettingFrom()
+    {
+        // Section-level on purpose. An app carrying Jwt__SigningKey plainly has its Jwt section
+        // configured; naming the leaves it does not carry (Issuer, Audience) would report keys whose
+        // defaults live in a C# options class DeployAI cannot read — noise, and noise is what teaches
+        // people to skip the line the one time it matters.
+        var result = await Check(
+            present: ["Storage__Endpoint", "Jwt__SigningKey", "Tickets__SigningKey"],
+            appsettings: BaseAppsettings,
+            developmentAppsettings: DevelopmentAppsettings);
+
+        Assert.Empty(result.UnconfiguredSections ?? []);
+    }
+
+    [Fact]
+    public async Task DoesNotTreatADevelopmentValueAsIfTheKeyWereAlreadyAnswered()
+    {
+        // The trap in reading the file at all: Jwt__SigningKey has a value there, so counting it as
+        // a default would turn the one secret that must be supplied into one that looks handled.
+        // Names are taken from that file; values never are.
+        var result = await Check(
+            present: [],
+            appsettings: BaseAppsettings,
+            developmentAppsettings: DevelopmentAppsettings);
+
+        Assert.Contains("Jwt", result.UnconfiguredSections!);
+        Assert.DoesNotContain("Jwt__SigningKey is set", result.Message ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task IgnoresSectionsTheFrameworkOwns()
+    {
+        // Logging and ConnectionStrings appear in every appsettings file ever written. Reporting
+        // them would bury the one line that matters.
+        var result = await Check(
+            present: [],
+            appsettings: """{ "Storage": { "Bucket": "b" } }""",
+            developmentAppsettings: """{ "Logging": { "LogLevel": {} }, "Kestrel": { "Endpoints": {} } }""");
+
+        Assert.Empty(result.UnconfiguredSections ?? []);
+    }
+
     [Fact]
     public async Task ReportsThatItCouldNotCheck_RatherThanThatNothingIsMissing()
     {
@@ -114,7 +195,8 @@ public class RequiredConfigurationCheckTests
         string[] present,
         string? appsettings = null,
         Exception? listThrows = null,
-        bool repositoryUnreadable = false)
+        bool repositoryUnreadable = false,
+        string? developmentAppsettings = null)
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -167,6 +249,13 @@ public class RequiredConfigurationCheckTests
                     new GitHubContentItem("YemenHub.Api.csproj", "backend/src/YemenHub.Api/YemenHub.Api.csproj", "file"),
                     new GitHubContentItem("appsettings.json", "backend/src/YemenHub.Api/appsettings.json", "file")
                 ]);
+            if (developmentAppsettings is not null)
+            {
+                github.Setup(g => g.GetFileContentAsync(
+                        It.IsAny<string>(), Owner, Repo, "backend/src/YemenHub.Api/appsettings.Development.json",
+                        Branch, It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(developmentAppsettings);
+            }
             github.Setup(g => g.GetFileContentAsync(
                     It.IsAny<string>(), Owner, Repo, "backend/src/YemenHub.Api/YemenHub.Api.csproj", Branch, It.IsAny<CancellationToken>()))
                 .ReturnsAsync("""<Project Sdk="Microsoft.NET.Sdk.Web"></Project>""");

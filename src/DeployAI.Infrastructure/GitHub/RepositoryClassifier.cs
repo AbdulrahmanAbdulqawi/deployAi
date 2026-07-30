@@ -21,17 +21,23 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
     private readonly IWebsiteBuildProfileDiscovery _websiteDiscovery;
     private readonly IServerBuildProfileDiscovery _serverDiscovery;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
+    private readonly IRepositoryReader _reader;
 
     public RepositoryClassifier(
         IGitHubService gitHubService,
         IWebsiteBuildProfileDiscovery websiteDiscovery,
         IServerBuildProfileDiscovery serverDiscovery,
-        IDatabaseRequirementDetector databaseRequirementDetector)
+        IDatabaseRequirementDetector databaseRequirementDetector,
+        IRepositoryLayoutResolver layoutResolver,
+        IRepositoryReader reader)
     {
         _gitHubService = gitHubService;
         _websiteDiscovery = websiteDiscovery;
         _serverDiscovery = serverDiscovery;
         _databaseRequirementDetector = databaseRequirementDetector;
+        _layoutResolver = layoutResolver;
+        _reader = reader;
     }
 
     public async Task<DeploymentPlan> ClassifyAsync(
@@ -309,6 +315,15 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         return !string.IsNullOrWhiteSpace(content);
     }
 
+    /// <summary>
+    /// Whether the app needs a database, read from wherever it actually lives.
+    /// </summary>
+    /// <remarks>
+    /// This looked in two fixed places: the repository root, and one <c>appsettings.json</c> directly
+    /// under the detected server path. A .NET modular monolith keeps its connection strings inside the
+    /// startup project, one level below the build context, so the classifier saw none and the plan it
+    /// produced offered no database at all — the user was then asked to know they needed one.
+    /// </remarks>
     private async Task<DatabaseRequirementProfile> DetectDatabaseRequirementsAsync(
         string accessToken,
         string owner,
@@ -317,54 +332,26 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         string? gitRef,
         CancellationToken cancellationToken)
     {
-        var dockerCompose = await ReadFirstExistingFileAsync(
-            accessToken,
-            owner,
-            repo,
-            ["docker-compose.yml", "docker-compose.yaml"],
-            gitRef,
-            cancellationToken);
-        var appsettingsPath = string.IsNullOrEmpty(serverPath)
-            ? "appsettings.json"
-            : $"{serverPath}/appsettings.json";
-        var appsettings = await _gitHubService.GetFileContentAsync(
-            accessToken, owner, repo, appsettingsPath, gitRef, cancellationToken);
-        var prismaPaths = new List<string> { "prisma/schema.prisma" };
-        if (!string.IsNullOrEmpty(serverPath))
+        var layout = await _layoutResolver.ResolveAsync(
+            accessToken, owner, repo, gitRef, serverPath, cancellationToken);
+
+        if (layout.IsInconclusive)
         {
-            prismaPaths.Add($"{serverPath}/prisma/schema.prisma");
+            // The plan is a proposal a user confirms, so an unreadable repository is worth carrying
+            // as its own answer rather than as "no database" — the caller decides what to show.
+            return new DatabaseRequirementProfile(false, false, [], IsInconclusive: true);
         }
 
-        var prismaSchema = await ReadFirstExistingFileAsync(
-            accessToken,
-            owner,
-            repo,
-            prismaPaths,
-            gitRef,
-            cancellationToken);
+        var dockerCompose =
+            await _reader.FindAsync(accessToken, owner, repo, gitRef, layout, "docker-compose.yml", cancellationToken)
+            ?? await _reader.FindAsync(accessToken, owner, repo, gitRef, layout, "docker-compose.yaml", cancellationToken);
+        var appsettings = await _reader.FindAsync(
+            accessToken, owner, repo, gitRef, layout, "appsettings.json", cancellationToken);
+        var prismaSchema = await _reader.FindAsync(
+            accessToken, owner, repo, gitRef, layout, "prisma/schema.prisma", cancellationToken);
 
-        return _databaseRequirementDetector.Detect(dockerCompose, appsettings, prismaSchema);
-    }
-
-    private async Task<string?> ReadFirstExistingFileAsync(
-        string accessToken,
-        string owner,
-        string repo,
-        IReadOnlyList<string> paths,
-        string? gitRef,
-        CancellationToken cancellationToken)
-    {
-        foreach (var path in paths)
-        {
-            var content = await _gitHubService.GetFileContentAsync(
-                accessToken, owner, repo, path, gitRef, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                return content;
-            }
-        }
-
-        return null;
+        return _databaseRequirementDetector.Detect(
+            dockerCompose?.Content, appsettings?.Content, prismaSchema?.Content);
     }
 
     public static string BuildPlainSummary(

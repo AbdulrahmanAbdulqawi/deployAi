@@ -52,6 +52,26 @@ public interface IProviderManagement
         ProviderCredentials credentials,
         string providerProjectId,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes duplicate records for the same environment variable key, returning how many were
+    /// deleted. Providers that cannot hold duplicates return zero.
+    /// </summary>
+    /// <remarks>
+    /// Coolify stores env vars as rows and, before the write path became atomic, a concurrent
+    /// list-then-create could leave several for one key. Its bulk handler resolves with
+    /// <c>->where('key', $key)->first()</c>, so it writes to the first and leaves the rest stale —
+    /// meaning what an app reads and what the UI shows can disagree indefinitely. One application
+    /// was found with 32 records for 16 keys, including two <c>DATABASE_URL</c>s pointing at
+    /// different Postgres instances, one of which no longer existed.
+    /// <para>
+    /// Default implementation is a no-op so a provider without the problem need not think about it.
+    /// </para>
+    /// </remarks>
+    Task<int> ReconcileDuplicateEnvVarsAsync(
+        ProviderCredentials credentials,
+        string providerProjectId,
+        CancellationToken cancellationToken) => Task.FromResult(0);
 }
 
 /// <summary>Resolves the registered <see cref="IProviderManagement"/> implementation for a provider name.</summary>

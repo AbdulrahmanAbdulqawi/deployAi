@@ -101,13 +101,6 @@ builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseP
 builder.Services.AddScoped<IObjectStorageVerifier, ObjectStorageVerifier>();
 builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();
 builder.Services.AddSingleton<DeployAI.Infrastructure.GitHub.IObjectStorageNeedDetector, DeployAI.Infrastructure.GitHub.ObjectStorageNeedDetector>();
-// One instance serves both interfaces: resolving a layout and reading through it are the same
-// component, and splitting them would let a caller read against a layout from a different resolver.
-builder.Services.AddScoped<DeployAI.Infrastructure.GitHub.RepositoryLayoutResolver>();
-builder.Services.AddScoped<DeployAI.Infrastructure.GitHub.IRepositoryLayoutResolver>(
-    sp => sp.GetRequiredService<DeployAI.Infrastructure.GitHub.RepositoryLayoutResolver>());
-builder.Services.AddScoped<DeployAI.Infrastructure.GitHub.IRepositoryReader>(
-    sp => sp.GetRequiredService<DeployAI.Infrastructure.GitHub.RepositoryLayoutResolver>());
 builder.Services.AddScoped<IObjectStorageAutoProvisioner, ObjectStorageAutoProvisioner>();
 builder.Services.AddScoped<IRequiredConfigurationCheck, RequiredConfigurationCheck>();
 builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();

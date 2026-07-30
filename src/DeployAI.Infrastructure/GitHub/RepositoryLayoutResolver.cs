@@ -35,7 +35,7 @@ public interface IRepositoryLayoutResolver
         string token,
         string owner,
         string repo,
-        string branch,
+        string? branch,
         string? configuredDirectory,
         CancellationToken cancellationToken);
 }
@@ -44,12 +44,12 @@ public interface IRepositoryReader
 {
     /// <summary>The nearest file with this name along the layout's search path, or null.</summary>
     Task<RepositoryFile?> FindAsync(
-        string token, string owner, string repo, string branch,
+        string token, string owner, string repo, string? branch,
         RepositoryLayout layout, string fileName, CancellationToken cancellationToken);
 
     /// <summary>Every file along the search path whose name ends with this suffix.</summary>
     Task<IReadOnlyList<RepositoryFile>> FindAllBySuffixAsync(
-        string token, string owner, string repo, string branch,
+        string token, string owner, string repo, string? branch,
         RepositoryLayout layout, string suffix, CancellationToken cancellationToken);
 }
 
@@ -84,7 +84,7 @@ public sealed class RepositoryLayoutResolver : IRepositoryLayoutResolver, IRepos
         string token,
         string owner,
         string repo,
-        string branch,
+        string? branch,
         string? configuredDirectory,
         CancellationToken cancellationToken)
     {
@@ -130,7 +130,7 @@ public sealed class RepositoryLayoutResolver : IRepositoryLayoutResolver, IRepos
     }
 
     public async Task<RepositoryFile?> FindAsync(
-        string token, string owner, string repo, string branch,
+        string token, string owner, string repo, string? branch,
         RepositoryLayout layout, string fileName, CancellationToken cancellationToken)
     {
         foreach (var directory in layout.SearchPath)
@@ -147,7 +147,7 @@ public sealed class RepositoryLayoutResolver : IRepositoryLayoutResolver, IRepos
     }
 
     public async Task<IReadOnlyList<RepositoryFile>> FindAllBySuffixAsync(
-        string token, string owner, string repo, string branch,
+        string token, string owner, string repo, string? branch,
         RepositoryLayout layout, string suffix, CancellationToken cancellationToken)
     {
         var found = new List<RepositoryFile>();
@@ -191,7 +191,7 @@ public sealed class RepositoryLayoutResolver : IRepositoryLayoutResolver, IRepos
     /// SDK attribute is the evidence, so the file has to be read.
     /// </remarks>
     private async Task<GitHubContentItem?> FindEntryProjectAsync(
-        string token, string owner, string repo, string branch,
+        string token, string owner, string repo, string? branch,
         IReadOnlyList<GitHubContentItem> contents, CancellationToken cancellationToken)
     {
         var files = contents.Where(i => !IsDirectory(i)).ToList();
@@ -244,7 +244,7 @@ public sealed class RepositoryLayoutResolver : IRepositoryLayoutResolver, IRepos
     }
 
     private async Task<IReadOnlyList<GitHubContentItem>> ListAsync(
-        string token, string owner, string repo, string path, string branch,
+        string token, string owner, string repo, string path, string? branch,
         List<string> directoriesRead, CancellationToken cancellationToken)
     {
         try

@@ -291,6 +291,27 @@ public class RepositoryClassifierTests
     }
 
     [Fact]
+    public async Task ClassifyAsync_ReadsAComposeFileThatSitsWithTheBackend()
+    {
+        // docker-compose.yml was read from the repository root and nowhere else, so a repo that
+        // keeps it beside the backend -- the usual shape once a monorepo has more than one service
+        // -- produced a plan offering no database at all, and a user who cannot know they need one
+        // was left to ask for it.
+        SetupRootContents(["backend"]);
+        SetupDirectoryContents("backend", ["My.Api.csproj", "docker-compose.yml"]);
+        SetupFile("backend/My.Api.csproj", "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");
+        SetupFile("backend/docker-compose.yml", """
+            services:
+              db:
+                image: postgres:16
+            """);
+
+        var plan = await ClassifyAsync();
+
+        Assert.Contains(plan.Parts, part => part.Role == "database" && part.DatabaseEngine == "postgres");
+    }
+
+    [Fact]
     public void BuildPlainSummary_Monorepo_MentionsWebsiteAndServer()
     {
         var website = new DeployAI.Core.Deployments.FrontendBuildProfile("client", "npm run build", "npm install", "dist/client/browser", "angular");
@@ -305,13 +326,18 @@ public class RepositoryClassifierTests
 
     private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync(bool preferVercelRailway = false)
     {
+        // The real resolver over the same mocked GitHub service, so these tests exercise the
+        // directory resolution the classifier now shares rather than a stub of it.
+        var layout = new RepositoryLayoutResolver(_gitHub.Object);
         var websiteDiscovery = new WebsiteBuildProfileDiscovery(_gitHub.Object, _frontendDetector);
-        var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector);
+        var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector, layout);
         var classifier = new RepositoryClassifier(
             _gitHub.Object,
             websiteDiscovery,
             serverDiscovery,
-            _databaseDetector);
+            _databaseDetector,
+            layout,
+            layout);
 
         return await classifier.ClassifyAsync(
             "token",

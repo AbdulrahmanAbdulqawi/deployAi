@@ -17,11 +17,16 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
 {
     private readonly IGitHubService _gitHubService;
     private readonly IServerBuildDetector _serverBuildDetector;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
 
-    public ServerBuildProfileDiscovery(IGitHubService gitHubService, IServerBuildDetector serverBuildDetector)
+    public ServerBuildProfileDiscovery(
+        IGitHubService gitHubService,
+        IServerBuildDetector serverBuildDetector,
+        IRepositoryLayoutResolver layoutResolver)
     {
         _gitHubService = gitHubService;
         _serverBuildDetector = serverBuildDetector;
+        _layoutResolver = layoutResolver;
     }
 
     public async Task<ServerBuildProfile> DiscoverAsync(
@@ -40,9 +45,19 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
             gitRef,
             cancellationToken);
 
-        if (profile.Framework is not null || !string.IsNullOrEmpty(normalizedPath))
+        if (profile.Framework is not null)
         {
             return profile;
+        }
+
+        if (!string.IsNullOrEmpty(normalizedPath))
+        {
+            // The user named this directory, so the question is only "where inside it" -- which is
+            // the shared resolver's job. Until now this read the named directory and nothing else,
+            // so choosing "backend" or "backend/src" in the wizard returned no framework and no
+            // commands: the screen pre-filled nothing and looked like the repo was unrecognised.
+            return await DiscoverBelowAsync(
+                accessToken, owner, repo, normalizedPath, gitRef, profile, cancellationToken);
         }
 
         var rootContents = await _gitHubService.ListAllContentsAsync(
@@ -76,6 +91,42 @@ public sealed class ServerBuildProfileDiscovery : IServerBuildProfileDiscovery
         }
 
         return profile;
+    }
+
+    /// <summary>
+    /// Looks for the app inside a directory the caller named, through the shared resolver.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not used for the whole-repository case above. That one asks a different
+    /// question -- <em>which</em> of several sibling directories is the server -- and answers it by
+    /// ranking names and excluding known frontend directories. The resolver has no such opinion and
+    /// takes the first directory holding any application manifest, so at a repository root it would
+    /// nominate <c>client/package.json</c> and classify the Angular app as the backend. Ranking
+    /// cannot move into the resolver either: the storage and configuration scans must read the
+    /// frontend, and skipping it there would be the same bug pointed the other way.
+    /// </remarks>
+    private async Task<ServerBuildProfile> DiscoverBelowAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string normalizedPath,
+        string? gitRef,
+        ServerBuildProfile profileAtPath,
+        CancellationToken cancellationToken)
+    {
+        var layout = await _layoutResolver.ResolveAsync(
+            accessToken, owner, repo, gitRef, normalizedPath, cancellationToken);
+
+        if (string.Equals(layout.ProjectDirectory, normalizedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            // Nothing below it either -- the answer for this directory really is "no framework".
+            return profileAtPath;
+        }
+
+        var nested = await BuildServerProfileAtPathAsync(
+            accessToken, owner, repo, layout.ProjectDirectory, gitRef, cancellationToken);
+
+        return nested.Framework is not null ? nested : profileAtPath;
     }
 
     private async Task<ServerBuildProfile> DiscoverAtCandidateAsync(

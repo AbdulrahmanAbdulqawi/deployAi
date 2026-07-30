@@ -304,6 +304,7 @@ public sealed class DeploymentJobRunner
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
     private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
     private readonly IRequiredConfigurationCheck _requiredConfiguration;
+    private readonly IProviderManagementFactory _providerManagementFactory;
     private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
@@ -323,6 +324,7 @@ public sealed class DeploymentJobRunner
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
         IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
         IRequiredConfigurationCheck requiredConfiguration,
+        IProviderManagementFactory providerManagementFactory,
         IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
@@ -341,6 +343,7 @@ public sealed class DeploymentJobRunner
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
         _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
         _requiredConfiguration = requiredConfiguration;
+        _providerManagementFactory = providerManagementFactory;
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
@@ -539,13 +542,50 @@ public sealed class DeploymentJobRunner
             var token = await _tokens.GetTokenAsync(deployTarget.Credential, cancellationToken);
             var credentials = new ProviderCredentials(token);
 
+            // Duplicate env-var records: repair on every deploy, for every target. This existed and
+            // was tested, but ran from one place -- the database-linking path -- so an app that
+            // never linked a database was never repaired, and a website never is. One project's
+            // frontend was carrying three duplicated keys for exactly that reason.
+            //
+            // Placed here rather than in the role-specific branches above because it is the target
+            // that can hold duplicates, not the role.
+            try
+            {
+                var management = _providerManagementFactory.GetManagement(target.ProviderName);
+                if (management is not null && !string.IsNullOrWhiteSpace(deployTarget.ProviderProjectId))
+                {
+                    var removed = await management.ReconcileDuplicateEnvVarsAsync(
+                        credentials, deployTarget.ProviderProjectId!, cancellationToken);
+
+                    if (removed > 0)
+                    {
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            await NextSequenceAsync(target.Id, cancellationToken),
+                            $"Removed {removed} duplicate environment variable record(s) on this app. "
+                            + "Duplicates make the value an app reads differ from the one shown.",
+                            cancellationToken);
+                    }
+                }
+            }
+            catch (Exception reconcileEx) when (reconcileEx is not OperationCanceledException)
+            {
+                // Advisory: a repair that fails must not stop a deploy that would otherwise work.
+                _logger.LogWarning(
+                    reconcileEx,
+                    "Could not reconcile duplicate env vars for target {TargetId}; continuing.",
+                    target.Id);
+            }
+
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
             {
-                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                var databaseNote = await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
                     deployTarget,
                     deployment.Branch,
                     cancellationToken);
+                await ReportDatabaseScanAsync(target, deployment, databaseNote, cancellationToken);
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
 
@@ -558,11 +598,12 @@ public sealed class DeploymentJobRunner
             if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(targetConfig.Role, "server", StringComparison.OrdinalIgnoreCase))
             {
-                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                var databaseNote = await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
                     deployTarget,
                     deployment.Branch,
                     cancellationToken);
+                await ReportDatabaseScanAsync(target, deployment, databaseNote, cancellationToken);
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
 
@@ -1001,6 +1042,32 @@ public sealed class DeploymentJobRunner
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
 
         await _deploymentNotifications.NotifyDeploymentCompletedAsync(deploymentId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Says so in the deploy log when the database scan could not read the repository.
+    /// </summary>
+    /// <remarks>
+    /// Provisioning nothing because the app needs nothing, and provisioning nothing because nobody
+    /// could look, used to produce identical output: none. Only one of them is safe.
+    /// </remarks>
+    private async Task ReportDatabaseScanAsync(
+        DeploymentTarget target,
+        Deployment deployment,
+        string? note,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return;
+        }
+
+        await PersistAndBroadcastLogAsync(
+            target,
+            deployment.Id,
+            await NextSequenceAsync(target.Id, cancellationToken),
+            note,
+            cancellationToken);
     }
 
     private async Task PersistAndBroadcastLogAsync(

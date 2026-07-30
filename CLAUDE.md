@@ -149,26 +149,42 @@ Recorded so they get closed rather than re-done by hand.
   warning. This is the last piece of the `Jwt configuration missing` crash-loop still open, and it
   is now a UI change rather than a detection problem. The screen has also **not been exercised**
   against the new input: nested repos will start producing variables where they produced none.
-- **Four scanners still read only the repository root.** `RepositoryLayoutResolver` now answers
-  "where does this app live" for `env-schema`, `ServerDockerfileProvisioner` and
-  `ObjectStorageAutoProvisioner` (`docs/12-repository-scanning.md`, steps 1–3). Still on their own
-  assumptions: `RepositoryClassifier`, `RailwayDatabaseProvisioningService`,
-  `ServerBuildProfileDiscovery` and `SsrWebsiteBuildProvisioner`. None has an incident behind it,
-  which is why they were left — but each one is a place a nested app is still invisible, and moving
-  them is now mechanical rather than a design question.
+- **Ranking which sibling directory is the server is still a separate answer.** Every scanner now
+  reads through `RepositoryLayoutResolver` (`docs/12-repository-scanning.md`), which closes the
+  root-only class of silent failure — but one caller could not move wholesale.
+  `ServerBuildProfileDiscovery` asks a question the resolver does not answer: given a whole
+  repository, *which* of several sibling directories is the server. It answers by scoring names and
+  excluding known frontend directories, because the resolver takes the first directory holding any
+  application manifest and would nominate `client/package.json`. That ranking cannot move into the
+  resolver — the storage and configuration scans must read the frontend, and skipping it there is
+  the same bug pointed the other way. So two answers to "where is the app" still exist, and the
+  discovery half is exercised only when a repository is first classified. A test asserts the
+  divergence so it stays deliberate.
 - **The required-configuration check warns; it does not stop a deploy.** `RequiredConfigurationCheck`
-  now compares what the deployed ref declares it needs against what the target actually has, and
-  names the difference in the deploy log before the app starts — the three incidents it was built
-  from (`Jwt`, `Storage`, `Tickets`) would each have been named rather than discovered by a
-  crash-loop. It is deliberately advisory: "required" means a key the app declares with no value of
+  compares what the deployed ref declares it needs against what the target actually has, and names
+  the difference in the deploy log before the app starts. It also names whole sections that only
+  `appsettings.Development.json` declares and the app has nothing from — added after finding that on
+  yemenConnect, `Jwt`, `Tickets` and `Bootstrap` appear *only* in that file, so the check built for
+  the `Jwt configuration missing` crash-loop was blind to `Jwt` on the very repository that
+  crash-looped. It is deliberately advisory: "required" means a key the app declares with no value of
   its own, which is a strong signal and not proof, since a value can arrive from somewhere DeployAI
   cannot see. Two things remain — it reads only the server target (a website with required config is
   unchecked), and nobody has to act on the warning, so a deploy can still proceed into a known
   crash-loop.
+
+- **Nothing reports a setting the app has that no code reads.** The mirror of the check above.
+  yemenConnect carries `Jwt__Key` and `Jwt__Secret` on its API; `JwtOptions` binds only `Issuer`,
+  `Audience`, `SigningKey` and `AccessTokenMinutes`, so both are dead weight that reads as
+  configured. The obvious rule — "flag any key the repository never declares" — was tried and
+  discarded: on this app it produces zero true positives and flags DeployAI's own
+  `ConnectionStrings__Default` conventions, and noise is what teaches people to skip the line that
+  matters. A sound version needs to read the options classes, not the settings files.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
-  container that has hit Coolify's restart limit stays stopped until something starts it.
+  container that has hit Coolify's restart limit stays stopped until something starts it. For a
+  *running* container it works well — it is what diagnosed the `/public/stats` 500 above, returning
+  the full EF translation error and the SQL around it in one call.
 - **Project status is never revalidated against the provider.** A project whose Coolify
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so
@@ -182,14 +198,24 @@ Recorded so they get closed rather than re-done by hand.
   `DeploymentEndpointProbes.cs`. Object storage is now the exception and the template: it does a
   signed write-read-delete and a real browser preflight on every deploy, and reports whether it
   passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
+  **Second confirmed instance:** yemenConnect's `/public/stats` — the endpoint its landing page calls
+  on every visit — returned 500 on every request for the entire life of the deployment, while
+  `/health` returned 200 and both targets went green. Route discovery cannot fix this generically:
+  the app's OpenAPI document is behind the same fallback auth policy as everything else (`401`), so
+  there is nothing to enumerate from outside. The signal that *is* available is the app's own output —
+  it logged `ExceptionHandlerMiddleware[1] An unhandled exception has occurred` on every call, and
+  DeployAI can already read runtime logs. Reading them for a minute after a deploy and reporting
+  unhandled exceptions would have caught it, and would catch the whole class without knowing a single
+  route.
 - **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
-  `Project.EnvironmentVariablesEncrypted` is one blob per project, so a listed variable carries no
-  record of which container it was pushed to. Adding one now asks (the add row has a target picker
-  and defaults to the server), but editing and deleting still fall through to the API's default,
-  which is the *website* — so removing a server-side variable can delete DeployAI's record of it
-  while leaving the value live on the server, and saving a new value can write it to the frontend.
-  The fix is to store the target alongside each variable and show it in the list; until then the
-  list is a set of names whose location is unknowable from the UI.
+  The *routing* is fixed: the list reads live per target and shows which app each variable is on,
+  and adding, editing and deleting all carry that target through to the provider. What is still
+  project-wide is DeployAI's own copy — `Project.EnvironmentVariablesEncrypted` is one blob keyed by
+  name alone. Two apps legitimately holding the same key (`API_URL` is on both halves of every split
+  deploy) share one stored record, so saving on one overwrites the record of the other's value, and
+  deleting from one erases the record for both. The live apps stay correct; the export, which is the
+  only recovery path for generated secrets, does not. The fix is to key the store by target as well
+  as name.
 - **CORS wiring is a guess, and nothing checks whether the guess was right.**
   `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
   own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it

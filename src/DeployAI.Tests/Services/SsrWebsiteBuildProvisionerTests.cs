@@ -127,9 +127,9 @@ public class SsrWebsiteBuildProvisionerTests
         var dockerfiles = new Mock<IServerDockerfileProvisioner>();
         dockerfiles.Setup(d => d.EnsureSsrWebsiteDockerfileAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string?>(),
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string?>(),
                 It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .Callback((string _, string _, string _, string _, string _,
+            .Callback((string _, string _, string _, string _, string _, string? _,
                        IReadOnlyList<string> keys, string? _, string? _, string? _, CancellationToken _) =>
             {
                 harness.Called = true;
