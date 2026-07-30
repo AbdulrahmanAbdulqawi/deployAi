@@ -1,7 +1,15 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DeploymentPlan, DeploymentPlanKind, DeploymentPlanPart, ProviderName } from '../../core/models/api.models';
+import {
+  DeploymentPlan,
+  DeploymentPlanKind,
+  DeploymentPlanPart,
+  DeploymentReadinessResult,
+  MissingDeploymentFile,
+  ProviderName
+} from '../../core/models/api.models';
 import { isCoolifyProvider } from '../../core/utils/provider-branding';
+import { hasSetupRequirements } from '../../core/utils/readiness-scorecard';
 import { ButtonComponent } from '../ui/button/button.component';
 import { IconComponent } from '../ui/icon/icon.component';
 
@@ -35,6 +43,25 @@ export class DeployPlanComponent {
   @Input() selectedGithubAppId = '';
   /** True when the target repo is private and Coolify therefore needs a GitHub App picked. */
   @Input() requireGithubApp = false;
+  /**
+   * What the repository still needs before this plan can be published.
+   *
+   * The card had no readiness input at all, so the primary path a new app takes was the one path
+   * that never checked. Mirqab's scan came back with three blocking findings — no compose file
+   * Coolify could use, no nginx.conf — and the card offered "Yes, deploy it" anyway.
+   */
+  @Input() readiness: DeploymentReadinessResult | null = null;
+
+  /** Blocking findings only: a recommended doc must not read as the reason a deploy is refused. */
+  blockingFindings(): MissingDeploymentFile[] {
+    return hasSetupRequirements(this.readiness) && !this.readiness.isReady
+      ? this.readiness.missingFiles.filter(file => file.severity === 'blocking')
+      : [];
+  }
+
+  canAccept(): boolean {
+    return !this.deploying && this.activeParts.length > 0 && this.blockingFindings().length === 0;
+  }
 
   @Output() customDomainChange = new EventEmitter<string>();
   @Output() destinationChange = new EventEmitter<string>();

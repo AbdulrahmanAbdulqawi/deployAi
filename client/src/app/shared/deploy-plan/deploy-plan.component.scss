@@ -178,6 +178,28 @@
   color: var(--status-warning);
 }
 
+.plan-card__notice--blocking {
+  border-color: var(--status-danger-border);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+
+  p {
+    margin: 0;
+  }
+
+  ul {
+    margin: var(--space-2) 0;
+    padding-left: var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  code {
+    font-family: var(--font-mono, monospace);
+    word-break: break-all;
+  }
+}
+
 .plan-card__actions {
   display: flex;
   flex-wrap: wrap;
