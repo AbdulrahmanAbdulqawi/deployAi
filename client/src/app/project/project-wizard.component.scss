@@ -326,6 +326,21 @@
   }
 }
 
+/* Not an error — the deploy can proceed. A caution, because proceeding is a choice here. */
+.wizard__warning {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid #e0a458;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, #e0a458 8%, transparent);
+
+  p {
+    margin: 0;
+  }
+}
+
 .wizard__hint--error {
   color: #ff7a7a;
 }

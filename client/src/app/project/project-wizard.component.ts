@@ -1324,6 +1324,9 @@ export class ProjectWizardComponent implements OnInit {
   readonly showEnvStep = signal(false);
   readonly loadingEnvSchema = signal(false);
   readonly envSchema = signal<EnvSchemaVar[]>([]);
+  /** True when the scan could not read the repository, as opposed to reading it and finding nothing. */
+  readonly envScanInconclusive = signal(false);
+  readonly envScanSearchedIn = signal<string[]>([]);
   /** Working values keyed by var name; prefilled from suggestions/defaults, user-editable. */
   envValues: Record<string, string> = {};
 
@@ -1385,6 +1388,11 @@ export class ProjectWizardComponent implements OnInit {
       .subscribe({
         next: (response) => {
           this.envSchema.set(response.vars);
+          // An empty result means one of two things and the step must not treat them alike:
+          // "this app declares no configuration" is safe to deploy on, "I could not read the
+          // repository" is not.
+          this.envScanInconclusive.set(response.inconclusive ?? false);
+          this.envScanSearchedIn.set(response.searchedIn ?? []);
           for (const variable of response.vars) {
             if (this.envValues[variable.name]) {
               continue; // don't clobber what the user already typed
@@ -1403,8 +1411,11 @@ export class ProjectWizardComponent implements OnInit {
           this.loadingEnvSchema.set(false);
         },
         error: () => {
-          // Detection failing must not block deploying — the step just shows nothing to fill.
+          // Detection failing must not block deploying, but it must not look like a clean scan
+          // either — that is the difference between "nothing to fill" and "I could not look".
           this.envSchema.set([]);
+          this.envScanInconclusive.set(true);
+          this.envScanSearchedIn.set([]);
           this.loadingEnvSchema.set(false);
         }
       });

@@ -122,6 +122,28 @@
 
           @if (loadingEnvSchema()) {
             <p class="wizard__hint">Reading your app's configuration…</p>
+          } @else if (envScanInconclusive()) {
+            <!--
+              An empty scan used to say "your app should run as-is" whether the repository declared
+              nothing or could not be read at all. The second case is how an app deployed with
+              nothing set and crash-looped on missing Jwt settings, so it now says what happened
+              rather than reassuring.
+            -->
+            <div class="wizard__warning">
+              <p>
+                <strong>We couldn't read this app's configuration.</strong>
+                That's not the same as it needing none — if it does need settings, it will start
+                without them and may fail once it's running.
+              </p>
+              @if (envScanSearchedIn().length > 0) {
+                <p class="wizard__hint">
+                  Looked in: {{ envScanSearchedIn().join(', ') || 'the repository root' }}
+                </p>
+              }
+              <p class="wizard__hint">
+                You can continue and add settings afterwards from the app's page.
+              </p>
+            </div>
           } @else if (envSchema().length === 0) {
             <p class="wizard__hint">No settings detected — your app should run as-is.</p>
           } @else {

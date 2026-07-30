@@ -728,7 +728,18 @@ export class ApiService {
     if (serverPath) {
       params['serverPath'] = serverPath;
     }
-    return this.http.get<{ vars: EnvSchemaVar[] }>(
+    // The coverage fields are as important as the variables. Typing this as `{ vars }` alone
+    // discarded them at the boundary, so an unreadable repository and a genuinely config-free one
+    // looked identical to the wizard — which is how an app deployed with nothing set and
+    // crash-looped on missing Jwt settings.
+    return this.http.get<{
+      vars: EnvSchemaVar[];
+      scanned: string[];
+      notFound: string[];
+      inconclusive: boolean;
+      projectDirectory: string;
+      searchedIn: string[];
+    }>(
       `/api/github/repos/${owner}/${repo}/env-schema`,
       { params }
     );
