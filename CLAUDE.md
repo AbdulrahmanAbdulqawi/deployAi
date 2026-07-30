@@ -20,6 +20,42 @@ When a task requires going into Coolify or onto a Hetzner host, treat it as two 
 If closing the gap is out of scope for the current change, say so explicitly and record it
 rather than silently absorbing the manual step.
 
+## Core rule, second half: if we fix it in one app, DeployAI should fix it for every app
+
+The rule above is about steps taken in a provider's UI. This one is about edits made in a
+deployed app's own repository, and it is the more expensive of the two, because the cost is
+paid again per app rather than per incident.
+
+**When a change is needed in an app DeployAI deploys, ask whether the next app would need the
+same edit. If it would, the change belongs in DeployAI.** Fixing it in one repository and
+moving on means the second app rediscovers the bug, the third rediscovers it again, and the
+knowledge lives in whichever repository happened to hit it first — where no other app can
+reach it.
+
+Apply the same two steps: **unblock** the app that is broken now, then **close the gap** so no
+app needs that edit again. What "close the gap" means depends on which of two kinds it is:
+
+- **The same edit in every app → DeployAI writes it.** A Dockerfile, a storage adapter, an
+  EF-migration step at container start, a health endpoint, the four Hetzner S3 quirks
+  (`ForcePathStyle`, `WHEN_REQUIRED` checksums, SigV4, buffering non-seekable streams). None of
+  this is any app's business logic; it is platform code that happens to live in the app's
+  repository, and DeployAI already commits generated files, so it can own it.
+- **The app's own logic → DeployAI detects the class.** It cannot write the fix and must not
+  try. But a failure that reached production once will reach it again in another app, and
+  DeployAI can nearly always catch the *shape*: an unhandled exception in the runtime log after
+  a deploy, a configuration key the code declares and the target lacks, a bucket whose
+  round-trip fails. Detection is the reflected change.
+
+The test that keeps this honest: **could this fix have been written without knowing which app
+it was for?** If yes, writing it in one app was the wrong place.
+
+Worked example, both halves in one incident. Getting a single image upload working took four
+fixes: SigV4 signing, unsigned-payload rejection, missing bucket CORS, and provisioning that
+only ran at bucket creation. Three were platform code hand-written into one app's repository —
+identical in every .NET app on Hetzner, and the reason the storage generator is a recorded gap
+below. One, an EF query that could not translate, was that app's own logic — unfixable by
+DeployAI, but it logged an unhandled exception on every request, which DeployAI can read.
+
 ## Rules are about DeployAI, never about a deployed app
 
 Every rule here states what **DeployAI** does for **any** app it deploys. Rules are generic by
@@ -136,6 +172,19 @@ Recorded so they get closed rather than re-done by hand.
   migrations and applies them before the app starts. Nothing equivalent exists for the other
   runtimes DeployAI deploys — a Node or Python service provisioned a database still meets an empty
   one, and the failure looks like a healthy app returning 500s.
+- **The file-storage layer is still hand-written per app, and it is platform code.** The clearest
+  outstanding case of the second core rule. DeployAI provisions the bucket, wires the five keys,
+  and verifies the round trip — then every app writes its own client against them, and every app
+  rediscovers the same four Hetzner quirks: `ForcePathStyle`, `RequestChecksumCalculation` /
+  `ResponseChecksumValidation` set to `WHEN_REQUIRED`, SigV4 (Ceph rejects unsigned payloads), and
+  buffering a non-seekable upload stream before signing. All four failed silently in one app in one
+  session. Two apps in this account now have two different implementations, one of them weaker.
+  DeployAI already commits generated files into a repository, so it can generate this the way it
+  generates Dockerfiles: a storage service, an image pipeline, and a proxy endpoint so bytes go
+  through the API and the bucket stays private. Two rules constrain it — `UseS3` must require *all*
+  the settings so a blank value falls back to local disk rather than half-configured S3, and the
+  composition-root patch must refuse rather than guess when its anchor is missing. Rewriting an
+  app's own upload call sites is out of scope and must be stated in the PR, not assumed done.
 - **Coolify's proxy labels are managed by Coolify, and DeployAI must not write them.** Writing
   `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The problem
   that change was originally for is still open: Coolify caches the Traefik labels it generates at
