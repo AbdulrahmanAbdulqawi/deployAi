@@ -103,7 +103,10 @@ public sealed class ProjectEnvironmentController : ControllerBase
         foreach (var variable in request.Variables
                      .Where(v => !string.IsNullOrWhiteSpace(v.Key) && !string.IsNullOrEmpty(v.Value)))
         {
-            stored[variable.Key.Trim()] = new StoredEnvVar(variable.Value, variable.IsSecret);
+            // Against the app it was actually written to. Keyed by name alone, a website and a
+            // server that both carry API_URL shared one record and the second save erased the first.
+            stored.Set(target.Id.ToString(), variable.Key.Trim(),
+                new StoredEnvVar(variable.Value, variable.IsSecret));
         }
 
         await SaveStoredEnvVarsAsync(project, stored, cancellationToken);
@@ -165,7 +168,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
             return Ok(new { missing = Array.Empty<object>(), readable = false, reason = ex.ErrorCode, message = ex.Message });
         }
 
-        var alreadySet = LoadStoredEnvVars(project).Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var alreadySet = LoadStoredEnvVars(project).AllKeys();
 
         var missing = _missingConfiguration.Detect(logLines)
             .Where(m => !alreadySet.Contains(m.Name))
@@ -335,7 +338,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
                 foreach (var item in live)
                 {
                     seenLive.Add(item.Key);
-                    var known = stored.TryGetValue(item.Key, out var s) ? s : null;
+                    var known = stored.Find(target.Id.ToString(), item.Key);
                     variables.Add(new EnvVariableView(
                         item.Key,
                         // The provider withholds write-only values; DeployAI's own copy fills the gap
@@ -356,7 +359,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
 
         // Anything DeployAI stored but no app reports. Usually a target that failed to read above;
         // it can also mean the value never reached the provider, which is worth seeing.
-        foreach (var (key, value) in stored.Where(kv => !seenLive.Contains(kv.Key)))
+        foreach (var (_, key, value) in stored.All().Where(entry => !seenLive.Contains(entry.Key)))
         {
             variables.Add(new EnvVariableView(key, value.Value, value.IsSecret, null, null, Managed: true));
         }
@@ -450,7 +453,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
         }
 
         var stored = LoadStoredEnvVars(project);
-        stored.Remove(trimmedKey);
+        stored.Remove(target.Id.ToString(), trimmedKey);
         await SaveStoredEnvVarsAsync(project, stored, cancellationToken);
 
         return Ok(new { deleted = trimmedKey });
@@ -459,8 +462,6 @@ public sealed class ProjectEnvironmentController : ControllerBase
     public sealed record SetComposeEnvironmentRequest(IReadOnlyList<IncomingEnvVar> Variables);
 
     public sealed record IncomingEnvVar(string Key, string Value, bool IsSecret);
-
-    private sealed record StoredEnvVar(string Value, bool IsSecret);
 
     private async Task<Data.Entities.Project> LoadOwnedProjectWithTargetsAsync(
         Guid projectId, Guid userId, CancellationToken cancellationToken) =>
@@ -511,37 +512,17 @@ public sealed class ProjectEnvironmentController : ControllerBase
         return (target, management, new ProviderCredentials(_encryption.Decrypt(credential.TokenEncrypted)));
     }
 
-    private Dictionary<string, StoredEnvVar> LoadStoredEnvVars(Data.Entities.Project project)
-    {
-        var stored = new Dictionary<string, StoredEnvVar>(StringComparer.OrdinalIgnoreCase);
-        if (project.EnvironmentVariablesEncrypted is not { Length: > 0 })
-        {
-            return stored;
-        }
-
-        try
-        {
-            var existing = JsonSerializer.Deserialize<Dictionary<string, StoredEnvVar>>(
-                _encryption.Decrypt(project.EnvironmentVariablesEncrypted));
-            foreach (var (key, value) in existing ?? [])
-            {
-                stored[key] = value;
-            }
-        }
-        catch (JsonException)
-        {
-            // Unreadable old blob — treat as empty rather than failing the request.
-        }
-
-        return stored;
-    }
+    private ProjectEnvironmentStore LoadStoredEnvVars(Data.Entities.Project project) =>
+        project.EnvironmentVariablesEncrypted is { Length: > 0 }
+            ? ProjectEnvironmentStore.Parse(_encryption.Decrypt(project.EnvironmentVariablesEncrypted))
+            : new ProjectEnvironmentStore();
 
     private async Task SaveStoredEnvVarsAsync(
         Data.Entities.Project project,
-        Dictionary<string, StoredEnvVar> stored,
+        ProjectEnvironmentStore stored,
         CancellationToken cancellationToken)
     {
-        project.EnvironmentVariablesEncrypted = _encryption.Encrypt(JsonSerializer.Serialize(stored));
+        project.EnvironmentVariablesEncrypted = _encryption.Encrypt(stored.Serialize());
         project.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
     }

@@ -269,15 +269,16 @@ Recorded so they get closed rather than re-done by hand.
   after-only check catches crashes at startup and misses everything request-shaped.
   What remains: nothing acts on the finding — a deploy proceeds, and an app that logged a thousand
   errors an hour deploys as quietly as one that logged none.
-- **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
-  The *routing* is fixed: the list reads live per target and shows which app each variable is on,
-  and adding, editing and deleting all carry that target through to the provider. What is still
-  project-wide is DeployAI's own copy — `Project.EnvironmentVariablesEncrypted` is one blob keyed by
-  name alone. Two apps legitimately holding the same key (`API_URL` is on both halves of every split
-  deploy) share one stored record, so saving on one overwrites the record of the other's value, and
-  deleting from one erases the record for both. The live apps stay correct; the export, which is the
-  only recovery path for generated secrets, does not. The fix is to key the store by target as well
-  as name.
+- **~~DeployAI's managed environment store is project-wide.~~ Closed.** `ProjectEnvironmentStore`
+  keys by target as well as name, so a website and a server that both carry `API_URL` no longer share
+  one record — saving on one used to overwrite the other's value and deleting from one erased both.
+  The old flat blob still reads: those entries land in a bucket belonging to no app, are still
+  exported, and move to a real target the first time one is saved or deleted there, so an existing
+  project converges without a migration that would have to guess. What remains is upstream of the
+  store: a project whose only deployable target is a website has nowhere else for a server secret to
+  go, which is how four `MIRQAB_*` secrets ended up on a frontend and were then baked into its image
+  as build args by Coolify's Nixpacks builder. The store no longer confuses them; nothing yet warns
+  that a secret is on the wrong kind of app.
 - **CORS wiring is a guess, and nothing checks whether the guess was right.**
   `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
   own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
