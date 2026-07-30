@@ -186,10 +186,17 @@ Recorded so they get closed rather than re-done by hand.
   composition-root patch must refuse rather than guess when its anchor is missing. Rewriting an
   app's own upload call sites is out of scope and must be stated in the PR, not assumed done.
 - **Coolify's proxy labels are managed by Coolify, and DeployAI must not write them.** Writing
-  `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The problem
-  that change was originally for is still open: Coolify caches the Traefik labels it generates at
-  first deploy, so a later build-pack or port change does not reach the live proxy until someone
-  presses "Reset Labels to Defaults" and redeploys.
+  `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The stale-label
+  problem is still open and now has a worked example. Mirqab's app carried a *custom* label set
+  pinned to `loadbalancer.server.port=80` from the day it was created. Every later correction —
+  build pack, Node version, port — reached Coolify and none reached the proxy, so the container ran,
+  the deploy reported success and every request got 502 from Traefik while nginx logged no requests
+  at all. **An empty Labels box is the healthy state**: Coolify regenerates labels from
+  `ports_exposes` on each deploy, and the app that works has nothing in that box. A custom set is
+  what freezes the port. Recovery took Coolify's own "Reset Labels to Defaults" *and* a redeploy —
+  one deploy after the reset was not enough, and the labels stayed empty until the deploy after that.
+  What DeployAI could do without writing labels itself: notice that the port it just set differs from
+  the one the proxy is using and say so, rather than reporting a green deploy for an unreachable site.
 - **The wizard still shows nothing for an inconclusive env scan.** `env-schema` now finds config
   wherever the app actually lives, flags `inconclusive` for both "read no sources" and "could not
   list the repository", and returns `projectDirectory` / `searchedIn` so a wrong answer is

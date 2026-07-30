@@ -110,6 +110,37 @@ public class SsrWebsiteBuildProvisionerTests
     }
 
     [Fact]
+    public async Task EnsureAsync_LeavesThePreDeployConfigSyncPushingThePortTheImageListensOn()
+    {
+        // The second half of the same failure, one layer along. ConfigureDockerfileBuildAsync sets
+        // ports_exposes from the generated EXPOSE, and the sync then re-guessed it from the
+        // framework name -- answering 8080 for any Dockerfile build. Mirqab's static Angular image
+        // serves on 3000, so the proxy was pointed at a closed port: container healthy, deploy
+        // green, every request a 502 from Traefik.
+        var (harness, project, target) = CreateSwitchable();
+
+        await harness.Provisioner.EnsureAsync(project, target, "main", CancellationToken.None);
+
+        var config = DeployTargetConfig.Parse(target.ConfigJson);
+        await harness.Provider.UpdateApplicationConfigAsync(
+            new ProviderCredentials(CoolifyCredentialStorage.Serialize(CoolifyUrl, "coolify-token")),
+            "app-uuid",
+            new UpdateProviderApplicationConfigRequest(
+                config.Framework,
+                config.RootDirectory,
+                config.OutputDirectory,
+                config.BuildCommand,
+                config.InstallCommand,
+                config.StartCommand,
+                config.DockerfilePath,
+                CoolifyBuildPack: null,
+                ExposedPort: config.ExposedPort),
+            CancellationToken.None);
+
+        Assert.Contains("\"ports_exposes\":\"3000\"", harness.LastConfigSyncBody);
+    }
+
+    [Fact]
     public async Task EnsureAsync_TellsCoolifyWhichNodeToUseIfItFallsBackToNixpacks()
     {
         // Mirqab's package.json declares no engines, so Nixpacks picked its default of Node 18 and
@@ -189,9 +220,9 @@ public class SsrWebsiteBuildProvisionerTests
         dockerfiles.Setup(d => d.EnsureSsrWebsiteDockerfileAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string?>(),
-                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .Callback((string _, string _, string _, string _, string _, string? _,
-                       IReadOnlyList<string> keys, string? _, string? _, string? _, CancellationToken _) =>
+                       IReadOnlyList<string> keys, string? _, string? _, string? _, string? _, CancellationToken _) =>
             {
                 harness.Called = true;
                 harness.BuildTimeEnvKeys = keys;
@@ -287,7 +318,7 @@ public class SsrWebsiteBuildProvisionerTests
         dockerfiles.Setup(d => d.EnsureSsrWebsiteDockerfileAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
                 It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string?>(),
-                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .Callback(() => harness.Called = true)
             // NodeMajor is what the real generator resolves from package.json (engines, else its
             // default) -- Mirqab declares no engines, so 22.

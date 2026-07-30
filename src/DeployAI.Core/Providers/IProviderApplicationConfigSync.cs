@@ -1,6 +1,10 @@
 namespace DeployAI.Core.Providers;
 
 /// <summary>Build pack/directories/commands to push to a provider application's live config.</summary>
+/// <param name="ExposedPort">The port the running container actually listens on. Supply it whenever
+/// it is known: without it a sync re-guesses from the framework name, and a guess that disagrees
+/// with the image points the proxy at a closed port — the container runs, the deploy reports
+/// success, and every request gets a 502 from the proxy rather than anything the app said.</param>
 public sealed record UpdateProviderApplicationConfigRequest(
     string? Framework,
     string? RootDirectory = null,
@@ -9,7 +13,8 @@ public sealed record UpdateProviderApplicationConfigRequest(
     string? InstallCommand = null,
     string? StartCommand = null,
     string? DockerfilePath = null,
-    string? CoolifyBuildPack = null);
+    string? CoolifyBuildPack = null,
+    string? ExposedPort = null);
 
 /// <summary>
 /// Optional capability for providers (currently only Coolify) whose application settings must be

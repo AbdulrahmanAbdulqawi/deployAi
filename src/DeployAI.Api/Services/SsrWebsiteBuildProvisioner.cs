@@ -87,6 +87,7 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
             config.BuildCommand,
             config.StartCommand,
             config.InstallCommand,
+            config.OutputDirectory,
             cancellationToken);
 
         if (provisioned is null)
@@ -122,6 +123,10 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
 
         // Record it so the plan and the branch-mismatch warnings describe what actually builds.
         config.DockerfilePath = provisioned.DockerfileLocation;
+        // And the port the image listens on, so the config sync re-sends it instead of inferring
+        // one from the framework name. A static Angular build serves on 3000 while that inference
+        // answers 8080 for any Dockerfile build, which pointed the proxy at a closed port.
+        config.ExposedPort = provisioned.ExposedPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var configJson = config.ToJson();
         await _db.Database.ExecuteSqlInterpolatedAsync(
             $"""UPDATE deploy_targets SET "ConfigJson" = {configJson} WHERE "Id" = {websiteTarget.Id}""",

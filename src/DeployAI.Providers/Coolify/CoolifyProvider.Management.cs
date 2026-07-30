@@ -27,7 +27,7 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         var body = new Dictionary<string, object?>
         {
             ["build_pack"] = buildPack,
-            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework)
+            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, request.ExposedPort, request.Framework)
 
             // custom_labels is deliberately not sent. It used to be set to a base64 empty array to
             // force Coolify to regenerate the Traefik labels it caches at first deploy, because a

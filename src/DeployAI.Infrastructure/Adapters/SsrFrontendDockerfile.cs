@@ -31,19 +31,41 @@ public static class SsrFrontendDockerfile
     private static readonly string[] PublicEnvPrefixes =
         ["NEXT_PUBLIC_", "NUXT_PUBLIC_", "PUBLIC_", "VITE_", "REACT_APP_", "GATSBY_"];
 
-    /// <param name="packageJsonContent">Used to pick the Node major from <c>engines.node</c> and to
-    /// tell whether a lockfile-based install is safe.</param>
+    /// <summary>
+    /// Packages whose presence means the build output is a Node server that has to be run, rather
+    /// than files that have to be served.
+    /// </summary>
+    /// <remarks>
+    /// Evidence, not framework name, because the same framework can be either. A plain Angular app
+    /// builds to static files; add <c>@angular/ssr</c> and it builds a server. Deciding by name got
+    /// Mirqab a runtime stage that ran <c>npm run start</c> — which for that project is
+    /// <c>ng serve</c>, the development server. It bound to localhost:4200 inside the container
+    /// while the proxy routed to 3000, so the build succeeded, the container stayed up, and every
+    /// request got 502.
+    /// </remarks>
+    private static readonly string[] ServerRuntimePackages =
+    [
+        "next", "nuxt", "@nuxt/kit", "@sveltejs/kit", "@remix-run/node", "@remix-run/serve",
+        "@angular/ssr", "@nguniversal/express-engine", "@astrojs/node", "@sveltejs/adapter-node"
+    ];
+
+    /// <param name="packageJsonContent">Used to pick the Node major from <c>engines.node</c>, to
+    /// tell whether a lockfile-based install is safe, and to tell a build that produces a server
+    /// from one that produces files.</param>
     /// <param name="hasLockfile"><c>npm ci</c> requires a lockfile and fails without one.</param>
     /// <param name="buildTimeEnvKeys">Keys the app's build inlines; non-public ones are ignored.</param>
     /// <param name="installCommand">The repo's own install command when detection found one; it
     /// reflects how the project is actually built, so it wins over anything inferred here.</param>
+    /// <param name="outputDirectory">Where the build writes its files. Required to serve a static
+    /// build; ignored when the app ships its own server.</param>
     public static string Build(
         string? packageJsonContent,
         bool hasLockfile,
         IReadOnlyList<string>? buildTimeEnvKeys = null,
         string? buildCommand = null,
         string? startCommand = null,
-        string? installCommand = null)
+        string? installCommand = null,
+        string? outputDirectory = null)
     {
         var nodeMajor = ResolveNodeMajorOrDefault(packageJsonContent);
         var install = ResolveInstallCommand(installCommand, hasLockfile);
@@ -71,6 +93,13 @@ public static class SsrFrontendDockerfile
 
         builder.AppendLine($"RUN {build}");
         builder.AppendLine();
+
+        if (!ShipsOwnServer(packageJsonContent) && !string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            AppendStaticRuntime(builder, outputDirectory!);
+            return builder.ToString();
+        }
+
         builder.AppendLine($"FROM node:{nodeMajor}-alpine");
         builder.AppendLine("WORKDIR /app");
         builder.AppendLine("ENV NODE_ENV=production");
@@ -83,6 +112,51 @@ public static class SsrFrontendDockerfile
 
         return builder.ToString();
     }
+
+    /// <summary>
+    /// Serves a built single-page app: the files, on the port the proxy routes to, with unknown
+    /// paths falling back to index.html so a deep link or a refresh reaches the router instead of a
+    /// 404.
+    /// </summary>
+    private static void AppendStaticRuntime(StringBuilder builder, string outputDirectory)
+    {
+        var output = outputDirectory.Trim().Replace('\\', '/').Trim('/');
+
+        builder.AppendLine("# This app builds to files, not to a server, so they are served directly.");
+        builder.AppendLine("# Running its start script instead would launch the framework's development");
+        builder.AppendLine("# server, which listens on its own port and never sees the proxy's traffic.");
+        builder.AppendLine("FROM nginx:alpine");
+        builder.AppendLine($"COPY --from=build /app/{output} /usr/share/nginx/html");
+        // Single-quoted so the shell leaves $uri for nginx rather than expanding it to nothing.
+        builder.AppendLine(
+            "RUN printf '%s' 'server { listen " + ContainerPort + "; " +
+            "root /usr/share/nginx/html; " +
+            "location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf");
+        builder.AppendLine($"EXPOSE {ContainerPort}");
+        builder.Append("CMD [\"nginx\", \"-g\", \"daemon off;\"]");
+    }
+
+    /// <summary>
+    /// Whether the build output is a server to run rather than files to serve.
+    /// </summary>
+    public static bool ShipsOwnServer(string? packageJsonContent)
+    {
+        if (string.IsNullOrWhiteSpace(packageJsonContent))
+        {
+            // Nothing to judge by. A Node runtime stage is the safer default: it is what every
+            // framework this generator was written for needs, and it fails loudly rather than
+            // serving an empty directory.
+            return true;
+        }
+
+        return ServerRuntimePackages.Any(package => DeclaresDependency(packageJsonContent, package));
+    }
+
+    private static bool DeclaresDependency(string packageJsonContent, string package) =>
+        Regex.IsMatch(
+            packageJsonContent,
+            $@"""{Regex.Escape(package)}""\s*:",
+            RegexOptions.IgnoreCase);
 
     /// <summary>
     /// <c>npm ci</c> is the reproducible install, but it refuses to run when package-lock.json has

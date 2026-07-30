@@ -185,7 +185,7 @@ public class ServerDockerfileProvisionerTests
         var written = CaptureUpsert(first, out _);
 
         await Create(first).EnsureSsrWebsiteDockerfileAsync(
-            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, "dist", CancellationToken.None);
         Assert.NotNull(written.Value);
 
         var second = new Mock<IGitHubService>();
@@ -197,7 +197,7 @@ public class ServerDockerfileProvisionerTests
             .ReturnsAsync(new GitHubFileMetadata(written.Value!, "sha-1"));
 
         var result = await Create(second).EnsureSsrWebsiteDockerfileAsync(
-            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, "dist", CancellationToken.None);
 
         Assert.NotNull(result);
         second.Verify(g => g.UpsertFileAsync(
@@ -244,7 +244,7 @@ public class ServerDockerfileProvisionerTests
 
         var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
             "token", Owner, Repo, Branch, "apps", "next", ["NEXT_PUBLIC_API_URL"],
-            null, null, null, CancellationToken.None);
+            null, null, null, "dist", CancellationToken.None);
 
         Assert.NotNull(result);
 
@@ -268,7 +268,7 @@ public class ServerDockerfileProvisionerTests
             """{ "name": "api", "dependencies": { "express": "4.19.0" } }""");
 
         var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
-            "token", Owner, Repo, Branch, string.Empty, "next", [], null, null, null, CancellationToken.None);
+            "token", Owner, Repo, Branch, string.Empty, "next", [], null, null, null, "dist", CancellationToken.None);
 
         Assert.Null(result);
         github.Verify(g => g.UpsertFileAsync(
@@ -290,7 +290,7 @@ public class ServerDockerfileProvisionerTests
         var written = CaptureUpsert(github, out _);
 
         var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
-            "token", Owner, Repo, Branch, "client", "next", [], null, null, null, CancellationToken.None);
+            "token", Owner, Repo, Branch, "client", "next", [], null, null, null, "dist", CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("client", result.BaseDirectory);
@@ -308,7 +308,7 @@ public class ServerDockerfileProvisionerTests
             github.Object, new RepositoryLayoutResolver(github.Object), new FrontendBuildDetector(), logger);
 
         var result = await provisioner.EnsureSsrWebsiteDockerfileAsync(
-            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, "dist", CancellationToken.None);
 
         Assert.Null(result);
         Assert.Equal(1, logger.Warnings);

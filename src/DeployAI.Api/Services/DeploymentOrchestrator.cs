@@ -696,7 +696,9 @@ public sealed class DeploymentJobRunner
                         targetConfig.BuildCommand,
                         targetConfig.InstallCommand,
                         targetConfig.StartCommand,
-                        targetConfig.DockerfilePath),
+                        targetConfig.DockerfilePath,
+                        CoolifyBuildPack: null,
+                        ExposedPort: targetConfig.ExposedPort),
                     cancellationToken);
             }
 

@@ -42,6 +42,7 @@ public interface IServerDockerfileProvisioner
         string? buildCommand,
         string? startCommand,
         string? installCommand,
+        string? outputDirectory,
         CancellationToken cancellationToken);
 }
 
@@ -170,6 +171,7 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         string? buildCommand,
         string? startCommand,
         string? installCommand,
+        string? outputDirectory,
         CancellationToken cancellationToken)
     {
         var configured = Normalize(appDirectory);
@@ -229,13 +231,26 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         var hasLockfile = !string.IsNullOrWhiteSpace(await _gitHubService.GetFileContentAsync(
             githubToken, owner, repo, lockPath, branch, cancellationToken));
 
+        // An app that builds to files needs somewhere to serve them from. Without a known output
+        // directory the generated image would serve an empty root, so leave the build pack alone and
+        // say why -- a site that still works on Nixpacks beats one that returns a blank page.
+        if (!SsrFrontendDockerfile.ShipsOwnServer(packageJson) && string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            _logger.LogInformation(
+                "{Owner}/{Repo}@{Branch} builds to static files but has no configured output "
+                + "directory, so it keeps its current build pack.",
+                owner, repo, branch);
+            return null;
+        }
+
         var dockerfileContent = SsrFrontendDockerfile.Build(
             packageJson,
             hasLockfile,
             buildTimeEnvKeys,
             buildCommand,
             startCommand,
-            installCommand);
+            installCommand,
+            outputDirectory);
 
         var dockerfilePath = string.IsNullOrEmpty(appDir) ? "Dockerfile" : $"{appDir}/Dockerfile";
         var existing = await _gitHubService.GetFileMetadataAsync(
