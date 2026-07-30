@@ -168,27 +168,38 @@ internal static class SingleOriginComposeReadinessEvaluator
 
     private static IEnumerable<MissingDeploymentFile> EvaluateComposeFile(string path, string content)
     {
+        // Findings are reported against the file DeployAI can write, which is not always the file it
+        // inspected. A repo's own docker-compose.yml is usually its local dev stack, so the remedy
+        // for a rejected one is to *add* docker-compose.coolify.yml beside it — never to rewrite the
+        // developer's environment. Naming the inspected path instead produced a required file no
+        // generator could satisfy: nothing has a template called docker-compose.yml, the lookup
+        // missed, and the one file the whole deployment depends on was dropped without a word.
+        var reportedPath = ComposeFileName;
+        var about = string.Equals(path, ComposeFileName, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : $"`{path}` cannot be used as-is: ";
+
         if (!DeclaresService(content, "api") || !DeclaresService(content, "web"))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Compose file must declare both an `api` and a `web` service — nginx proxies to the api service by name.",
+                reportedPath,
+                $"{about}the compose file must declare both an `api` and a `web` service — nginx proxies to the api service by name.",
                 DeploymentFileSeverity.Blocking);
         }
 
         if (PublishesHostPorts(content))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Compose file publishes host ports. Coolify's Traefik terminates TLS and routes the domain itself; use `expose` on web instead.",
+                reportedPath,
+                $"{about}it publishes host ports. Coolify's Traefik terminates TLS and routes the domain itself; use `expose` on web instead.",
                 DeploymentFileSeverity.Blocking);
         }
 
         if (!content.Contains("restart:", StringComparison.OrdinalIgnoreCase))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Services should set `restart: unless-stopped` so they survive a host reboot.",
+                reportedPath,
+                $"{about}services should set `restart: unless-stopped` so they survive a host reboot.",
                 DeploymentFileSeverity.Recommended);
         }
     }

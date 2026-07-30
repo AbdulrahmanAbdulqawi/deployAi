@@ -62,6 +62,34 @@ public class SingleOriginComposeReadinessEvaluatorTests
         Assert.True(SingleOriginComposeReadinessEvaluator.IsReady(issues));
     }
 
+    // The finding has to name a file DeployAI can write. It named the file it inspected, and nothing
+    // has a template called docker-compose.yml — so the lookup missed, the generator skipped it in
+    // silence, and the PR arrived without the one file the deployment cannot proceed without.
+    // Rewriting the repo's own docker-compose.yml would be wrong anyway: that is the dev stack.
+    [Fact]
+    public void Evaluate_RejectedDevComposeFile_AsksForTheCoolifyFileInstead()
+    {
+        var files = BuildCompleteFiles();
+        files.Remove("docker-compose.coolify.yml");
+        // Mirqab's actual file: a local dev stack that publishes host ports and names neither service.
+        files["docker-compose.yml"] = """
+            services:
+              db:
+                image: postgres:16
+                ports:
+                  - "5432:5432"
+            """;
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, Server, files);
+
+        Assert.Contains(issues, issue =>
+            issue.Path == "docker-compose.coolify.yml" &&
+            issue.Severity == DeploymentFileSeverity.Blocking);
+        Assert.DoesNotContain(issues, issue => issue.Path == "docker-compose.yml");
+        // And it still says which file it rejected, or the reason reads as if nothing was there.
+        Assert.Contains(issues, issue => issue.Reason.Contains("docker-compose.yml", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Evaluate_ComposePublishingHostPorts_Blocks()
     {
