@@ -168,11 +168,17 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
                 $"Checked {required.Count} setting(s) this code needs: all present.");
         }
 
+        // "Declares", not "needs". The first real run reported Storage__PublicBaseUrl, which the app
+        // defines in its options class and never reads -- accurate as a statement about the
+        // configuration, wrong as a prediction of failure. Saying "needs" and being wrong once
+        // teaches people to skip the line the time it matters.
+        var noun = missing.Count == 1 ? "setting" : "settings";
         return new RequiredConfigurationResult(
             missing,
             Inconclusive: false,
-            $"This code needs {missing.Count} setting(s) the app does not have: {string.Join(", ", missing)}. "
-            + "It will deploy, but may fail once it starts. Add them on the app's settings screen.");
+            $"This code declares {missing.Count} {noun} with no value, and the app has none set: "
+            + $"{string.Join(", ", missing)}. It will still deploy — but if the app reads any of "
+            + "them, it will fail once it starts. Add them on the app's settings screen.");
     }
 
     /// <summary>

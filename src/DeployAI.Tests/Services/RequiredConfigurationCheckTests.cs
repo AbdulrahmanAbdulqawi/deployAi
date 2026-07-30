@@ -34,16 +34,18 @@ public class RequiredConfigurationCheckTests
         """;
 
     [Fact]
-    public async Task NamesTheSettingsTheCodeNeedsAndTheAppDoesNotHave()
+    public async Task NamesTheSettingsDeclaredWithNoValueThatTheAppDoesNotHave()
     {
         // The exact three, against an app that has none of them.
+        // Worded as "declares", not "needs": the first real run reported a setting the app defines
+        // and never reads, so a prediction of failure would have been wrong the very first time.
         var result = await Check(present: []);
 
         Assert.False(result.Inconclusive);
         Assert.Contains("Jwt__SigningKey", result.Missing);
         Assert.Contains("Tickets__SigningKey", result.Missing);
         Assert.Contains("Storage__Endpoint", result.Missing);
-        Assert.Contains("may fail once it starts", result.Message);
+        Assert.Contains("if the app reads any of them, it will fail", result.Message);
     }
 
     [Fact]
