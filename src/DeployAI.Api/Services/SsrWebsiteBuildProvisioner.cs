@@ -87,6 +87,7 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
             config.BuildCommand,
             config.StartCommand,
             config.InstallCommand,
+            config.OutputDirectory,
             cancellationToken);
 
         if (provisioned is null)

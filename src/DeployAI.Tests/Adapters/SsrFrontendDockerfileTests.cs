@@ -133,4 +133,77 @@ public class SsrFrontendDockerfileTests
 
         Assert.Equal(expected, resolved.Contains(key));
     }
+
+    /// <summary>Mirqab's client: Angular 20, no SSR package, start script is the dev server.</summary>
+    private const string StaticAngularPackageJson = """
+        {
+          "name": "client",
+          "dependencies": { "@angular/core": "^20.3.0" },
+          "devDependencies": { "@angular/cli": "^20.3.32" },
+          "scripts": { "start": "ng serve", "build": "ng build" }
+        }
+        """;
+
+    [Fact]
+    public void Build_ServesAStaticAppInsteadOfRunningItsStartScript()
+    {
+        // Mirqab built successfully and then returned 502 on every request. The runtime stage ran
+        // `npm run start`, which for a plain Angular app is `ng serve` -- the development server. It
+        // bound to localhost:4200 inside the container while the proxy routed to 3000, so nothing
+        // was listening where the traffic arrived and the container stayed happily up.
+        var dockerfile = SsrFrontendDockerfile.Build(
+            StaticAngularPackageJson,
+            hasLockfile: true,
+            outputDirectory: "dist/client/browser");
+
+        Assert.Contains("FROM nginx:alpine", dockerfile);
+        Assert.Contains("COPY --from=build /app/dist/client/browser /usr/share/nginx/html", dockerfile);
+        Assert.DoesNotContain("npm\", \"run\", \"start", dockerfile);
+
+        // Deep links and refreshes have to reach the router, not a 404 from the file server.
+        Assert.Contains("try_files $uri $uri/ /index.html", dockerfile);
+        Assert.Contains($"listen {SsrFrontendDockerfile.ContainerPort}", dockerfile);
+    }
+
+    [Fact]
+    public void Build_StillRunsTheServerForAFrameworkThatShipsOne()
+    {
+        // The case the generator was written for must not regress: Next.js builds a server, and
+        // serving its output as files gets a blank page.
+        var dockerfile = SsrFrontendDockerfile.Build(
+            PackageJsonWithEngines,
+            hasLockfile: true,
+            outputDirectory: ".next");
+
+        Assert.DoesNotContain("nginx", dockerfile);
+        Assert.Contains("CMD [\"npm\", \"run\", \"start\"]", dockerfile);
+    }
+
+    [Theory]
+    // Angular is server-rendered only when it is told to be, which is why this reads the
+    // dependencies rather than the framework name.
+    [InlineData("""{ "dependencies": { "@angular/core": "20.0.0" } }""", false)]
+    [InlineData("""{ "dependencies": { "@angular/core": "20.0.0", "@angular/ssr": "20.0.0" } }""", true)]
+    [InlineData("""{ "dependencies": { "next": "16.0.0" } }""", true)]
+    [InlineData("""{ "dependencies": { "@sveltejs/kit": "2.0.0" } }""", true)]
+    [InlineData("""{ "dependencies": { "vue": "3.0.0" } }""", false)]
+    public void ShipsOwnServer_ReadsTheDependenciesNotTheName(string packageJson, bool expected) =>
+        Assert.Equal(expected, SsrFrontendDockerfile.ShipsOwnServer(packageJson));
+
+    [Fact]
+    public void ShipsOwnServer_AssumesAServerWhenThereIsNothingToJudgeBy()
+    {
+        // A Node runtime that fails loudly beats an nginx image serving an empty directory.
+        Assert.True(SsrFrontendDockerfile.ShipsOwnServer(null));
+    }
+
+    [Fact]
+    public void Build_KeepsTheNodeRuntimeWhenAStaticAppHasNoKnownOutputDirectory()
+    {
+        // Nowhere to copy from, so the static image would serve an empty root. The provisioner
+        // declines to generate at all in this case; the generator must not invent a path either.
+        var dockerfile = SsrFrontendDockerfile.Build(StaticAngularPackageJson, hasLockfile: true);
+
+        Assert.DoesNotContain("nginx", dockerfile);
+    }
 }
