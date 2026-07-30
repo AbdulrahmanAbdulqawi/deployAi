@@ -34,15 +34,14 @@ internal static class SingleOriginComposeReadinessEvaluator
         DeploymentPlanPart serverPart)
     {
         var clientPrefix = Prefix(websitePart.RootDirectory);
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
 
         return
         [
             ..ComposeFileCandidates,
             $"{clientPrefix}Dockerfile",
             $"{clientPrefix}nginx.conf",
-            $"{serverPrefix}Dockerfile",
-            $"{serverPrefix}Controllers/HealthController.cs"
+            $"{ServerBuildPrefix(serverPart)}Dockerfile",
+            $"{ServerSourcePrefix(serverPart)}Controllers/HealthController.cs"
         ];
     }
 
@@ -50,15 +49,32 @@ internal static class SingleOriginComposeReadinessEvaluator
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart)
     {
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
-
         return
         [
             ..BuildReadinessFilePaths(websitePart, serverPart),
-            $"{serverPrefix}Program.cs",
+            $"{ServerSourcePrefix(serverPart)}Program.cs",
             "docs/DEPLOYMENT.md"
         ];
     }
+
+    /// <summary>
+    /// Where <c>docker build</c> actually runs for the api service — what compose's own
+    /// <c>build:</c> context points at, and where its Dockerfile must sit.
+    /// </summary>
+    /// <remarks>
+    /// Not the same directory as <see cref="ServerSourcePrefix"/> whenever the api's Dockerfile
+    /// builds a nested project from a wider context — Mirqab's does: root-context multi-stage
+    /// build, source three levels down at <c>src/Mirqab.Api</c>. Before <c>ServiceDirectory</c>
+    /// could point somewhere other than the build root, using it here and for Program.cs/
+    /// Controllers both happened to agree. Making ServiceDirectory answer "where is the source"
+    /// correctly is what split them: the Dockerfile has to be looked for at the build root, or a
+    /// deploy whose Dockerfile has always lived at the repository root gets told it is missing one.
+    /// </remarks>
+    private static string ServerBuildPrefix(DeploymentPlanPart serverPart) => Prefix(serverPart.RootDirectory);
+
+    /// <summary>Where the server's own source lives — Program.cs, Controllers, appsettings.json.</summary>
+    private static string ServerSourcePrefix(DeploymentPlanPart serverPart) =>
+        Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
 
     internal static IReadOnlyList<MissingDeploymentFile> BuildRegenerationTargets(
         IReadOnlyList<DeploymentPlanPart> parts)
@@ -86,12 +102,11 @@ internal static class SingleOriginComposeReadinessEvaluator
     {
         var missing = new List<MissingDeploymentFile>();
         var clientPrefix = Prefix(websitePart.RootDirectory);
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
         var webDockerfilePath = $"{clientPrefix}Dockerfile";
         var nginxPath = $"{clientPrefix}nginx.conf";
-        var apiDockerfilePath = $"{serverPrefix}Dockerfile";
-        var healthControllerPath = $"{serverPrefix}Controllers/HealthController.cs";
-        var programPath = $"{serverPrefix}Program.cs";
+        var apiDockerfilePath = $"{ServerBuildPrefix(serverPart)}Dockerfile";
+        var healthControllerPath = $"{ServerSourcePrefix(serverPart)}Controllers/HealthController.cs";
+        var programPath = $"{ServerSourcePrefix(serverPart)}Program.cs";
 
         var composePath = ComposeFileCandidates.FirstOrDefault(
             candidate => !IsMissing(fileContentsByPath, candidate));

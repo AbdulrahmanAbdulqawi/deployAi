@@ -11,6 +11,52 @@ public class SingleOriginComposeReadinessEvaluatorTests
     private static readonly DeploymentPlanPart Server =
         new("server", "coolify", "src/api", "src/api", null, null, null, null, "dotnet", null, null);
 
+    /// <summary>
+    /// Mirqab's actual shape: a root-context multi-stage Dockerfile whose build root and whose
+    /// application source are two different directories. Every other fixture in this file keeps
+    /// them equal, which is exactly why the Dockerfile-path bug this guards against went unnoticed
+    /// the first time — RootDirectory and ServiceDirectory agreeing is the case that hides it.
+    /// </summary>
+    private static readonly DeploymentPlanPart RootBuildServer =
+        new("server", "coolify", "", "src/Mirqab.Api", null, null, null, null, "docker", "Dockerfile", null);
+
+    [Fact]
+    public void Evaluate_RootContextDockerfile_LooksForItAtTheBuildRootNotTheSourceDirectory()
+    {
+        // The regression this guards: making ServiceDirectory correctly answer "where is the
+        // source" (src/Mirqab.Api) meant a lookup that used to coincidentally agree with
+        // RootDirectory started asking for src/Mirqab.Api/Dockerfile — which does not exist, because
+        // compose's `build: ./` context is the repository root and that is where the Dockerfile
+        // Coolify actually uses has always lived.
+        var files = BuildCompleteFiles();
+        files.Remove("src/api/Dockerfile");
+        files["Dockerfile"] = files["client/Dockerfile"]; // any non-empty content; only presence matters here
+        files.Remove("src/api/Controllers/HealthController.cs");
+        files["src/Mirqab.Api/Controllers/HealthController.cs"] =
+            "[Route(\"api/health\")] public class HealthController { }";
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, RootBuildServer, files);
+
+        Assert.DoesNotContain(issues, issue => issue.Path == "Dockerfile" && issue.Severity == DeploymentFileSeverity.Blocking);
+        Assert.DoesNotContain(issues, issue => issue.Path == "src/Mirqab.Api/Dockerfile");
+    }
+
+    [Fact]
+    public void Evaluate_RootContextDockerfile_StillLooksForSourceFilesUnderTheServiceDirectory()
+    {
+        var files = BuildCompleteFiles();
+        files.Remove("src/api/Dockerfile");
+        files["Dockerfile"] = files["client/Dockerfile"];
+        files.Remove("src/api/Controllers/HealthController.cs");
+        // Deliberately not added: Controllers/HealthController.cs must be missing at the *source*
+        // directory, src/Mirqab.Api, or this assertion cannot tell the fix from a lookup that
+        // stopped checking anywhere at all.
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, RootBuildServer, files);
+
+        Assert.Contains(issues, issue => issue.Path == "src/Mirqab.Api/Controllers/HealthController.cs");
+    }
+
     [Fact]
     public void Evaluate_CompleteRepo_IsReady()
     {
