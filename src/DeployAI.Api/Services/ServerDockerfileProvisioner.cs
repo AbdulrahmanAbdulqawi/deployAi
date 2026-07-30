@@ -46,7 +46,14 @@ public interface IServerDockerfileProvisioner
 }
 
 /// <summary>The build directory (Coolify base directory) and the Dockerfile path relative to it.</summary>
-public sealed record ServerDockerfileResult(string BaseDirectory, string DockerfileLocation, int ExposedPort);
+/// <param name="NodeMajor">For a Node app, the major version the image was built on — so a caller
+/// can tell a Nixpacks fallback the same thing rather than letting it default to 18. Null for
+/// runtimes where the question does not arise.</param>
+public sealed record ServerDockerfileResult(
+    string BaseDirectory,
+    string DockerfileLocation,
+    int ExposedPort,
+    int? NodeMajor = null);
 
 public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
 {
@@ -234,11 +241,14 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         var existing = await _gitHubService.GetFileMetadataAsync(
             githubToken, owner, repo, dockerfilePath, branch, cancellationToken);
 
+        var nodeMajor = SsrFrontendDockerfile.ResolveNodeMajorOrDefault(packageJson);
+
         // Idempotent, and skipped entirely when the content already matches so redeploys don't
         // pile up no-op commits on the branch.
         if (existing is not null && ContentMatches(existing.Content, dockerfileContent))
         {
-            return new ServerDockerfileResult(appDir, "/Dockerfile", SsrFrontendDockerfile.ContainerPort);
+            return new ServerDockerfileResult(
+                appDir, "/Dockerfile", SsrFrontendDockerfile.ContainerPort, nodeMajor);
         }
 
         await _gitHubService.UpsertFileAsync(
@@ -254,7 +264,8 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
             existing?.Sha,
             cancellationToken);
 
-        return new ServerDockerfileResult(appDir, "/Dockerfile", SsrFrontendDockerfile.ContainerPort);
+        return new ServerDockerfileResult(
+            appDir, "/Dockerfile", SsrFrontendDockerfile.ContainerPort, nodeMajor);
     }
 
     /// <summary>

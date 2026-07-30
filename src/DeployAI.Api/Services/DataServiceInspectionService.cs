@@ -100,9 +100,16 @@ public sealed class DataServiceInspectionService : IDataServiceInspectionService
 
         if (connectionDetails is null)
         {
+            // Naming the reason, not just the failure. "Not available yet" reads as "wait a
+            // moment", and the usual cause is permanent: the database is reachable only inside the
+            // provider's own network, which is correct for the app and useless for anyone wanting
+            // to look at the data. A user who is told that can act on it; one told "not yet" waits.
             return new PostgresDatabaseInspection(
                 false,
-                "PostgreSQL connection settings are not available yet.",
+                "This database accepts connections only from inside the provider's private network, "
+                + "so its tables cannot be read from here. The app itself connects to it normally. "
+                + "To inspect it, turn on public access for the database in your provider and "
+                + "redeploy — note that this exposes it to the internet.",
                 [],
                 []);
         }

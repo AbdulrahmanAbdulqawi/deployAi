@@ -45,7 +45,7 @@ public static class SsrFrontendDockerfile
         string? startCommand = null,
         string? installCommand = null)
     {
-        var nodeMajor = ResolveNodeMajor(packageJsonContent) ?? DefaultNodeMajor;
+        var nodeMajor = ResolveNodeMajorOrDefault(packageJsonContent);
         var install = ResolveInstallCommand(installCommand, hasLockfile);
         var build = string.IsNullOrWhiteSpace(buildCommand) ? "npm run build" : buildCommand.Trim();
         var start = string.IsNullOrWhiteSpace(startCommand) ? "npm run start" : startCommand.Trim();
@@ -104,6 +104,19 @@ public static class SsrFrontendDockerfile
     /// Reads <c>engines.node</c> (e.g. "&gt;=22.12.0") so the image satisfies what the framework
     /// requires — Next 16 refuses older Node, and a mismatch only surfaces as an install warning.
     /// </summary>
+    /// <summary>
+    /// The Node major this app should be built on: what it asks for, or a current default.
+    /// </summary>
+    /// <remarks>
+    /// Exposed because the same answer is needed outside the generated Dockerfile. Coolify's
+    /// Nixpacks build defaults to Node 18 when a package.json declares no engines, which is older
+    /// than Angular, Next and Vite now accept — so a repository that says nothing about Node fails
+    /// its build on a version nobody chose. Coolify prints the remedy in the build log and expects a
+    /// human to go and set NIXPACKS_NODE_VERSION; DeployAI can set it from here instead.
+    /// </remarks>
+    public static int ResolveNodeMajorOrDefault(string? packageJsonContent) =>
+        ResolveNodeMajor(packageJsonContent) ?? DefaultNodeMajor;
+
     public static int? ResolveNodeMajor(string? packageJsonContent)
     {
         if (string.IsNullOrWhiteSpace(packageJsonContent))

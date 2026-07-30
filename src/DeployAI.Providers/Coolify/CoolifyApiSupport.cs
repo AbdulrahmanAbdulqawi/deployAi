@@ -193,8 +193,22 @@ internal static class CoolifyApiSupport
         return CoolifyBuildPackValues.Nixpacks;
     }
 
+    /// <summary>
+    /// A frontend that ships its own server, so serving its build output as static files gets a
+    /// blank page.
+    /// </summary>
+    /// <remarks>
+    /// This kept its own list — next, nextjs, nuxt, sveltekit, remix — while
+    /// <see cref="DeployAI.Core.Deployments.SsrFrontendFrameworks"/> held a longer one that also
+    /// covers Angular, Vite, React, Vue, Svelte and Astro. Two lists answering one question drift,
+    /// and this pair already had: an Angular app was "server-rendered" to the half of the code that
+    /// generates a Dockerfile for it and "not server-rendered" to the half that picks a build pack.
+    /// It never surfaced only because the static branch also requires an empty build command, and an
+    /// Angular app always has one. Deferring to the shared list removes the second answer rather
+    /// than waiting for a repository that exposes the difference.
+    /// </remarks>
     private static bool IsServerRenderedFrontend(string? framework) =>
-        framework?.Trim().ToLowerInvariant() is "next" or "nextjs" or "nuxt" or "sveltekit" or "remix";
+        DeployAI.Core.Deployments.SsrFrontendFrameworks.Inlines(framework);
 
     /// <summary>
     /// Deleting a Coolify resource leaves its volumes, generated configuration and networks behind

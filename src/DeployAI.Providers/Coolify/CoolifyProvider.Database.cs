@@ -567,6 +567,12 @@ public sealed partial class CoolifyProvider : IProviderDatabaseProvisioning, IPr
         [JsonPropertyName("postgres_port")]
         public int? PostgresPort { get; set; }
 
+        [JsonPropertyName("is_public")]
+        public bool? IsPublic { get; set; }
+
+        [JsonPropertyName("public_port")]
+        public int? PublicPort { get; set; }
+
         [JsonPropertyName("redis_password")]
         public string? RedisPassword { get; set; }
 
