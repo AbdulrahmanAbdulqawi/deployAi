@@ -29,6 +29,8 @@ public sealed class GitHubController : ControllerBase
     private readonly IServerBuildProfileDiscovery _serverBuildProfileDiscovery;
     private readonly IRepositoryClassifier _repositoryClassifier;
     private readonly IEnvVarDetector _envVarDetector;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
+    private readonly IRepositoryReader _repositoryReader;
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IEncryptionService _encryption;
     private readonly ILogger<GitHubController> _logger;
@@ -42,6 +44,8 @@ public sealed class GitHubController : ControllerBase
         IServerBuildProfileDiscovery serverBuildProfileDiscovery,
         IRepositoryClassifier repositoryClassifier,
         IEnvVarDetector envVarDetector,
+        IRepositoryLayoutResolver layoutResolver,
+        IRepositoryReader repositoryReader,
         IObjectStorageProviderFactory storageFactory,
         IEncryptionService encryption,
         ILogger<GitHubController> logger)
@@ -54,9 +58,33 @@ public sealed class GitHubController : ControllerBase
         _serverBuildProfileDiscovery = serverBuildProfileDiscovery;
         _repositoryClassifier = repositoryClassifier;
         _envVarDetector = envVarDetector;
+        _layoutResolver = layoutResolver;
+        _repositoryReader = repositoryReader;
         _storageFactory = storageFactory;
         _encryption = encryption;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// The nearest of several candidate filenames along the layout's search path. Tries each name in
+    /// turn so a preferred variant (docker-compose.coolify.yml) wins over a fallback, at whatever
+    /// depth it is found.
+    /// </summary>
+    private async Task<RepositoryFile?> FindNearestAsync(
+        string token, string owner, string repo, string? gitRef,
+        RepositoryLayout layout, string[] fileNames, CancellationToken cancellationToken)
+    {
+        foreach (var name in fileNames)
+        {
+            var found = await _repositoryReader.FindAsync(
+                token, owner, repo, gitRef ?? string.Empty, layout, name, cancellationToken);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Lists the current user's GitHub repos, optionally filtered by name.</summary>
@@ -221,24 +249,29 @@ public sealed class GitHubController : ControllerBase
         var token = await GetGitHubTokenAsync(cancellationToken);
         var userId = _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
 
-        var compose = await ReadFirstExistingFileAsync(
-            token, owner, repo,
-            [
-                string.IsNullOrWhiteSpace(composePath) ? "docker-compose.coolify.yml" : composePath.Trim().TrimStart('/'),
-                "docker-compose.coolify.yml",
-                "docker-compose.yml"
-            ],
-            @ref, cancellationToken);
-        var dotEnv = await ReadFirstExistingFileAsync(
-            token, owner, repo, [".env.example", ".env.sample"], @ref, cancellationToken);
         var normalizedServerPath = string.IsNullOrWhiteSpace(serverPath) ? null : serverPath.Trim().Trim('/');
-        var appsettings = await ReadFirstExistingFileAsync(
-            token, owner, repo,
-            normalizedServerPath is null
-                ? ["appsettings.json"]
-                : [$"{normalizedServerPath}/appsettings.json", "appsettings.json"],
-            @ref, cancellationToken);
-        var readme = await _gitHubService.GetFileContentAsync(token, owner, repo, "README.md", @ref, cancellationToken);
+
+        // Resolving the layout is what makes a nested app visible. Reading only the root and one
+        // supplied path is why this scan returned nothing for a repository whose API lives at
+        // backend/src/YemenHub.Api: appsettings.json was never at backend/src, so the wizard showed
+        // no environment step and the API reached production crash-looping on missing Jwt settings.
+        var layout = await _layoutResolver.ResolveAsync(
+            token, owner, repo, @ref ?? string.Empty, normalizedServerPath, cancellationToken);
+
+        // An explicit compose path is a caller's instruction, so it wins over the search.
+        var compose = string.IsNullOrWhiteSpace(composePath)
+            ? null
+            : await _gitHubService.GetFileContentAsync(
+                token, owner, repo, composePath.Trim().TrimStart('/'), @ref, cancellationToken);
+
+        compose ??= (await FindNearestAsync(token, owner, repo, @ref, layout,
+            ["docker-compose.coolify.yml", "docker-compose.yml"], cancellationToken))?.Content;
+        var dotEnv = (await FindNearestAsync(token, owner, repo, @ref, layout,
+            [".env.example", ".env.sample"], cancellationToken))?.Content;
+        var appsettings = (await FindNearestAsync(token, owner, repo, @ref, layout,
+            ["appsettings.json"], cancellationToken))?.Content;
+        var readme = (await FindNearestAsync(token, owner, repo, @ref, layout,
+            ["README.md"], cancellationToken))?.Content;
 
         var scan = _envVarDetector.Detect(new EnvScanInputs(
             ComposeContent: compose,
@@ -248,14 +281,22 @@ public sealed class GitHubController : ControllerBase
 
         var suggestions = await BuildEnvSuggestionsAsync(userId, scan.Variables, cancellationToken);
 
-        if (scan.IsInconclusive)
+        // Two ways to be untrustworthy, and they are not the same. The layout being inconclusive
+        // means the repository could not be listed at all; the scan being inconclusive means it was
+        // listed but none of the files existed. Either makes an empty result unsafe to deploy on.
+        var inconclusive = scan.IsInconclusive || layout.IsInconclusive;
+
+        if (inconclusive)
         {
             _logger.LogWarning(
-                "Env scan for {Owner}/{Repo} read no sources (serverPath: {ServerPath}); "
-                + "an empty result here means the files were not found, not that the app needs no configuration.",
+                "Env scan for {Owner}/{Repo} read no sources (serverPath: {ServerPath}, resolved to "
+                + "{ProjectDirectory}, listed {DirectoryCount} directories); an empty result here means "
+                + "the files were not found, not that the app needs no configuration.",
                 owner,
                 repo,
-                normalizedServerPath ?? "(none)");
+                normalizedServerPath ?? "(none)",
+                layout.ProjectDirectory,
+                layout.DirectoriesRead.Count);
         }
 
         return Ok(new
@@ -275,7 +316,11 @@ public sealed class GitHubController : ControllerBase
             // only the first is safe to deploy on without asking.
             scanned = scan.SourcesRead,
             notFound = scan.SourcesMissing,
-            inconclusive = scan.IsInconclusive
+            inconclusive,
+            // Where the scan actually looked. Without this, a wrong answer and a right one are the
+            // same shape, and the only way to tell them apart is to guess at the repository layout.
+            projectDirectory = layout.ProjectDirectory,
+            searchedIn = layout.SearchPath
         });
     }
 
