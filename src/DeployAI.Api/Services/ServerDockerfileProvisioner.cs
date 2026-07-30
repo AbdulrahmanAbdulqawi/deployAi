@@ -28,12 +28,16 @@ public interface IServerDockerfileProvisioner
     /// framework inlines at build time (NEXT_PUBLIC_*) never reach the bundle and it keeps the
     /// source's localhost fallback. Owning the Dockerfile is what lets them be passed as build args.
     /// </summary>
+    /// <param name="framework">What the target is configured as. Used only to confirm a package.json
+    /// found somewhere other than the configured directory really belongs to this website — a repo
+    /// root holding both a backend and a frontend must not have its API's manifest picked up.</param>
     Task<ServerDockerfileResult?> EnsureSsrWebsiteDockerfileAsync(
         string githubToken,
         string owner,
         string repo,
         string branch,
         string appDirectory,
+        string? framework,
         IReadOnlyList<string> buildTimeEnvKeys,
         string? buildCommand,
         string? startCommand,
@@ -48,15 +52,18 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
 {
     private readonly IGitHubService _gitHubService;
     private readonly IRepositoryLayoutResolver _layoutResolver;
+    private readonly IFrontendBuildDetector _frontendDetector;
     private readonly ILogger<ServerDockerfileProvisioner> _logger;
 
     public ServerDockerfileProvisioner(
         IGitHubService gitHubService,
         IRepositoryLayoutResolver layoutResolver,
+        IFrontendBuildDetector frontendDetector,
         ILogger<ServerDockerfileProvisioner> logger)
     {
         _gitHubService = gitHubService;
         _layoutResolver = layoutResolver;
+        _frontendDetector = frontendDetector;
         _logger = logger;
     }
 
@@ -139,22 +146,63 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         string repo,
         string branch,
         string appDirectory,
+        string? framework,
         IReadOnlyList<string> buildTimeEnvKeys,
         string? buildCommand,
         string? startCommand,
         string? installCommand,
         CancellationToken cancellationToken)
     {
-        var appDir = Normalize(appDirectory);
+        var configured = Normalize(appDirectory);
 
-        // The build context is the app directory, so its package.json is what the image installs.
-        // No package.json means this isn't a Node app and generating a Dockerfile would only
-        // produce a confusing build failure.
+        // The same resolver the server side uses. This read only the configured directory, so a
+        // frontend one level down -- a repo whose website target points at "apps" and whose Next.js
+        // app is "apps/web" -- found no package.json, returned null, and the site silently stayed on
+        // Nixpacks. That is precisely the failure this generator exists to prevent, arriving through
+        // the scan instead of the generator.
+        var layout = await _layoutResolver.ResolveAsync(
+            githubToken, owner, repo, branch, configured, cancellationToken);
+
+        if (layout.IsInconclusive)
+        {
+            // Never silent: leaving the site on Nixpacks because nobody could read the repository is
+            // a different fact from leaving it there because it is not a Node app.
+            _logger.LogWarning(
+                "Could not read {Owner}/{Repo}@{Branch} under '{Directory}', so the website stays on "
+                + "its current build pack; whether it needs a generated Dockerfile is unknown.",
+                owner, repo, branch, configured);
+            return null;
+        }
+
+        // The build context is the directory holding the package.json the image installs.
+        var appDir = layout.ProjectDirectory;
         var packageJsonPath = string.IsNullOrEmpty(appDir) ? "package.json" : $"{appDir}/package.json";
         var packageJson = await _gitHubService.GetFileContentAsync(
             githubToken, owner, repo, packageJsonPath, branch, cancellationToken);
         if (string.IsNullOrWhiteSpace(packageJson))
         {
+            // Not a Node app. Correct to do nothing, and worth saying where it looked -- "no
+            // package.json" without a path is unactionable when the answer is a wrong directory.
+            _logger.LogInformation(
+                "No package.json under [{SearchPath}] in {Owner}/{Repo}@{Branch}; "
+                + "leaving the website on its current build pack.",
+                string.Join(", ", layout.SearchPath.Select(p => string.IsNullOrEmpty(p) ? "<repo root>" : p)),
+                owner, repo, branch);
+            return null;
+        }
+
+        // Descending is only safe with evidence. A website target pointed at a directory that holds
+        // both an API and a frontend would otherwise take whichever manifest was listed first and
+        // build the wrong half -- worse than the Nixpacks build it replaced. Staying put needs no
+        // check: that directory is what the user chose.
+        if (!string.Equals(appDir, configured, StringComparison.OrdinalIgnoreCase) &&
+            !IsTheConfiguredFramework(packageJson, framework))
+        {
+            _logger.LogInformation(
+                "The package.json found at '{Found}' is not the {Framework} app this target deploys; "
+                + "leaving the website on its current build pack.",
+                appDir,
+                framework ?? "configured");
             return null;
         }
 
@@ -193,6 +241,31 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
             cancellationToken);
 
         return new ServerDockerfileResult(appDir, "/Dockerfile", SsrFrontendDockerfile.ContainerPort);
+    }
+
+    /// <summary>
+    /// Whether a manifest found away from the configured directory is the framework this target
+    /// deploys, judged by the dependencies it declares rather than by where it sits.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately strict: an unrecognised manifest is treated as "not it". Doing nothing leaves
+    /// the site on the build pack it already had, which is the behaviour this method has always had
+    /// for a directory with no package.json — building the wrong application would be new damage.
+    /// </remarks>
+    private bool IsTheConfiguredFramework(string packageJson, string? framework)
+    {
+        if (string.IsNullOrWhiteSpace(framework))
+        {
+            return false;
+        }
+
+        var detected = _frontendDetector.Detect(string.Empty, null, packageJson).Framework;
+        return detected is not null &&
+               (string.Equals(detected, framework, StringComparison.OrdinalIgnoreCase) ||
+                // "nextjs" and "next" name the same framework; the config carries whichever the
+                // wizard wrote, the detector always answers with its own spelling.
+                string.Equals($"{detected}js", framework, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detected, $"{framework}js", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

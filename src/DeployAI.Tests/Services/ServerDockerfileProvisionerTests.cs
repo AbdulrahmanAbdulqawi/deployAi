@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using DeployAI.Api.Services;
 using DeployAI.Infrastructure.GitHub;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -66,7 +67,8 @@ public class ServerDockerfileProvisionerTests
         StubDirectory(github, "services/api/src", File("services/api/src/index.ts"));
 
         var logger = new CountingLogger<ServerDockerfileProvisioner>();
-        var provisioner = new ServerDockerfileProvisioner(github.Object, new RepositoryLayoutResolver(github.Object), logger);
+        var provisioner = new ServerDockerfileProvisioner(
+            github.Object, new RepositoryLayoutResolver(github.Object), new FrontendBuildDetector(), logger);
 
         var result = await provisioner.EnsureDockerfileAsync(
             "token", Owner, Repo, Branch, "services/api", "services/api", CancellationToken.None);
@@ -104,10 +106,121 @@ public class ServerDockerfileProvisionerTests
         Assert.Contains("My.Api.csproj", written);
     }
 
+    [Fact]
+    public async Task EnsureSsrWebsiteDockerfileAsync_FindsTheFrontendOneLevelDown()
+    {
+        // The website half of the same gap. This read only the configured directory, so a target
+        // pointed at "apps" with the Next.js app in "apps/web" found no package.json, returned null,
+        // and the site stayed on Nixpacks -- which bakes the source's localhost API URL into the
+        // bundle. The generated Dockerfile exists to stop exactly that, and could not reach it.
+        var github = new Mock<IGitHubService>();
+        StubDirectory(github, "apps", Dir("apps/web"));
+        StubDirectory(github, "apps/web", File("apps/web/package.json"));
+        StubFile(github, "apps/web/package.json",
+            """{ "name": "web", "dependencies": { "next": "15.0.0" }, "scripts": { "build": "next build" } }""");
+
+        var written = CaptureUpsert(github, out var path);
+
+        var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, "apps", "next", ["NEXT_PUBLIC_API_URL"],
+            null, null, null, CancellationToken.None);
+
+        Assert.NotNull(result);
+
+        // The build context has to be the directory the package.json is in, or the image installs
+        // from a directory with no manifest.
+        Assert.Equal("apps/web", result.BaseDirectory);
+        Assert.Equal("apps/web/Dockerfile", path.Value);
+        Assert.Contains("NEXT_PUBLIC_API_URL", written.Value);
+    }
+
+    [Fact]
+    public async Task EnsureSsrWebsiteDockerfileAsync_RefusesToBuildADifferentAppFoundNearby()
+    {
+        // Descending without evidence is worse than not descending. A website target pointed at a
+        // directory holding both halves would otherwise take whichever manifest was listed first --
+        // here the API's -- and build the backend as the website.
+        var github = new Mock<IGitHubService>();
+        StubDirectory(github, "", Dir("server"), Dir("client"));
+        StubDirectory(github, "server", File("server/package.json"));
+        StubFile(github, "server/package.json",
+            """{ "name": "api", "dependencies": { "express": "4.19.0" } }""");
+
+        var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, string.Empty, "next", [], null, null, null, CancellationToken.None);
+
+        Assert.Null(result);
+        github.Verify(g => g.UpsertFileAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnsureSsrWebsiteDockerfileAsync_TrustsTheDirectoryTheUserChose()
+    {
+        // No evidence check when it stays put: the user pointed at this directory, and a framework
+        // the detector does not recognise is not a reason to override them.
+        var github = new Mock<IGitHubService>();
+        StubDirectory(github, "client", File("client/package.json"));
+        StubFile(github, "client/package.json",
+            """{ "name": "site", "scripts": { "build": "custom-tool build" } }""");
+
+        var written = CaptureUpsert(github, out _);
+
+        var result = await Create(github).EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, "client", "next", [], null, null, null, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("client", result.BaseDirectory);
+        Assert.NotNull(written.Value);
+    }
+
+    [Fact]
+    public async Task EnsureSsrWebsiteDockerfileAsync_SaysItCouldNotRead_RatherThanNothingToDo()
+    {
+        // Leaving a site on Nixpacks because the repository could not be read is a different fact
+        // from leaving it there because the app is not Node, and they used to log identically.
+        var github = new Mock<IGitHubService>();
+        var logger = new CountingLogger<ServerDockerfileProvisioner>();
+        var provisioner = new ServerDockerfileProvisioner(
+            github.Object, new RepositoryLayoutResolver(github.Object), new FrontendBuildDetector(), logger);
+
+        var result = await provisioner.EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+
+        Assert.Null(result);
+        Assert.Equal(1, logger.Warnings);
+    }
+
+    /// <summary>Captures the content and path of the single file the provisioner writes.</summary>
+    private static StrongBox<string?> CaptureUpsert(Mock<IGitHubService> github, out StrongBox<string?> path)
+    {
+        var content = new StrongBox<string?>(null);
+        var capturedPath = new StrongBox<string?>(null);
+        path = capturedPath;
+
+        github.Setup(g => g.UpsertFileAsync(
+                It.IsAny<string>(), Owner, Repo, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), Branch, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, string _, string filePath, string fileContent,
+                       string _, string _, string? _, CancellationToken _) =>
+            {
+                capturedPath.Value = filePath;
+                content.Value = fileContent;
+            })
+            .ReturnsAsync("sha");
+
+        return content;
+    }
+
     /// <summary>The real resolver over the same mocked GitHub service: these tests exist to prove the
     /// monorepo descent picks the web project, so stubbing it would remove what they check.</summary>
     private static ServerDockerfileProvisioner Create(Mock<IGitHubService> github) =>
-        new(github.Object, new RepositoryLayoutResolver(github.Object), NullLogger<ServerDockerfileProvisioner>.Instance);
+        new(github.Object,
+            new RepositoryLayoutResolver(github.Object),
+            new FrontendBuildDetector(),
+            NullLogger<ServerDockerfileProvisioner>.Instance);
 
     private static GitHubContentItem Dir(string path) =>
         new(System.IO.Path.GetFileName(path), path, "dir");

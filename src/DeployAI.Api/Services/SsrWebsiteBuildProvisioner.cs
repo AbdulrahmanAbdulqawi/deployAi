@@ -82,6 +82,7 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
             parts[1],
             branch,
             appDirectory,
+            config.Framework,
             ResolveBuildTimeEnvKeys(project, config.Framework),
             config.BuildCommand,
             config.StartCommand,
@@ -90,10 +91,8 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
 
         if (provisioned is null)
         {
-            _logger.LogInformation(
-                "No package.json under '{Directory}' for {Repo}; leaving the website on its current build pack.",
-                appDirectory,
-                project.GitHubRepoFullName);
+            // The provisioner says why, and which directories it read — a bare "no package.json"
+            // here restated the guess that was wrong in the first place.
             return;
         }
 
