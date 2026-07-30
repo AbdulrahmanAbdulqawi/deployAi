@@ -234,6 +234,15 @@ Recorded so they get closed rather than re-done by hand.
   container that has hit Coolify's restart limit stays stopped until something starts it. For a
   *running* container it works well — it is what diagnosed the `/public/stats` 500 above, returning
   the full EF translation error and the SQL around it in one call.
+- **DeployAI provisions a Coolify database it then cannot reach.** `IProviderDataServiceInspection`
+  is implemented by `RailwayProvider` only, so `data-info` answers `unsupported_provider` for every
+  Coolify database — which is the default. The connection string DeployAI writes onto the app uses
+  Coolify's internal Docker hostname, reachable only from inside that network, so nothing outside the
+  container can look at the data: not the tables panel, not a migration check, not the user. Found
+  while trying to remove three throwaway accounts a test had created; the only routes to them are SSH
+  onto the Hetzner host or an endpoint in the app itself, and the first is precisely what the core
+  rule says must not become routine. A provisioned database nobody can inspect is also why "did the
+  migrations apply" still has no answer for the provider DeployAI defaults to.
 - **Project status is never revalidated against the provider.** A project whose Coolify
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so
