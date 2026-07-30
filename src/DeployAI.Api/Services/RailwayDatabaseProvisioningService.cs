@@ -17,6 +17,10 @@ namespace DeployAI.Api.Services;
 public interface IRailwayDatabaseProvisioningService
 {
     /// <summary>Detects which databases a server's repo needs (from docker-compose/appsettings/Prisma).</summary>
+    /// <remarks>
+    /// A profile whose <see cref="DatabaseRequirementProfile.IsInconclusive"/> is set means the
+    /// repository could not be read, not that the app needs nothing.
+    /// </remarks>
     Task<DatabaseRequirementProfile> DetectRequirementsAsync(
         Project project,
         DeployTarget serverTarget,
@@ -31,7 +35,8 @@ public interface IRailwayDatabaseProvisioningService
         CancellationToken cancellationToken);
 
     /// <summary>Detects requirements from the repo and provisions exactly those databases automatically.</summary>
-    Task EnsureFromRepoAsync(
+    /// <returns>What the deploy log should say, or null when there is nothing worth saying.</returns>
+    Task<string?> EnsureFromRepoAsync(
         Project project,
         DeployTarget serverTarget,
         string branch,
@@ -57,7 +62,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IProviderServiceOperationsFactory _serviceOperationsFactory;
     private readonly IProviderCredentialTokenService _tokens;
-    private readonly IGitHubService _gitHubService;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
+    private readonly IRepositoryReader _reader;
     private readonly IEncryptionService _encryption;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
     private readonly ILogger<RailwayDatabaseProvisioningService> _logger;
@@ -68,7 +74,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         IProviderManagementFactory managementFactory,
         IProviderServiceOperationsFactory serviceOperationsFactory,
         IProviderCredentialTokenService tokens,
-        IGitHubService gitHubService,
+        IRepositoryLayoutResolver layoutResolver,
+        IRepositoryReader reader,
         IEncryptionService encryption,
         IDatabaseRequirementDetector databaseRequirementDetector,
         ILogger<RailwayDatabaseProvisioningService> logger)
@@ -78,7 +85,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         _managementFactory = managementFactory;
         _serviceOperationsFactory = serviceOperationsFactory;
         _tokens = tokens;
-        _gitHubService = gitHubService;
+        _layoutResolver = layoutResolver;
+        _reader = reader;
         _encryption = encryption;
         _databaseRequirementDetector = databaseRequirementDetector;
         _logger = logger;
@@ -91,7 +99,7 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         CancellationToken cancellationToken) =>
         DetectRequirementsInternalAsync(project, serverTarget, branch, cancellationToken);
 
-    public async Task EnsureFromRepoAsync(
+    public async Task<string?> EnsureFromRepoAsync(
         Project project,
         DeployTarget serverTarget,
         string branch,
@@ -100,17 +108,28 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         if (_provisioningFactory.GetProvisioning(serverTarget.ProviderName) is null)
         {
             _logger.LogWarning("DB-PROVISION: no provisioning registered for provider {Provider}; skipping.", serverTarget.ProviderName);
-            return;
+            return null;
         }
 
         var profile = await DetectRequirementsInternalAsync(project, serverTarget, branch, cancellationToken);
         _logger.LogInformation(
-            "DB-PROVISION: detection for target {TargetId} on branch {Branch}: postgres={Pg} redis={Redis} keys=[{Keys}] pgName={PgName}",
+            "DB-PROVISION: detection for target {TargetId} on branch {Branch}: postgres={Pg} redis={Redis} keys=[{Keys}] pgName={PgName} inconclusive={Inconclusive}",
             serverTarget.Id, branch, profile.RequiresPostgres, profile.RequiresRedis,
-            string.Join(",", profile.ConnectionStringKeys ?? []), profile.PostgresDatabaseName);
+            string.Join(",", profile.ConnectionStringKeys ?? []), profile.PostgresDatabaseName,
+            profile.IsInconclusive);
+
+        // A scan that could not read the repository is not a scan that found no database. Deploying
+        // on the first is fine; deploying silently on the second hands the app an empty connection
+        // string, and the symptom arrives later as a 500 from a route nobody connected to this.
+        if (profile.IsInconclusive)
+        {
+            return "Could not read this app's files, so whether it needs a database is unknown. "
+                + "If it does, no database was provisioned and it will fail at its first query.";
+        }
+
         if (!profile.RequiresPostgres && !profile.RequiresRedis)
         {
-            return;
+            return null;
         }
 
         await ProvisionAsync(
@@ -122,6 +141,8 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
                 profile.PostgresDatabaseName,
                 profile.ConnectionStringKeys),
             cancellationToken);
+
+        return null;
     }
 
     private async Task<DatabaseRequirementProfile> DetectRequirementsInternalAsync(
@@ -141,128 +162,37 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
         var serverPath = (serverConfig.ServiceDirectory ?? serverConfig.RootDirectory ?? string.Empty).Trim().Trim('/');
 
-        var dockerCompose = await ReadFirstExistingFileAsync(
-            gitHubToken,
-            parts[0],
-            parts[1],
-            ["docker-compose.yml", "docker-compose.yaml"],
-            branch,
-            cancellationToken);
-        var appsettingsPath = string.IsNullOrEmpty(serverPath)
-            ? "appsettings.json"
-            : $"{serverPath}/appsettings.json";
-        var appsettings = await _gitHubService.GetFileContentAsync(
-            gitHubToken,
-            parts[0],
-            parts[1],
-            appsettingsPath,
-            branch,
-            cancellationToken);
+        // The shared resolver, not this service's own descent. It used to walk two levels looking
+        // for an appsettings.json next to a .csproj — correct, and the third independent copy of
+        // the same idea. Everything it read now comes through the layout's search path instead, so
+        // a repository shape this service has never seen is one resolver's problem, not four.
+        var layout = await _layoutResolver.ResolveAsync(
+            gitHubToken, parts[0], parts[1], branch, serverPath, cancellationToken);
 
-        // A .NET modular monolith's service directory is the build context (e.g. backend/src),
-        // but appsettings.json — with the connection strings — lives inside the startup project
-        // (backend/src/YemenHub.Api). When it isn't at the service root, resolve it the same
-        // recursive way the Dockerfile provisioner finds the entry .csproj, then read the
-        // appsettings.json sitting next to that project.
-        if (string.IsNullOrWhiteSpace(appsettings))
+        if (layout.IsInconclusive)
         {
-            appsettings = await ReadNestedAppSettingsAsync(gitHubToken, parts[0], parts[1], serverPath, branch, cancellationToken);
+            _logger.LogWarning(
+                "DB-PROVISION: could not read {Repo}@{Branch} under '{Path}'; database requirements are unknown.",
+                project.GitHubRepoFullName, branch, serverPath);
+            return new DatabaseRequirementProfile(false, false, [], IsInconclusive: true);
         }
 
-        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings);
-        return profile;
+        var dockerCompose =
+            await _reader.FindAsync(gitHubToken, parts[0], parts[1], branch, layout, "docker-compose.yml", cancellationToken)
+            ?? await _reader.FindAsync(gitHubToken, parts[0], parts[1], branch, layout, "docker-compose.yaml", cancellationToken);
+        var appsettings = await _reader.FindAsync(
+            gitHubToken, parts[0], parts[1], branch, layout, "appsettings.json", cancellationToken);
+
+        // Read here for the first time: classification already looked at a Prisma schema, but the
+        // deploy path did not, so a Node app whose only evidence is prisma/schema.prisma was told at
+        // the wizard that it needs Postgres and then deployed without one.
+        var prismaSchema = await _reader.FindAsync(
+            gitHubToken, parts[0], parts[1], branch, layout, "prisma/schema.prisma", cancellationToken);
+
+        return _databaseRequirementDetector.Detect(
+            dockerCompose?.Content, appsettings?.Content, prismaSchema?.Content);
     }
 
-    private async Task<string?> ReadNestedAppSettingsAsync(
-        string gitHubToken,
-        string owner,
-        string repo,
-        string serverPath,
-        string branch,
-        CancellationToken cancellationToken)
-    {
-        // ListAllContentsAsync only returns one directory level, so walk down manually (bounded to
-        // two levels — deep enough for a .NET startup project nested under a build-context folder
-        // like backend/src/YemenHub.Api, shallow enough to stay a couple of API calls).
-        var path = await FindNestedAppSettingsPathAsync(gitHubToken, owner, repo, serverPath, branch, depth: 2, cancellationToken);
-        if (string.IsNullOrEmpty(path))
-        {
-            return null;
-        }
-
-        return await _gitHubService.GetFileContentAsync(gitHubToken, owner, repo, path, branch, cancellationToken);
-    }
-
-    private async Task<string?> FindNestedAppSettingsPathAsync(
-        string gitHubToken,
-        string owner,
-        string repo,
-        string directory,
-        string branch,
-        int depth,
-        CancellationToken cancellationToken)
-    {
-        IReadOnlyList<GitHubContentItem> items;
-        try
-        {
-            items = await _gitHubService.ListAllContentsAsync(gitHubToken, owner, repo, directory, branch, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "DB-PROVISION: could not list contents under '{Path}' to find nested appsettings.", directory);
-            return null;
-        }
-
-        var appsettingsHere = items.FirstOrDefault(item =>
-            string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(item.Name, "appsettings.json", StringComparison.OrdinalIgnoreCase));
-
-        // The startup project's appsettings.json sits next to a .csproj — prefer that pairing.
-        var hasCsproj = items.Any(item =>
-            string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
-            item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
-        if (appsettingsHere is not null && hasCsproj)
-        {
-            return appsettingsHere.Path;
-        }
-
-        if (depth > 0)
-        {
-            foreach (var subdirectory in items.Where(item =>
-                         string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase)))
-            {
-                var found = await FindNestedAppSettingsPathAsync(
-                    gitHubToken, owner, repo, subdirectory.Path, branch, depth - 1, cancellationToken);
-                if (!string.IsNullOrEmpty(found))
-                {
-                    return found;
-                }
-            }
-        }
-
-        // No csproj pairing found anywhere — fall back to an appsettings.json at this level.
-        return appsettingsHere?.Path;
-    }
-
-    private async Task<string?> ReadFirstExistingFileAsync(
-        string token,
-        string owner,
-        string repo,
-        IReadOnlyList<string> paths,
-        string? gitRef,
-        CancellationToken cancellationToken)
-    {
-        foreach (var path in paths)
-        {
-            var content = await _gitHubService.GetFileContentAsync(token, owner, repo, path, gitRef, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(content))
-            {
-                return content;
-            }
-        }
-
-        return null;
-    }
     public async Task ProvisionAsync(
         Project project,
         DeployTarget serverTarget,

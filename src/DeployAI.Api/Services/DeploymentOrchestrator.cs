@@ -580,11 +580,12 @@ public sealed class DeploymentJobRunner
 
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
             {
-                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                var databaseNote = await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
                     deployTarget,
                     deployment.Branch,
                     cancellationToken);
+                await ReportDatabaseScanAsync(target, deployment, databaseNote, cancellationToken);
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
 
@@ -597,11 +598,12 @@ public sealed class DeploymentJobRunner
             if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(targetConfig.Role, "server", StringComparison.OrdinalIgnoreCase))
             {
-                await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
+                var databaseNote = await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
                     project,
                     deployTarget,
                     deployment.Branch,
                     cancellationToken);
+                await ReportDatabaseScanAsync(target, deployment, databaseNote, cancellationToken);
                 DetachDeployTargetChanges();
                 targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
 
@@ -1040,6 +1042,32 @@ public sealed class DeploymentJobRunner
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
 
         await _deploymentNotifications.NotifyDeploymentCompletedAsync(deploymentId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Says so in the deploy log when the database scan could not read the repository.
+    /// </summary>
+    /// <remarks>
+    /// Provisioning nothing because the app needs nothing, and provisioning nothing because nobody
+    /// could look, used to produce identical output: none. Only one of them is safe.
+    /// </remarks>
+    private async Task ReportDatabaseScanAsync(
+        DeploymentTarget target,
+        Deployment deployment,
+        string? note,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return;
+        }
+
+        await PersistAndBroadcastLogAsync(
+            target,
+            deployment.Id,
+            await NextSequenceAsync(target.Id, cancellationToken),
+            note,
+            cancellationToken);
     }
 
     private async Task PersistAndBroadcastLogAsync(
