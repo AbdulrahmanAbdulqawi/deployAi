@@ -160,7 +160,17 @@ public sealed class RailwayDatabaseProvisioningService : IRailwayDatabaseProvisi
         var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
         var gitHubToken = _encryption.Decrypt(user.GitHubTokenEncrypted);
         var serverConfig = DeployTargetConfig.Parse(serverTarget.ConfigJson);
-        var serverPath = (serverConfig.ServiceDirectory ?? serverConfig.RootDirectory ?? string.Empty).Trim().Trim('/');
+        // A compose target's own RootDirectory/ServiceDirectory is the website's — the folder that
+        // faces the browser, e.g. "client" — because that is the half the persisted role describes.
+        // The server code compose deploys alongside it lives at ComposeServerDirectory, recorded
+        // separately for exactly this reason. Reading the website's directory here sent detection
+        // looking for appsettings.json under client/, found nothing, and reported no database
+        // requirement for an app that fails on line one of Program.cs without one.
+        var serverPath = (serverConfig.IsComposeTarget
+                ? serverConfig.ComposeServerDirectory ?? string.Empty
+                : serverConfig.ServiceDirectory ?? serverConfig.RootDirectory ?? string.Empty)
+            .Trim()
+            .Trim('/');
 
         // The shared resolver, not this service's own descent. It used to walk two levels looking
         // for an appsettings.json next to a .csproj — correct, and the third independent copy of

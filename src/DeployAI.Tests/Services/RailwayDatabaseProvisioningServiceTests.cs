@@ -34,6 +34,30 @@ public class RailwayDatabaseProvisioningServiceTests
     }
 
     [Fact]
+    public async Task DetectRequirements_ForAComposeTarget_ReadsTheServerDirectoryNotTheWebsites()
+    {
+        // Mirqab's shape: one compose target carries the website's own rootDirectory ("client")
+        // because that is the half facing the browser, and the server's actual location separately
+        // in composeServerDirectory. Reading serviceDirectory/rootDirectory off this target — the
+        // rule for a split deploy's dedicated server target — searched under client/ for
+        // appsettings.json, found nothing, and reported no database requirement for an app whose
+        // Program.cs throws on line one without one.
+        var github = new Mock<IGitHubService>();
+        StubDir(github, "src/Mirqab.Api", File("src/Mirqab.Api/Mirqab.Api.csproj"), File("src/Mirqab.Api/appsettings.json"));
+        StubFile(github, "src/Mirqab.Api/Mirqab.Api.csproj", WebCsproj);
+        StubFile(github, "src/Mirqab.Api/appsettings.json",
+            """{ "ConnectionStrings": { "Postgres": "Host=localhost;Database=mirqab" } }""");
+
+        var (service, project, target) = BuildCompose(github, websiteRoot: "client", composeServerDirectory: "src/Mirqab.Api");
+
+        var profile = await service.DetectRequirementsAsync(project, target, Branch, CancellationToken.None);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.Contains("Postgres", profile.ConnectionStringKeys);
+        Assert.False(profile.IsInconclusive);
+    }
+
+    [Fact]
     public async Task DetectRequirements_ReadsAPrismaSchemaBesideTheApp()
     {
         // New here. Classification already looked at prisma/schema.prisma, but the deploy path did
@@ -259,6 +283,25 @@ public class RailwayDatabaseProvisioningServiceTests
             new DatabaseRequirementDetector(),
             NullLogger<RailwayDatabaseProvisioningService>.Instance);
 
+        return (service, project, target);
+    }
+
+    /// <summary>
+    /// Mirqab's actual shape: one target, role "website" (it faces the browser), rootDirectory the
+    /// client folder, and the server's own location in composeServerDirectory — the field that
+    /// exists so this target never has to be mistaken for a plain website.
+    /// </summary>
+    private static (RailwayDatabaseProvisioningService Service, Project Project, DeployTarget Target) BuildCompose(
+        Mock<IGitHubService> github,
+        string websiteRoot,
+        string composeServerDirectory)
+    {
+        var (service, project, target) = Build(github, serviceDirectory: websiteRoot);
+        target.ConfigJson = $$"""
+            {"role":"website","rootDirectory":"{{websiteRoot}}",
+             "composeFileLocation":"docker-compose.coolify.yml",
+             "composeServerDirectory":"{{composeServerDirectory}}"}
+            """;
         return (service, project, target);
     }
 

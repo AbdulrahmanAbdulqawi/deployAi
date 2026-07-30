@@ -378,13 +378,22 @@ public sealed class ProjectsController : ControllerBase
             throw new DeployAIException("no_server_target", "Connect a server (Railway or Coolify) before adding databases.");
         }
 
+        // Detected once, used for two different things: the app's own connection-string name is
+        // what the wired env var must be keyed as, not just what the new database should be called.
+        // This request built only the second and dropped the first, so a manual Add still wired
+        // ConnectionStrings__Default while an app that reads ConnectionStrings__Postgres — Mirqab's
+        // shape — crashed on the same missing-configuration exception after the database existed.
+        var detected = await _railwayDatabaseProvisioning.DetectRequirementsAsync(
+            project, serverTarget, project.DefaultBranch, cancellationToken);
+
         await _railwayDatabaseProvisioning.ProvisionAsync(
             project,
             serverTarget,
             new DatabaseProvisioningRequest(
                 request.Postgres,
                 request.Redis,
-                await GetPostgresDatabaseNameAsync(project, serverTarget, cancellationToken)),
+                detected.PostgresDatabaseName,
+                detected.ConnectionStringKeys),
             cancellationToken);
 
         project.UpdatedAt = DateTimeOffset.UtcNow;
@@ -529,29 +538,28 @@ public sealed class ProjectsController : ControllerBase
     // either Railway or Coolify. Resolving by role (not by the "railway" provider name) is what
     // lets Coolify apps use the same database provisioning — the auto/manual endpoints were
     // Railway-only and silently failed for Coolify before.
+    /// <summary>
+    /// The target a database's connection string gets wired onto.
+    /// </summary>
+    /// <remarks>
+    /// A split deploy has a dedicated server-role target, so matching on <c>role == "server"</c> was
+    /// enough. A single-origin compose deploy has no such target: the server half is folded into the
+    /// one target, which carries the website role because that is what faces the browser. Excluding
+    /// it here is what "Add" for Mirqab's Postgres hit "Connect a server... before adding databases"
+    /// against a project that plainly has one — the compose application is where the database has to
+    /// attach, because it is the only Coolify resource that exists.
+    /// </remarks>
     private static DeployTarget? ResolveDatabaseHostServerTarget(Project project) =>
         project.DeployTargets.FirstOrDefault(t =>
         {
             var config = DeployTargetConfig.Parse(t.ConfigJson);
             return config.IsDeployableTarget &&
                    !config.IsDatabaseTarget &&
-                   string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase) &&
+                   (string.Equals(config.Role, "server", StringComparison.OrdinalIgnoreCase) ||
+                    config.IsComposeTarget) &&
                    (string.Equals(t.ProviderName, ProviderNameValues.Railway, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(t.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase));
         });
-
-    private async Task<string?> GetPostgresDatabaseNameAsync(
-        Project project,
-        DeployTarget serverTarget,
-        CancellationToken cancellationToken)
-    {
-        var profile = await _railwayDatabaseProvisioning.DetectRequirementsAsync(
-            project,
-            serverTarget,
-            project.DefaultBranch,
-            cancellationToken);
-        return profile.PostgresDatabaseName;
-    }
 
     private async Task<object> MapProjectAsync(Guid projectId, CancellationToken cancellationToken)
     {
