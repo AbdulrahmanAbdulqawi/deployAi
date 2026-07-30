@@ -133,33 +133,6 @@ public sealed partial class RailwayProvider : IDeploymentProvider, IProviderMana
             data.Deployment.Url,
             failureDetail);
 
-        // #region agent log
-        try
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                sessionId = "b63a0f",
-                runId = "post-fix",
-                hypothesisId = "C",
-                location = "RailwayProvider.cs:GetStatusAsync",
-                message = "railway_get_status",
-                data = new
-                {
-                    deploymentId,
-                    rawStatus = data.Deployment.Status.ToString(),
-                    hasUrl = !string.IsNullOrWhiteSpace(data.Deployment.Url),
-                    diagnosis = data.Deployment.Diagnosis,
-                    meta = data.Deployment.Meta,
-                    failureDetail,
-                    mappedKind = mapped.Status.ToString(),
-                    mappedError = mapped.ErrorMessage
-                },
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
-            System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-        }
-        catch { /* debug ingest */ }
-        // #endregion
 
         return mapped;
     }
