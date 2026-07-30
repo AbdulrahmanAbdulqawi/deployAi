@@ -326,11 +326,11 @@ public class RepositoryClassifierTests
 
     private async Task<DeployAI.Core.Deployments.DeploymentPlan> ClassifyAsync(bool preferVercelRailway = false)
     {
-        var websiteDiscovery = new WebsiteBuildProfileDiscovery(_gitHub.Object, _frontendDetector);
-        var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector);
         // The real resolver over the same mocked GitHub service, so these tests exercise the
         // directory resolution the classifier now shares rather than a stub of it.
         var layout = new RepositoryLayoutResolver(_gitHub.Object);
+        var websiteDiscovery = new WebsiteBuildProfileDiscovery(_gitHub.Object, _frontendDetector);
+        var serverDiscovery = new ServerBuildProfileDiscovery(_gitHub.Object, _serverDetector, layout);
         var classifier = new RepositoryClassifier(
             _gitHub.Object,
             websiteDiscovery,
