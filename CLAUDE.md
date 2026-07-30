@@ -182,7 +182,9 @@ Recorded so they get closed rather than re-done by hand.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
-  container that has hit Coolify's restart limit stays stopped until something starts it.
+  container that has hit Coolify's restart limit stays stopped until something starts it. For a
+  *running* container it works well — it is what diagnosed the `/public/stats` 500 above, returning
+  the full EF translation error and the SQL around it in one call.
 - **Project status is never revalidated against the provider.** A project whose Coolify
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so
@@ -196,6 +198,15 @@ Recorded so they get closed rather than re-done by hand.
   `DeploymentEndpointProbes.cs`. Object storage is now the exception and the template: it does a
   signed write-read-delete and a real browser preflight on every deploy, and reports whether it
   passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
+  **Second confirmed instance:** yemenConnect's `/public/stats` — the endpoint its landing page calls
+  on every visit — returned 500 on every request for the entire life of the deployment, while
+  `/health` returned 200 and both targets went green. Route discovery cannot fix this generically:
+  the app's OpenAPI document is behind the same fallback auth policy as everything else (`401`), so
+  there is nothing to enumerate from outside. The signal that *is* available is the app's own output —
+  it logged `ExceptionHandlerMiddleware[1] An unhandled exception has occurred` on every call, and
+  DeployAI can already read runtime logs. Reading them for a minute after a deploy and reporting
+  unhandled exceptions would have caught it, and would catch the whole class without knowing a single
+  route.
 - **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
   The *routing* is fixed: the list reads live per target and shows which app each variable is on,
   and adding, editing and deleting all carry that target through to the provider. What is still
