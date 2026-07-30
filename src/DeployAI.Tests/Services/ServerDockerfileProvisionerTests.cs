@@ -107,6 +107,127 @@ public class ServerDockerfileProvisionerTests
     }
 
     [Fact]
+    public async Task EnsureDockerfileAsync_WritesNothingWhenTheFileIsAlreadyWhatItWouldGenerate()
+    {
+        // Four consecutive deploys of one app appended four commits to the user's own history that
+        // changed nothing, all sharing one message. Generation is deterministic, so a redeploy of an
+        // unchanged app must produce no commit at all -- a repository DeployAI writes into belongs
+        // to someone, and its history is a product surface.
+        var github = SingleProject();
+        var generated = await GenerateOnceAsync(github);
+
+        // Second run: the file is now exactly what the generator produces.
+        var second = new Mock<IGitHubService>();
+        StubDirectory(second, "api", File("api/My.Api.csproj"));
+        StubFile(second, "api/My.Api.csproj", WebCsproj);
+        second.Setup(g => g.GetFileMetadataAsync(
+                It.IsAny<string>(), Owner, Repo, "api/Dockerfile", Branch, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubFileMetadata(generated, "sha-1"));
+
+        var result = await Create(second).EnsureDockerfileAsync(
+            "token", Owner, Repo, Branch, "api", "api", CancellationToken.None);
+
+        // Still reports where the build context is -- doing nothing is not the same as failing.
+        Assert.NotNull(result);
+        Assert.Equal("api", result.BaseDirectory);
+
+        second.Verify(g => g.UpsertFileAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task EnsureDockerfileAsync_CommitsWhenTheGeneratedContentHasChanged()
+    {
+        // The other half: a real change must still reach the repository, and must not claim to be
+        // adding a file that is already there.
+        var github = SingleProject();
+        github.Setup(g => g.GetFileMetadataAsync(
+                It.IsAny<string>(), Owner, Repo, "api/Dockerfile", Branch, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubFileMetadata("FROM scratch\n# an older generation\n", "sha-1"));
+
+        string? message = null;
+        github.Setup(g => g.UpsertFileAsync(
+                It.IsAny<string>(), Owner, Repo, It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), Branch, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback((string _, string _, string _, string _, string _,
+                       string commitMessage, string _, string? _, CancellationToken _) => message = commitMessage)
+            .ReturnsAsync("sha-2");
+
+        await Create(github).EnsureDockerfileAsync(
+            "token", Owner, Repo, Branch, "api", "api", CancellationToken.None);
+
+        Assert.NotNull(message);
+        Assert.StartsWith("Update Dockerfile", message);
+    }
+
+    [Fact]
+    public async Task EnsureDockerfileAsync_ComparesAgainstDecodedContent()
+    {
+        // The reason the guard never fired: GetFileMetadataAsync already decodes, and the comparison
+        // decoded it a second time, threw FormatException on plain text, swallowed it, and answered
+        // "different". A caught exception returning the unsafe answer is invisible.
+        var github = SingleProject();
+        var generated = await GenerateOnceAsync(github);
+
+        Assert.DoesNotContain("RnJvbSA", generated, StringComparison.Ordinal);
+        Assert.Contains("FROM ", generated, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnsureSsrWebsiteDockerfileAsync_WritesNothingWhenTheFileIsUnchanged()
+    {
+        var first = new Mock<IGitHubService>();
+        StubDirectory(first, "apps/web", File("apps/web/package.json"));
+        StubFile(first, "apps/web/package.json",
+            """{ "name": "web", "dependencies": { "next": "15.0.0" }, "scripts": { "build": "next build" } }""");
+        var written = CaptureUpsert(first, out _);
+
+        await Create(first).EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+        Assert.NotNull(written.Value);
+
+        var second = new Mock<IGitHubService>();
+        StubDirectory(second, "apps/web", File("apps/web/package.json"));
+        StubFile(second, "apps/web/package.json",
+            """{ "name": "web", "dependencies": { "next": "15.0.0" }, "scripts": { "build": "next build" } }""");
+        second.Setup(g => g.GetFileMetadataAsync(
+                It.IsAny<string>(), Owner, Repo, "apps/web/Dockerfile", Branch, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubFileMetadata(written.Value!, "sha-1"));
+
+        var result = await Create(second).EnsureSsrWebsiteDockerfileAsync(
+            "token", Owner, Repo, Branch, "apps/web", "next", [], null, null, null, CancellationToken.None);
+
+        Assert.NotNull(result);
+        second.Verify(g => g.UpsertFileAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private const string WebCsproj =
+        """<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>""";
+
+    private static Mock<IGitHubService> SingleProject()
+    {
+        var github = new Mock<IGitHubService>();
+        StubDirectory(github, "api", File("api/My.Api.csproj"));
+        StubFile(github, "api/My.Api.csproj", WebCsproj);
+        return github;
+    }
+
+    /// <summary>Runs the generator once against an empty repository and returns what it wrote.</summary>
+    private static async Task<string> GenerateOnceAsync(Mock<IGitHubService> github)
+    {
+        var written = CaptureUpsert(github, out _);
+        await Create(github).EnsureDockerfileAsync(
+            "token", Owner, Repo, Branch, "api", "api", CancellationToken.None);
+        Assert.NotNull(written.Value);
+        return written.Value!;
+    }
+
+    [Fact]
     public async Task EnsureSsrWebsiteDockerfileAsync_FindsTheFrontendOneLevelDown()
     {
         // The website half of the same gap. This read only the configured directory, so a target

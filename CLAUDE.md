@@ -234,6 +234,15 @@ Recorded so they get closed rather than re-done by hand.
   container that has hit Coolify's restart limit stays stopped until something starts it. For a
   *running* container it works well — it is what diagnosed the `/public/stats` 500 above, returning
   the full EF translation error and the SQL around it in one call.
+- **DeployAI provisions a Coolify database it then cannot reach.** `IProviderDataServiceInspection`
+  is implemented by `RailwayProvider` only, so `data-info` answers `unsupported_provider` for every
+  Coolify database — which is the default. The connection string DeployAI writes onto the app uses
+  Coolify's internal Docker hostname, reachable only from inside that network, so nothing outside the
+  container can look at the data: not the tables panel, not a migration check, not the user. Found
+  while trying to remove three throwaway accounts a test had created; the only routes to them are SSH
+  onto the Hetzner host or an endpoint in the app itself, and the first is precisely what the core
+  rule says must not become routine. A provisioned database nobody can inspect is also why "did the
+  migrations apply" still has no answer for the provider DeployAI defaults to.
 - **Project status is never revalidated against the provider.** A project whose Coolify
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so
@@ -303,7 +312,16 @@ Recorded so they get closed rather than re-done by hand.
   already this week — the values are unrecoverable, every issued token and ticket signature breaks,
   and there is no export path. Generating secrets on a user's behalf implies keeping them
   recoverable.
-- **Generated commit messages are generic.** Dockerfile generation has produced several commits
-  sharing one message, obscuring what each changed.
+- **~~Generated commit messages are generic.~~ Closed, and the cause was worse than the symptom.**
+  Dockerfile generation produced several commits sharing one message because it produced several
+  commits *that changed nothing*. Both paths meant to skip an unchanged file; neither did.
+  `ContentMatches` base64-decoded its argument, but `GetFileMetadataAsync` already decodes — so it
+  decoded plain text, threw `FormatException`, swallowed it, and answered "different" every single
+  time. The server path did not call it at all. Four deploys of one app in one afternoon appended
+  four empty commits to a user's own history. Messages now distinguish Add from Update and name the
+  website build separately, but the real fix is that an unchanged file produces no commit.
+  **The shape to watch for:** a `catch` whose fallback is the unsafe answer is invisible. It cannot
+  fail loudly, it cannot be seen in a log, and the only evidence is junk arriving somewhere nobody
+  is looking — here, someone else's git history.
 - **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR
   that adds behaviour without covering it, so the testing rule above rests on discipline alone.
