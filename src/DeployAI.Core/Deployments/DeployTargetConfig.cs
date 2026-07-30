@@ -36,6 +36,12 @@ public sealed class DeployTargetConfig
     [JsonPropertyName("dockerfilePath")]
     public string? DockerfilePath { get; set; }
 
+    /// <summary>
+    /// The port the generated image listens on, recorded when DeployAI selects the Dockerfile build
+    /// so a later config sync re-sends it rather than inferring one from the framework name.
+    /// </summary>
+    public string? ExposedPort { get; set; }
+
     [JsonPropertyName("serviceDirectory")]
     public string? ServiceDirectory { get; set; }
 
@@ -140,6 +146,7 @@ public sealed class DeployTargetConfig
     {
         var entries = new Dictionary<string, string>();
         AddEntry(entries, "dockerfilePath", DockerfilePath?.Trim().Trim('/'));
+        AddEntry(entries, "exposedPort", ExposedPort?.Trim());
         AddEntry(entries, "serviceDirectory", ServiceDirectory?.Trim().Trim('/'));
         if (DockerUsesRepositoryRoot)
         {
