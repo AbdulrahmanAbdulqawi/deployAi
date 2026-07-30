@@ -103,6 +103,7 @@ builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvi
 builder.Services.AddSingleton<DeployAI.Infrastructure.GitHub.IObjectStorageNeedDetector, DeployAI.Infrastructure.GitHub.ObjectStorageNeedDetector>();
 builder.Services.AddScoped<IObjectStorageAutoProvisioner, ObjectStorageAutoProvisioner>();
 builder.Services.AddScoped<IRequiredConfigurationCheck, RequiredConfigurationCheck>();
+builder.Services.AddScoped<IRuntimeExceptionCheck, RuntimeExceptionCheck>();
 builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();
 builder.Services.AddScoped<IDataServiceInspectionService, DataServiceInspectionService>();
 
