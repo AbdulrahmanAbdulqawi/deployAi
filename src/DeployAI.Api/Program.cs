@@ -109,6 +109,7 @@ builder.Services.AddScoped<DeployAI.Infrastructure.GitHub.IRepositoryLayoutResol
 builder.Services.AddScoped<DeployAI.Infrastructure.GitHub.IRepositoryReader>(
     sp => sp.GetRequiredService<DeployAI.Infrastructure.GitHub.RepositoryLayoutResolver>());
 builder.Services.AddScoped<IObjectStorageAutoProvisioner, ObjectStorageAutoProvisioner>();
+builder.Services.AddScoped<IRequiredConfigurationCheck, RequiredConfigurationCheck>();
 builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();
 builder.Services.AddScoped<IDataServiceInspectionService, DataServiceInspectionService>();
 

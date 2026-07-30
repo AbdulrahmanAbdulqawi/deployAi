@@ -150,14 +150,15 @@ Recorded so they get closed rather than re-done by hand.
   `ServerBuildProfileDiscovery` and `SsrWebsiteBuildProvisioner`. None has an incident behind it,
   which is why they were left — but each one is a place a nested app is still invisible, and moving
   them is now mechanical rather than a design question.
-- **Nothing compares the deployed ref's required configuration against what the target has.**
-  Merging a branch that introduced a Media module needing `Storage:*` took every route down:
-  `AmazonS3Client` threw before `builder.Build()`, and Coolify gave up after eleven restarts. The
-  migration chain validated and the build was green; neither can catch this. **Both halves now
-  exist** — the resolver reads an app's real config files wherever they are, and the environment
-  listing reads what a target actually has — so this is the next thing to build, not a thing to
-  design. Three incidents in one day would have been caught by it: `Jwt`, `Storage` and `Tickets`
-  keys, each found only when something broke.
+- **The required-configuration check warns; it does not stop a deploy.** `RequiredConfigurationCheck`
+  now compares what the deployed ref declares it needs against what the target actually has, and
+  names the difference in the deploy log before the app starts — the three incidents it was built
+  from (`Jwt`, `Storage`, `Tickets`) would each have been named rather than discovered by a
+  crash-loop. It is deliberately advisory: "required" means a key the app declares with no value of
+  its own, which is a strong signal and not proof, since a value can arrive from somewhere DeployAI
+  cannot see. Two things remain — it reads only the server target (a website with required config is
+  unchecked), and nobody has to act on the warning, so a deploy can still proceed into a known
+  crash-loop.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a

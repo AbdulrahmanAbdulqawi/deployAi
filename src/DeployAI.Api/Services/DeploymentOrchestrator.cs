@@ -303,6 +303,7 @@ public sealed class DeploymentJobRunner
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
     private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
+    private readonly IRequiredConfigurationCheck _requiredConfiguration;
     private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
@@ -321,6 +322,7 @@ public sealed class DeploymentJobRunner
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
         IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
+        IRequiredConfigurationCheck requiredConfiguration,
         IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
@@ -338,6 +340,7 @@ public sealed class DeploymentJobRunner
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
         _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
+        _requiredConfiguration = requiredConfiguration;
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
@@ -480,6 +483,34 @@ public sealed class DeploymentJobRunner
                 // Advisory, like the Dockerfile step above: a bucket that cannot be created must not
                 // fail a deploy that would otherwise succeed. It is always reported, though — every
                 // outcome that matters ends up in the deploy log the user reads.
+                // What the code being deployed needs, against what this app actually has. Three
+                // incidents in one day were this gap: a crash-loop on missing Jwt settings, every
+                // route down on missing Storage settings, and Events 500ing on a missing Tickets
+                // key. The build was green and the migration chain valid in all three -- the fault
+                // was never in the code, it was between the code and the target.
+                try
+                {
+                    var configuration = await _requiredConfiguration.CheckAsync(
+                        project, deployTarget, deployment.Branch, cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(configuration.Message))
+                    {
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            await NextSequenceAsync(target.Id, cancellationToken),
+                            configuration.Message,
+                            cancellationToken);
+                    }
+                }
+                catch (Exception configEx) when (configEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        configEx,
+                        "Configuration check failed for server target {TargetId}; continuing.",
+                        target.Id);
+                }
+
                 try
                 {
                     var storage = await _objectStorageAutoProvisioner.EnsureAsync(
