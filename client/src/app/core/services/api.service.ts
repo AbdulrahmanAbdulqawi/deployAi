@@ -352,6 +352,8 @@ export class ApiService {
       composeFileLocation?: string | null;
       domainServiceName?: string | null;
       composeServerDirectory?: string | null;
+      /** Where the api's Docker build actually runs from, when that differs from its own source directory. */
+      composeServerRootDirectory?: string | null;
       composeServerFramework?: string | null;
     }[];
   }) {

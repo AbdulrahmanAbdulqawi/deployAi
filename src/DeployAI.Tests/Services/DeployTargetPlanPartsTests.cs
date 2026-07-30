@@ -57,6 +57,33 @@ public class DeployTargetPlanPartsTests
     }
 
     [Fact]
+    public void AComposeServerBuiltFromTheRepositoryRoot_KeepsItsBuildRootSeparateFromItsSource()
+    {
+        // Mirqab's actual shape, not the simplified fixture above: the api's Dockerfile builds from
+        // the repository root (a root-context multi-stage build), while its own source — Program.cs,
+        // Controllers, appsettings.json — is nested at src/Mirqab.Api. One stored value used to
+        // answer both questions; readiness asked "where is the Dockerfile" using the value that now
+        // (correctly) answers "where is the source", and reported src/Mirqab.Api/Dockerfile missing
+        // for an app whose Dockerfile has always been at the repository root.
+        var target = new DeployTarget
+        {
+            Id = Guid.NewGuid(),
+            ProviderName = "coolify",
+            ConfigJson = """
+                {"role":"website","framework":"angular","rootDirectory":"client",
+                 "composeFileLocation":"docker-compose.coolify.yml","domainServiceName":"web",
+                 "composeServerDirectory":"src/Mirqab.Api","composeServerRootDirectory":"",
+                 "composeServerFramework":"docker"}
+                """
+        };
+
+        var server = SplitOriginDetection.FindServerPart(DeployTargetPlanParts.FromTargets([target]))!;
+
+        Assert.Equal(string.Empty, server.RootDirectory);
+        Assert.Equal("src/Mirqab.Api", server.ServiceDirectory);
+    }
+
+    [Fact]
     public void AnOrdinaryTargetStillStandsForOnePart()
     {
         // The expansion must be confined to compose targets. A normal Coolify website is one part,

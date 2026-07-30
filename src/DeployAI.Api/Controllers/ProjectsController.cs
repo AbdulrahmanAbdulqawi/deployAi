@@ -652,6 +652,7 @@ public sealed class ProjectsController : ControllerBase
             website.ComposeFileLocation = part.ComposeFileLocation;
             website.DomainServiceName = part.DomainServiceName;
             website.ComposeServerDirectory = part.ComposeServerDirectory;
+            website.ComposeServerRootDirectory = part.ComposeServerRootDirectory;
             website.ComposeServerFramework = part.ComposeServerFramework;
             return website.ToJson();
         }
@@ -713,6 +714,7 @@ public sealed class ProjectsController : ControllerBase
         string? ComposeFileLocation = null,
         string? DomainServiceName = null,
         string? ComposeServerDirectory = null,
+        string? ComposeServerRootDirectory = null,
         string? ComposeServerFramework = null);
 
     public sealed record UpdateProjectRequest(

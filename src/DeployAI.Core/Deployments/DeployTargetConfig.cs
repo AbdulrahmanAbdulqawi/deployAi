@@ -66,12 +66,31 @@ public sealed class DeployTargetConfig
     public string? DomainServiceName { get; set; }
 
     /// <summary>
-    /// Where the server half lives, carried on the website-role target because the compose plan's
-    /// server part never becomes a target of its own. Readiness needs it to know which directory
-    /// must hold the API's Dockerfile.
+    /// Where the server's own source lives — Program.cs, Controllers, appsettings.json — carried on
+    /// the website-role target because the compose plan's server part never becomes a target of its
+    /// own.
     /// </summary>
+    /// <remarks>
+    /// Not necessarily where the server's Dockerfile is: <see cref="ComposeServerRootDirectory"/>
+    /// answers that. A root-context multi-stage build — Mirqab's shape — COPYs the whole repository
+    /// and publishes a nested project, so the build runs from the repository root while the source
+    /// this field points at sits three directories down. The two were stored as one value until a
+    /// database-provisioning fix made source-directory detection correct, which immediately turned
+    /// every reader that (reasonably, at the time) treated this as "the server's directory" into a
+    /// reader of the wrong one for the Dockerfile-path question specifically.
+    /// </remarks>
     [JsonPropertyName("composeServerDirectory")]
     public string? ComposeServerDirectory { get; set; }
+
+    /// <summary>
+    /// Where the server's Docker build actually runs from — what compose's own <c>build:</c>
+    /// context points at, and where its Dockerfile has to sit. Null falls back to
+    /// <see cref="ComposeServerDirectory"/>, which is correct whenever a build's context is its own
+    /// project directory and only wrong for the root-context-with-a-nested-project shape this field
+    /// exists to record separately.
+    /// </summary>
+    [JsonPropertyName("composeServerRootDirectory")]
+    public string? ComposeServerRootDirectory { get; set; }
 
     /// <summary>The server half's framework, carried for the same reason as <see cref="ComposeServerDirectory"/>.</summary>
     [JsonPropertyName("composeServerFramework")]

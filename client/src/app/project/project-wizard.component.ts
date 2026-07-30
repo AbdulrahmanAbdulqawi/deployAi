@@ -664,7 +664,13 @@ export class ProjectWizardComponent implements OnInit {
             ? {
                 composeFileLocation: this.composeFileLocation,
                 domainServiceName: 'web',
+                // Two different directories: where the api's source lives (for config lookups) and
+                // where its Docker build actually runs (the build context, where its Dockerfile has
+                // to sit). They agree for a project that builds itself, and diverge for a
+                // root-context multi-stage build that publishes a nested project — sending only one
+                // value lost whichever question the other reader needed answered.
                 composeServerDirectory: composePart.serviceDirectory ?? composePart.rootDirectory,
+                composeServerRootDirectory: composePart.rootDirectory,
                 composeServerFramework: composePart.framework
               }
             : {})

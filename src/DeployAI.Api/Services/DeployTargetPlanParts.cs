@@ -52,15 +52,22 @@ internal static class DeployTargetPlanParts
     /// were recorded at creation precisely so this does not have to be guessed from the repository —
     /// guessing is what the wizard already did once, correctly, and what nothing persisted.
     /// </summary>
+    /// <remarks>
+    /// RootDirectory and ServiceDirectory here answer different questions and are not
+    /// interchangeable: RootDirectory is where the api's Dockerfile has to be found (the build
+    /// context), ServiceDirectory is where its source lives for config lookups. They used to be the
+    /// same stored value, which was correct until a root-context multi-stage build — one project
+    /// nested three directories below where its own build has to run — showed the two apart.
+    /// </remarks>
     private static DeploymentPlanPart BuildComposeServerPart(string providerName, DeployTargetConfig config)
     {
-        var serverDirectory = config.ComposeServerDirectory;
+        var buildRoot = config.ComposeServerRootDirectory ?? config.ComposeServerDirectory;
 
         return new DeploymentPlanPart(
             DeploymentPartRoles.Server,
             providerName,
-            serverDirectory,
-            serverDirectory,
+            buildRoot,
+            config.ComposeServerDirectory,
             Framework: config.ComposeServerFramework);
     }
 }
