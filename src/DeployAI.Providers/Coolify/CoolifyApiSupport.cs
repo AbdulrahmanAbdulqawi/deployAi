@@ -165,12 +165,24 @@ internal static class CoolifyApiSupport
         string? dockerfilePath,
         string? framework,
         string? outputDirectory,
-        string? buildCommand)
+        string? buildCommand,
+        string? composeFileLocation = null)
     {
         if (!string.IsNullOrWhiteSpace(coolifyBuildPack) &&
             CoolifyBuildPackValues.TryParse(coolifyBuildPack, out var explicitPack))
         {
             return CoolifyBuildPackValues.ToApiValue(explicitPack);
+        }
+
+        // Same precedence as the create path above, and for the same reason: a compose app's
+        // services have their own Dockerfiles and its website half has a framework and a build
+        // command, so every rule below would answer confidently and wrongly. This overload had no
+        // compose parameter at all, which is why a compose application was re-described as a plain
+        // Angular site on the config sync before every deploy — Nixpacks, `npm run build` at the
+        // repo root, and the API and database in the compose file never built.
+        if (!string.IsNullOrWhiteSpace(composeFileLocation))
+        {
+            return CoolifyBuildPackValues.DockerCompose;
         }
 
         if (!string.IsNullOrWhiteSpace(dockerfilePath) ||

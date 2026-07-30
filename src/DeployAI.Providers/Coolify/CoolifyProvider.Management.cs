@@ -22,7 +22,8 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             request.DockerfilePath,
             request.Framework,
             request.OutputDirectory,
-            request.BuildCommand);
+            request.BuildCommand,
+            request.ComposeFileLocation);
 
         var body = new Dictionary<string, object?>
         {

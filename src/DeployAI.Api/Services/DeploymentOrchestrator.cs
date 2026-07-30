@@ -721,7 +721,14 @@ public sealed class DeploymentJobRunner
                         targetConfig.StartCommand,
                         targetConfig.DockerfilePath,
                         CoolifyBuildPack: null,
-                        ExposedPort: targetConfig.ExposedPort),
+                        ExposedPort: targetConfig.ExposedPort,
+                        // The target records that it is a compose deployment; this request is what
+                        // tells Coolify so before every deploy. Omitting it described the app by its
+                        // framework and build command alone, the build pack resolved to Nixpacks,
+                        // and the compose selection made at creation was overwritten seconds before
+                        // the build — so the deploy ran `npm run build` at the repo root instead of
+                        // the compose file, and failed.
+                        ComposeFileLocation: targetConfig.ComposeFileLocation),
                     cancellationToken);
             }
 
