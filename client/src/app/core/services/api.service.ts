@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { timeout, Observable } from 'rxjs';
 import {
+  AccountSecret,
   CredentialSummary,
   DatabaseRequirementProfile,
   DeploymentDetail,
@@ -312,6 +313,16 @@ export class ApiService {
     targets: { providerName: string; credentialId: string; providerProjectId: string; config?: string }[];
   }) {
     return this.http.post<ProjectDetail>('/api/projects', payload);
+  }
+
+  /** Credentials saved once on the account, reused by every app that asks for them. */
+  getAccountSecrets() {
+    return this.http.get<{ secrets: AccountSecret[] }>('/api/account/secrets');
+  }
+
+  /** Omit a field to leave it unchanged; send an empty string to clear it. */
+  saveAccountSecrets(payload: { gitHubAppId?: string; gitHubAppPrivateKey?: string }) {
+    return this.http.put<{ secrets: AccountSecret[] }>('/api/account/secrets', payload);
   }
 
   createProjectFromPlan(payload: {

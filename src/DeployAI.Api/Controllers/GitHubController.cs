@@ -395,6 +395,20 @@ public sealed class GitHubController : ControllerBase
         CancellationToken cancellationToken)
     {
         var names = detected.Select(env => env.Name).ToList();
+        var resolved = new Dictionary<string, EnvSuggestion>(StringComparer.OrdinalIgnoreCase);
+
+        // Saved on the account, because DeployAI can never obtain them: GitHub shows an App's
+        // private key once and will not reissue it. Without this, every app that needs one asks the
+        // user to paste it again — which the standing rule calls a gap, not a workflow.
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user?.SavedSecretsEncrypted is { Length: > 0 })
+        {
+            var saved = AccountSecretsStore.Parse(_encryption.Decrypt(user.SavedSecretsEncrypted));
+            foreach (var (name, suggestion) in saved.SuggestFor(names))
+            {
+                resolved[name] = suggestion;
+            }
+        }
 
         var coolify = await _db.ProviderCredentials
             .Where(c => c.UserId == userId &&
@@ -406,13 +420,20 @@ public sealed class GitHubController : ControllerBase
         // two Coolify servers is how an app is handed a token for the wrong one.
         if (coolify.Count != 1)
         {
-            return new Dictionary<string, EnvSuggestion>();
+            return resolved;
         }
 
         var payload = Core.Providers.CoolifyCredentialStorage.TryParse(_encryption.Decrypt(coolify[0].TokenEncrypted));
-        return payload is null
-            ? new Dictionary<string, EnvSuggestion>()
-            : ConnectionEnvSuggestions.ForCoolify(payload.InstanceUrl, payload.ApiToken, names);
+        if (payload is not null)
+        {
+            foreach (var (name, suggestion) in ConnectionEnvSuggestions.ForCoolify(
+                         payload.InstanceUrl, payload.ApiToken, names))
+            {
+                resolved[name] = suggestion;
+            }
+        }
+
+        return resolved;
     }
 
     /// <summary>

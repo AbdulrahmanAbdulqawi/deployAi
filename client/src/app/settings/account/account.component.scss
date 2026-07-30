@@ -1,1 +1,42 @@
 @use '../settings-page';
+
+.account-field {
+  display: block;
+  margin-bottom: var(--space-4);
+
+  input,
+  textarea {
+    width: 100%;
+    margin-top: var(--space-1);
+  }
+
+  textarea {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.8125rem;
+    resize: vertical;
+  }
+
+  small {
+    display: block;
+    margin-top: var(--space-1);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+}
+
+.account-field__label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.account-error {
+  margin: 0 0 var(--space-3);
+  color: var(--status-danger);
+}
+
+.account-saved {
+  margin: 0 0 var(--space-3);
+  color: var(--status-success);
+}

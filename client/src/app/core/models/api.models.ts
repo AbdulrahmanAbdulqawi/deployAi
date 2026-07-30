@@ -489,6 +489,17 @@ export interface MissingConfigurationItem {
 }
 
 /** One env var the repo was detected to need, with an optional server-suggested value. */
+/**
+ * A credential saved once on the account. `value` comes back only for things that are not secret —
+ * the private key is write-only once stored, so the form shows "saved" rather than the key.
+ */
+export interface AccountSecret {
+  name: string;
+  isSet: boolean;
+  isSecret: boolean;
+  value?: string | null;
+}
+
 export interface EnvSchemaVar {
   name: string;
   isSecret: boolean;
