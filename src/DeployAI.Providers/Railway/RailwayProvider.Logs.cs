@@ -40,33 +40,6 @@ public sealed partial class RailwayProvider
             batch.AddRange(buildLines);
             batch.AddRange(deployLines);
 
-            // #region agent log
-            try
-            {
-                var payload = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    sessionId = "b63a0f",
-                    hypothesisId = "A",
-                    location = "RailwayProvider.Logs.cs:StreamLogsAsync",
-                    message = "railway_log_poll",
-                    data = new
-                    {
-                        deploymentId,
-                        pollRound,
-                        status,
-                        buildLineCount = buildLines.Count,
-                        deployLineCount = deployLines.Count,
-                        batchCount = batch.Count,
-                        seenTotal = seen.Count,
-                        terminal = IsTerminalStatus(status),
-                        sample = batch.Take(3).ToArray()
-                    },
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                });
-                System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-            }
-            catch { /* debug ingest */ }
-            // #endregion
 
             foreach (var line in batch)
             {
@@ -89,31 +62,6 @@ public sealed partial class RailwayProvider
                     }
                 }
 
-                // #region agent log
-                try
-                {
-                    var payload = System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        sessionId = "b63a0f",
-                        runId = "post-fix",
-                        hypothesisId = "A",
-                        location = "RailwayProvider.Logs.cs:StreamLogsAsync:terminalExit",
-                        message = "railway_stream_terminal_exit",
-                        data = new
-                        {
-                            deploymentId,
-                            pollRound,
-                            status,
-                            seenTotal = seen.Count,
-                            finalBatchCount = batch.Count,
-                            usedGrace = needsGrace
-                        },
-                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    });
-                    System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-                }
-                catch { /* debug ingest */ }
-                // #endregion
                 yield break;
             }
 
@@ -147,23 +95,6 @@ public sealed partial class RailwayProvider
         int parentPollRound,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        // #region agent log
-        try
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                sessionId = "b63a0f",
-                runId = "post-fix",
-                hypothesisId = "A",
-                location = "RailwayProvider.Logs.cs:DrainSparseFailureLogsAsync",
-                message = "railway_post_failure_grace_start",
-                data = new { deploymentId, parentPollRound, seenTotal = seen.Count, graceRounds = PostFailureLogGraceRounds },
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
-            System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-        }
-        catch { /* debug ingest */ }
-        // #endregion
 
         for (var graceRound = 1; graceRound <= PostFailureLogGraceRounds; graceRound++)
         {
@@ -171,30 +102,6 @@ public sealed partial class RailwayProvider
             var buildLines = await FetchBuildLogLinesAsync(credentials, deploymentId, seen, cancellationToken);
             var deployLines = await FetchDeploymentLogLinesAsync(credentials, deploymentId, seen, cancellationToken);
 
-            // #region agent log
-            try
-            {
-                var payload = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    sessionId = "b63a0f",
-                    runId = "post-fix",
-                    hypothesisId = "A",
-                    location = "RailwayProvider.Logs.cs:DrainSparseFailureLogsAsync",
-                    message = "railway_post_failure_grace_poll",
-                    data = new
-                    {
-                        deploymentId,
-                        graceRound,
-                        buildLineCount = buildLines.Count,
-                        deployLineCount = deployLines.Count,
-                        seenTotal = seen.Count
-                    },
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                });
-                System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-            }
-            catch { /* debug ingest */ }
-            // #endregion
 
             foreach (var line in buildLines.Concat(deployLines))
             {
@@ -236,29 +143,6 @@ public sealed partial class RailwayProvider
         var buildNotReady = RailwayApiSupport.IsBuildNotReadyError(graphqlError);
         var data = RailwayApiSupport.TryGetData(result, RailwayApiSupport.IsBuildNotReadyError);
 
-        // #region agent log
-        try
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                sessionId = "b63a0f",
-                hypothesisId = "B",
-                location = "RailwayProvider.Logs.cs:FetchBuildLogLinesAsync",
-                message = "railway_build_logs_fetch",
-                data = new
-                {
-                    deploymentId,
-                    graphqlError,
-                    buildNotReady,
-                    hasData = data?.BuildLogs is not null,
-                    rawCount = data?.BuildLogs?.Count ?? 0
-                },
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
-            System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-        }
-        catch { /* debug ingest */ }
-        // #endregion
 
         if (data?.BuildLogs is null)
         {
@@ -328,23 +212,6 @@ public sealed partial class RailwayProvider
             lines.Add(message);
         }
 
-        // #region agent log
-        try
-        {
-            var payload = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                sessionId = "b63a0f",
-                runId = "post-fix",
-                hypothesisId = "C",
-                location = "RailwayProvider.Logs.cs:FetchDeploymentEventErrorLinesAsync",
-                message = "railway_deployment_event_errors",
-                data = new { deploymentId, eventErrorCount = lines.Count, sample = lines.Take(3).ToArray() },
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
-            System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-        }
-        catch { /* debug ingest */ }
-        // #endregion
 
         return lines;
     }

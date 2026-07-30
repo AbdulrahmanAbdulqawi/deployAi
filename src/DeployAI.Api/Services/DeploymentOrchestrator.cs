@@ -732,29 +732,6 @@ public sealed class DeploymentJobRunner
 
             if (target.Status == DeploymentStatuses.Failed && !string.IsNullOrWhiteSpace(status.ErrorMessage))
             {
-                // #region agent log
-                try
-                {
-                    var payload = System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        sessionId = "b63a0f",
-                        hypothesisId = "D",
-                        location = "DeploymentOrchestrator.cs:appendErrorMessage",
-                        message = "inject_generic_error_log_line",
-                        data = new
-                        {
-                            targetId = target.Id,
-                            provider = target.ProviderName,
-                            providerDeploymentId = target.ProviderDeploymentId,
-                            sequenceBefore = sequence,
-                            errorMessage = status.ErrorMessage
-                        },
-                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    });
-                    System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-                }
-                catch { /* debug ingest */ }
-                // #endregion
                 sequence++;
                 await PersistAndBroadcastLogAsync(target, deployment.Id, sequence, status.ErrorMessage!, cancellationToken);
             }
@@ -959,34 +936,6 @@ public sealed class DeploymentJobRunner
                 .ToListAsync(cancellationToken);
 
             var analysis = _failureAnalyzer.Analyze(failedTarget.ProviderName, logLines);
-            // #region agent log
-            try
-            {
-                var payload = System.Text.Json.JsonSerializer.Serialize(new
-                {
-                    sessionId = "b63a0f",
-                    runId = "post-fix",
-                    hypothesisId = "E",
-                    location = "DeploymentOrchestrator.cs:failureAnalysis",
-                    message = "failure_analysis_result",
-                    data = new
-                    {
-                        targetId = failedTarget.Id,
-                        provider = failedTarget.ProviderName,
-                        logLineCount = logLines.Count,
-                        logPreview = logLines.Take(5).ToArray(),
-                        category = analysis.Category.ToString(),
-                        summary = analysis.Summary,
-                        canRequestClaudeFix = analysis.CanRequestClaudeFix,
-                        referencedFileCount = analysis.ReferencedFiles.Count,
-                        hasExcerpt = !string.IsNullOrWhiteSpace(analysis.ErrorExcerpt)
-                    },
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                });
-                System.IO.File.AppendAllText(@"c:\Users\Abdulrahman\Desktop\DeployAI\debug-b63a0f.log", payload + Environment.NewLine);
-            }
-            catch { /* debug ingest */ }
-            // #endregion
             failedTarget.FailureAnalysisJson = DeploymentFailureAnalysisJson.ToJson(analysis);
             await _db.Database.ExecuteSqlInterpolatedAsync(
                 $"""
