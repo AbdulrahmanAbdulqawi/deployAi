@@ -27,19 +27,31 @@ public sealed class ProjectEnvironmentController : ControllerBase
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IEncryptionService _encryption;
+    private readonly IProviderRuntimeLogsFactory _runtimeLogsFactory;
+    private readonly IProviderCredentialTokenService _tokens;
+    private readonly IMissingConfigurationDetector _missingConfiguration;
+    private readonly ILogger<ProjectEnvironmentController> _logger;
 
     public ProjectEnvironmentController(
         DeployAIDbContext db,
         ICurrentUserService currentUser,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         IProviderManagementFactory managementFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IProviderRuntimeLogsFactory runtimeLogsFactory,
+        IProviderCredentialTokenService tokens,
+        IMissingConfigurationDetector missingConfiguration,
+        ILogger<ProjectEnvironmentController> logger)
     {
         _db = db;
         _currentUser = currentUser;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _managementFactory = managementFactory;
         _encryption = encryption;
+        _runtimeLogsFactory = runtimeLogsFactory;
+        _tokens = tokens;
+        _missingConfiguration = missingConfiguration;
+        _logger = logger;
     }
 
     /// <summary>
@@ -103,6 +115,90 @@ public sealed class ProjectEnvironmentController : ControllerBase
     /// store), so they can be reviewed and edited after the first deploy. Secret values are
     /// returned to the authenticated owner — the client masks them behind a reveal toggle.
     /// </summary>
+    /// <summary>
+    /// Reads a target's container output for configuration it says is missing, and offers a value
+    /// for each so the user can review and apply them.
+    /// </summary>
+    /// <remarks>
+    /// The second source of truth for what an app needs. Repository scanning reads a fixed set of
+    /// files at a repo's root, so an app whose configuration lives deeper produces nothing to ask
+    /// for and is deployed with nothing set — after which it says exactly what it wanted in its own
+    /// startup output. Keys already set are filtered out: they are not what is missing, and
+    /// offering to overwrite a working secret is how you break a running app.
+    /// </remarks>
+    /// <param name="targetId">Which deploy target to read. Required — logs are per application.</param>
+    /// <param name="lines">How much of the tail to read.</param>
+    [HttpGet("missing")]
+    public async Task<IActionResult> GetMissingConfiguration(
+        Guid projectId,
+        [FromQuery] Guid targetId,
+        CancellationToken cancellationToken,
+        [FromQuery] int lines = 200)
+    {
+        var userId = RequireUserId();
+        var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
+        var target = project.DeployTargets.FirstOrDefault(t => t.Id == targetId)
+            ?? throw new DeployAIException("target_not_found", "That service is not part of this project.");
+
+        var runtimeLogs = _runtimeLogsFactory.GetRuntimeLogs(target.ProviderName);
+        if (runtimeLogs is null)
+        {
+            return Ok(new { missing = Array.Empty<object>(), readable = false, reason = "unsupported_provider" });
+        }
+
+        string[] logLines;
+        try
+        {
+            var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+            var raw = await runtimeLogs.GetRuntimeLogsAsync(
+                new ProviderCredentials(token),
+                target.ProviderProjectId,
+                lines,
+                cancellationToken);
+            logLines = (raw ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        }
+        catch (DeployAIException ex)
+        {
+            // A stopped container has no logs to read, which is precisely the state this feature is
+            // for. Say so plainly instead of reporting "nothing missing" — the caller can offer to
+            // start it, and an empty list here would read as "your configuration is fine".
+            return Ok(new { missing = Array.Empty<object>(), readable = false, reason = ex.ErrorCode, message = ex.Message });
+        }
+
+        var alreadySet = LoadStoredEnvVars(project).Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var missing = _missingConfiguration.Detect(logLines)
+            .Where(m => !alreadySet.Contains(m.Name))
+            .Select(m => new
+            {
+                name = m.Name,
+                kind = m.Kind == MissingConfigurationKind.ConfigurationSection ? "section" : "variable",
+                evidence = m.Evidence,
+                // A section names a prefix, not a key, so the value is offered against the prefix
+                // and the caller completes the name. Suggesting "Jwt" as a whole key would be wrong.
+                suggestedValue = GeneratedSecrets.For(m.Name)
+            })
+            .ToArray();
+
+        return Ok(new { missing, readable = true });
+    }
+
+    /// <summary>
+    /// Every environment variable each of the project's apps actually has, read from the provider,
+    /// annotated with which app it is on.
+    /// </summary>
+    /// <remarks>
+    /// This used to list DeployAI's own encrypted store and nothing else — only the handful of keys
+    /// a user had typed here. Everything else the app runs on (the database URL DeployAI linked, the
+    /// API URL it derived, the CORS origins it wired, anything set on the provider directly) was
+    /// invisible, so the screen claiming to show "the settings DeployAI manages for this app" showed
+    /// four of fifteen. Reading the provider makes the list the truth, and carrying the target on
+    /// each row answers the question the single project-wide store cannot: which container has it.
+    /// <para>
+    /// A target that cannot be read is reported rather than skipped. Dropping it would render a
+    /// shorter list that looks complete, which is how a missing variable gets mistaken for a set one.
+    /// </para>
+    /// </remarks>
     [HttpGet("")]
     public async Task<IActionResult> ListEnvironment(Guid projectId, CancellationToken cancellationToken)
     {
@@ -110,12 +206,108 @@ public sealed class ProjectEnvironmentController : ControllerBase
         var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
         var stored = LoadStoredEnvVars(project);
 
-        var variables = stored
-            .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(kv => new { key = kv.Key, value = kv.Value.Value, isSecret = kv.Value.IsSecret })
-            .ToList();
+        var variables = new List<EnvVariableView>();
+        var unreadable = new List<object>();
+        var seenLive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return Ok(new { variables });
+        foreach (var (target, config) in DeployableTargets(project))
+        {
+            var role = config.Role ?? "app";
+            try
+            {
+                var management = _managementFactory.GetManagement(target.ProviderName);
+                var token = await _tokens.GetTokenAsync(target.Credential, cancellationToken);
+                var live = await management.ListEnvVarsAsync(
+                    new ProviderCredentials(token), target.ProviderProjectId!, cancellationToken);
+
+                foreach (var item in live)
+                {
+                    seenLive.Add(item.Key);
+                    var known = stored.TryGetValue(item.Key, out var s) ? s : null;
+                    variables.Add(new EnvVariableView(
+                        item.Key,
+                        // The provider withholds write-only values; DeployAI's own copy fills the gap
+                        // where it has one, so a value it set stays editable rather than blanking.
+                        item.ValueHidden ? known?.Value ?? string.Empty : item.Value ?? known?.Value ?? string.Empty,
+                        known?.IsSecret ?? (ProviderEnvVarTypes.IsSecret(item.Type) || LooksSecret(item.Key)),
+                        target.Id,
+                        role,
+                        Managed: known is not null));
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "Could not read environment variables for target {TargetId}.", target.Id);
+                unreadable.Add(new { targetId = target.Id, targetRole = role, reason = ex.Message });
+            }
+        }
+
+        // Anything DeployAI stored but no app reports. Usually a target that failed to read above;
+        // it can also mean the value never reached the provider, which is worth seeing.
+        foreach (var (key, value) in stored.Where(kv => !seenLive.Contains(kv.Key)))
+        {
+            variables.Add(new EnvVariableView(key, value.Value, value.IsSecret, null, null, Managed: true));
+        }
+
+        return Ok(new
+        {
+            variables = variables
+                .OrderBy(v => v.TargetRole ?? "￿", StringComparer.OrdinalIgnoreCase)
+                .ThenBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            unreadable
+        });
+    }
+
+    /// <summary>
+    /// One variable as the screen shows it. <see cref="TargetId"/> is null for a variable DeployAI
+    /// stores that no app reported — which is either a target it could not read, or a value that
+    /// never reached the provider.
+    /// </summary>
+    private sealed record EnvVariableView(
+        string Key,
+        string Value,
+        bool IsSecret,
+        Guid? TargetId,
+        string? TargetRole,
+        bool Managed);
+
+    private IEnumerable<(DeployTarget Target, DeployTargetConfig Config)> DeployableTargets(Data.Entities.Project project) =>
+        project.DeployTargets
+            .Select(t => (Target: t, Config: DeployTargetConfig.Parse(t.ConfigJson)))
+            .Where(t => t.Config.IsDeployableTarget && !string.IsNullOrWhiteSpace(t.Target.ProviderProjectId));
+
+    /// <summary>
+    /// Whether a key should be masked when the provider does not say. Reading a value back from a
+    /// provider loses whether it was ever meant to be secret, and a connection string shown in clear
+    /// on a shared screen is the failure that matters here — so the guess errs toward masking.
+    /// </summary>
+    private static bool LooksSecret(string key) =>
+        SecretKeyMarkers.Any(marker => key.Contains(marker, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] SecretKeyMarkers =
+        ["secret", "password", "passwd", "token", "apikey", "api_key", "signingkey", "privatekey", "connectionstring", "database_url"];
+
+    /// <summary>
+    /// A value DeployAI invents for a key, so a secret never has to be thought up, typed, or pasted.
+    /// </summary>
+    /// <remarks>
+    /// The same generator the wizard and the missing-configuration flow use, exposed so the plain
+    /// "add a variable" row can reach it too. Without this, the one path where a user adds a secret
+    /// by hand is the one path that asks them to invent it — and a hand-picked admin password is
+    /// exactly the credential that ends up reused or pasted into a chat.
+    /// </remarks>
+    /// <param name="key">The variable name; a name containing PASSWORD gets a full character set.</param>
+    [HttpGet("generated-value")]
+    public IActionResult GetGeneratedValue([FromQuery] string key)
+    {
+        RequireUserId();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new DeployAIException("invalid_key", "An environment variable name is required.");
+        }
+
+        return Ok(new { value = GeneratedSecrets.For(key.Trim()) });
     }
 
     /// <summary>
@@ -169,6 +361,9 @@ public sealed class ProjectEnvironmentController : ControllerBase
         Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         await _db.Projects
             .Include(p => p.DeployTargets)
+            // The credential travels with the target: reading a target's runtime logs needs a token
+            // for it, and without this the navigation is null on a freshly-loaded project.
+            .ThenInclude(t => t.Credential)
             .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId, cancellationToken)
         ?? throw new DeployAIException("not_found", "We couldn't find that app.");
 

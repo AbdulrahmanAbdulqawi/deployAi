@@ -31,6 +31,7 @@ public sealed class GitHubController : ControllerBase
     private readonly IEnvVarDetector _envVarDetector;
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IEncryptionService _encryption;
+    private readonly ILogger<GitHubController> _logger;
 
     public GitHubController(
         DeployAIDbContext db,
@@ -42,7 +43,8 @@ public sealed class GitHubController : ControllerBase
         IRepositoryClassifier repositoryClassifier,
         IEnvVarDetector envVarDetector,
         IObjectStorageProviderFactory storageFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        ILogger<GitHubController> logger)
     {
         _db = db;
         _currentUser = currentUser;
@@ -54,6 +56,7 @@ public sealed class GitHubController : ControllerBase
         _envVarDetector = envVarDetector;
         _storageFactory = storageFactory;
         _encryption = encryption;
+        _logger = logger;
     }
 
     /// <summary>Lists the current user's GitHub repos, optionally filtered by name.</summary>
@@ -237,17 +240,27 @@ public sealed class GitHubController : ControllerBase
             @ref, cancellationToken);
         var readme = await _gitHubService.GetFileContentAsync(token, owner, repo, "README.md", @ref, cancellationToken);
 
-        var detected = _envVarDetector.Detect(new EnvScanInputs(
+        var scan = _envVarDetector.Detect(new EnvScanInputs(
             ComposeContent: compose,
             DotEnvExampleContent: dotEnv,
             AppsettingsContent: appsettings,
             ReadmeContent: readme));
 
-        var suggestions = await BuildEnvSuggestionsAsync(userId, detected, cancellationToken);
+        var suggestions = await BuildEnvSuggestionsAsync(userId, scan.Variables, cancellationToken);
+
+        if (scan.IsInconclusive)
+        {
+            _logger.LogWarning(
+                "Env scan for {Owner}/{Repo} read no sources (serverPath: {ServerPath}); "
+                + "an empty result here means the files were not found, not that the app needs no configuration.",
+                owner,
+                repo,
+                normalizedServerPath ?? "(none)");
+        }
 
         return Ok(new
         {
-            vars = detected.Select(env => new
+            vars = scan.Variables.Select(env => new
             {
                 name = env.Name,
                 isSecret = env.IsSecret,
@@ -256,7 +269,13 @@ public sealed class GitHubController : ControllerBase
                 category = env.Category.ToString().ToLowerInvariant(),
                 sources = env.SeenIn,
                 suggestedValue = suggestions.GetValueOrDefault(env.Name)
-            })
+            }),
+            // An empty vars list is ambiguous on its own, so the coverage travels with it: callers
+            // can tell "this repo declares nothing" from "none of the files I read exist here", and
+            // only the first is safe to deploy on without asking.
+            scanned = scan.SourcesRead,
+            notFound = scan.SourcesMissing,
+            inconclusive = scan.IsInconclusive
         });
     }
 
@@ -362,62 +381,13 @@ public sealed class GitHubController : ControllerBase
         }
     }
 
-    private static string GenerateSecret(int length)
-    {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        return string.Create(length, alphabet, static (span, chars) =>
-        {
-            Span<byte> bytes = stackalloc byte[span.Length];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-            for (var i = 0; i < span.Length; i++)
-            {
-                span[i] = chars[bytes[i] % chars.Length];
-            }
-        });
-    }
+    private static string GenerateSecret(int length) => GeneratedSecrets.Secret(length);
 
     /// <summary>
-    /// A password satisfying the strictest common policy: upper, lower, digit, and symbol.
-    /// Symbols exclude anything docker compose / .env files treat specially ($, #, quotes,
-    /// backslash) so the value survives Coolify's env interpolation verbatim.
-    /// Public so tests can hold the policy in place — an alphanumeric-only password
-    /// crash-looped a live deploy (ASP.NET Identity rejects it at seed time).
+    /// Delegates to <see cref="GeneratedSecrets.Password"/>. Kept here, and public, because tests
+    /// hold the password policy in place through this name.
     /// </summary>
-    public static string GeneratePassword(int length)
-    {
-        const string upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const string lower = "abcdefghijklmnopqrstuvwxyz";
-        const string digits = "0123456789";
-        const string symbols = "!@^*-_+=?.";
-        const string all = upper + lower + digits + symbols;
-
-        Span<byte> bytes = stackalloc byte[length + 4];
-        System.Security.Cryptography.RandomNumberGenerator.Fill(bytes);
-
-        var result = new char[length];
-        for (var i = 0; i < length; i++)
-        {
-            result[i] = all[bytes[i] % all.Length];
-        }
-
-        // Guarantee one of each class at random-but-distinct positions.
-        result[bytes[length] % length] = upper[bytes[length] % upper.Length];
-        var positions = new HashSet<int> { bytes[length] % length };
-        var classSets = new[] { lower, digits, symbols };
-        for (var c = 0; c < classSets.Length; c++)
-        {
-            var pos = bytes[length + 1 + c] % length;
-            while (positions.Contains(pos))
-            {
-                pos = (pos + 1) % length;
-            }
-
-            positions.Add(pos);
-            result[pos] = classSets[c][bytes[length + 1 + c] % classSets[c].Length];
-        }
-
-        return new string(result);
-    }
+    public static string GeneratePassword(int length) => GeneratedSecrets.Password(length);
 
     /// <summary>
     /// Detects the frontend build profile for a given folder (Angular vs. plain package.json),

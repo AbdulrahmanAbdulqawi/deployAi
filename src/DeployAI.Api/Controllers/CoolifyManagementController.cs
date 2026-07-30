@@ -155,7 +155,8 @@ public sealed class CoolifyManagementController : ControllerBase
                 request.ComposeFileLocation,
                 request.CustomDomain,
                 request.DomainServiceName,
-                exposedPort),
+                exposedPort,
+                request.AutoDeployEnabled),
             cancellationToken);
 
         return Ok(new { project });
@@ -273,7 +274,8 @@ public sealed class CoolifyManagementController : ControllerBase
         string? BuildPack,
         string? ComposeFileLocation = null,
         string? CustomDomain = null,
-        string? DomainServiceName = null);
+        string? DomainServiceName = null,
+        bool AutoDeployEnabled = false);
 
     public sealed record AssignComposeDomainRequest(
         Guid CredentialId,

@@ -123,6 +123,110 @@ public sealed class HetznerStorageProvider : IObjectStorageProvider
         return new StorageBucket(name, DateTimeOffset.UtcNow);
     }
 
+    public async Task<StorageRoundTrip> VerifyRoundTripAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        CancellationToken cancellationToken)
+    {
+        // Prefixed and timestamp-free so a leftover probe is recognisable, and unique so two
+        // concurrent deploys cannot delete each other's.
+        var key = $"deployai-probe/{Guid.NewGuid():N}";
+        var payload = "deployai storage probe"u8.ToArray();
+        var step = "write";
+
+        using var client = CreateClient(credentials);
+
+        try
+        {
+            using var body = new MemoryStream(payload);
+            await client.PutObjectAsync(
+                new PutObjectRequest
+                {
+                    BucketName = bucket,
+                    Key = key,
+                    InputStream = body,
+                    ContentType = "text/plain",
+                    AutoCloseStream = false
+                },
+                cancellationToken);
+
+            step = "read";
+            using var response = await client.GetObjectAsync(bucket, key, cancellationToken);
+            using var buffer = new MemoryStream();
+            await response.ResponseStream.CopyToAsync(buffer, cancellationToken);
+
+            if (buffer.Length != payload.Length)
+            {
+                return new StorageRoundTrip(
+                    false,
+                    "read",
+                    $"Read back {buffer.Length} bytes after writing {payload.Length}.");
+            }
+
+            step = "delete";
+            await client.DeleteObjectAsync(bucket, key, cancellationToken);
+
+            return StorageRoundTrip.Ok;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Left behind on failure rather than cleaned up: a probe that could be written but not
+            // read is evidence, and deleting it destroys the only artefact worth inspecting. The
+            // step and message travel back in the result for the caller to log and report.
+            return new StorageRoundTrip(false, step, ex.Message);
+        }
+    }
+
+    public async Task SetBucketCorsAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        IReadOnlyList<string> allowedOrigins,
+        CancellationToken cancellationToken)
+    {
+        var origins = allowedOrigins
+            .Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Select(origin => origin.Trim().TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (origins.Count == 0)
+        {
+            // Writing an empty rule would replace whatever is there with one that allows nothing,
+            // which is worse than leaving the bucket alone.
+            return;
+        }
+
+        using var client = CreateClient(credentials);
+
+        await client.PutCORSConfigurationAsync(
+            new PutCORSConfigurationRequest
+            {
+                BucketName = bucket.Trim(),
+                Configuration = new CORSConfiguration
+                {
+                    Rules =
+                    [
+                        new CORSRule
+                        {
+                            Id = "deployai-browser-uploads",
+                            AllowedOrigins = origins,
+                            // PUT for a presigned upload; GET and HEAD so the same page can read
+                            // back what it just wrote.
+                            AllowedMethods = ["PUT", "GET", "HEAD"],
+                            // The presigned URL signs content-type, so the browser sends it and the
+                            // preflight asks for it by name. Refusing it fails the preflight.
+                            AllowedHeaders = ["*"],
+                            // Without this the upload succeeds but the page cannot read the ETag,
+                            // which is how a client confirms what it stored.
+                            ExposeHeaders = ["ETag"],
+                            MaxAgeSeconds = 3000
+                        }
+                    ]
+                }
+            },
+            cancellationToken);
+    }
+
     /// <summary>S3 bucket naming rules, checked before the call so the error is legible.</summary>
     private static bool IsValidBucketName(string name) =>
         name.Length is >= 3 and <= 63 &&

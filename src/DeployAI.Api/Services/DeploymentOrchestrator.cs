@@ -302,6 +302,8 @@ public sealed class DeploymentJobRunner
     private readonly IRailwayDatabaseProvisioningService _railwayDatabaseProvisioning;
     private readonly IFrontendEnvironmentWiringService _frontendEnvironmentWiring;
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
+    private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
+    private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
     private readonly IDeploymentFailureAnalyzer _failureAnalyzer;
     private readonly IHubContext<DeploymentHub> _hub;
@@ -318,6 +320,8 @@ public sealed class DeploymentJobRunner
         IRailwayDatabaseProvisioningService railwayDatabaseProvisioning,
         IFrontendEnvironmentWiringService frontendEnvironmentWiring,
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
+        IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
+        IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
         IDeploymentFailureAnalyzer failureAnalyzer,
         IHubContext<DeploymentHub> hub,
@@ -333,6 +337,8 @@ public sealed class DeploymentJobRunner
         _railwayDatabaseProvisioning = railwayDatabaseProvisioning;
         _frontendEnvironmentWiring = frontendEnvironmentWiring;
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
+        _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
+        _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
         _failureAnalyzer = failureAnalyzer;
         _hub = hub;
@@ -438,6 +444,62 @@ public sealed class DeploymentJobRunner
                     _logger.LogWarning(
                         buildEx,
                         "Could not prepare a Dockerfile build for website target {TargetId}; continuing.",
+                        target.Id);
+                }
+            }
+            else if (string.Equals(target.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+                     DeploymentPartRoles.Is(coolifyConfig.Role, DeploymentPartRoles.Server))
+            {
+                // The server's Dockerfile used to be generated once, when the application was
+                // created, and never again -- so every later improvement to it reached new apps
+                // only, and an existing app kept building from whatever was generated on the day it
+                // was made. Regenerating here means a fix lands on the next deploy, the way the
+                // website path already worked.
+                //
+                // Safe to call for any server: the provisioner looks for a csproj and returns null
+                // when there is none, so a server that is not .NET is left alone.
+                try
+                {
+                    await EnsureServerDockerfileAsync(project, deployTarget, deployment.Branch, cancellationToken);
+                    DetachDeployTargetChanges();
+                    targetConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+                }
+                catch (Exception buildEx) when (buildEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        buildEx,
+                        "Could not refresh the generated Dockerfile for server target {TargetId}; continuing.",
+                        target.Id);
+                }
+
+                // An app that stores files needs a bucket before it meets its first upload. Left to
+                // the user to notice and ask for, it does not happen: the app falls back to the
+                // container filesystem, accepts the upload, reports success, and loses the file on
+                // the next deploy. Reads the repository and provisions when the evidence says so.
+                //
+                // Advisory, like the Dockerfile step above: a bucket that cannot be created must not
+                // fail a deploy that would otherwise succeed. It is always reported, though — every
+                // outcome that matters ends up in the deploy log the user reads.
+                try
+                {
+                    var storage = await _objectStorageAutoProvisioner.EnsureAsync(
+                        project, deployTarget, deployment.Branch, cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(storage.Message))
+                    {
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            await NextSequenceAsync(target.Id, cancellationToken),
+                            storage.Message,
+                            cancellationToken);
+                    }
+                }
+                catch (Exception storageEx) when (storageEx is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        storageEx,
+                        "Object storage check failed for server target {TargetId}; continuing.",
                         target.Id);
                 }
             }
@@ -701,6 +763,36 @@ public sealed class DeploymentJobRunner
         await PersistDeploymentTargetStateAsync(target, cancellationToken);
         await BroadcastStatusAsync(deployment.Id, target.ProviderName, target.Status);
         await FinalizeDeploymentAsync(deployment.Id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Rewrites the generated Dockerfile for a .NET server so the current generator's output is
+    /// what actually gets built. Returns quietly for a server with no csproj.
+    /// </summary>
+    private async Task EnsureServerDockerfileAsync(
+        Data.Entities.Project project,
+        DeployTarget serverTarget,
+        string branch,
+        CancellationToken cancellationToken)
+    {
+        var parts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 2)
+        {
+            return;
+        }
+
+        var config = DeployTargetConfig.Parse(serverTarget.ConfigJson);
+        var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
+        var githubToken = _encryption.Decrypt(user.GitHubTokenEncrypted);
+
+        await _serverDockerfileProvisioner.EnsureDockerfileAsync(
+            githubToken,
+            parts[0],
+            parts[1],
+            branch,
+            config.RootDirectory ?? string.Empty,
+            config.ServiceDirectory,
+            cancellationToken);
     }
 
     private void DetachDeployTargetChanges()

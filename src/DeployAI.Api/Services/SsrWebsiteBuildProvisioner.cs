@@ -82,7 +82,7 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
             parts[1],
             branch,
             appDirectory,
-            ResolveBuildTimeEnvKeys(project),
+            ResolveBuildTimeEnvKeys(project, config.Framework),
             config.BuildCommand,
             config.StartCommand,
             config.InstallCommand,
@@ -120,26 +120,42 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
     }
 
     /// <summary>
-    /// The keys the build has to see. Taken from what DeployAI already manages for the project;
-    /// the generator keeps only the public, bundle-inlined ones so no secret becomes a build arg.
+    /// The keys the build has to see. Two sources, because they are populated by different things:
+    /// what the user manages for the project, and the API URL keys DeployAI derives itself once the
+    /// server has a domain. The generator keeps only the public, bundle-inlined ones so no secret
+    /// becomes a build arg.
+    /// <para>
+    /// Reading only the stored set is what made this feature miss the one variable it exists for.
+    /// The API URL is never typed into the managed-environment screen — <see
+    /// cref="FrontendEnvironmentWiringService"/> computes it from the server's domain and writes it
+    /// straight to the provider — so it was never in the project's stored variables, no
+    /// <c>ARG NEXT_PUBLIC_API_URL</c> was emitted, and the bundle kept its localhost fallback. The
+    /// generated Dockerfile looked correct and the deploy succeeded; only the browser saw it.
+    /// </para>
     /// </summary>
-    private IReadOnlyList<string> ResolveBuildTimeEnvKeys(Project project)
+    private IReadOnlyList<string> ResolveBuildTimeEnvKeys(Project project, string? framework)
     {
-        if (project.EnvironmentVariablesEncrypted is not { Length: > 0 })
+        // Derived from the framework rather than read back from the provider, so the list does not
+        // depend on the wiring having already run for this app.
+        var keys = new List<string>(CrossProviderUrlWiring.ResolveApiEnvKeys(framework));
+
+        if (project.EnvironmentVariablesEncrypted is { Length: > 0 })
         {
-            return [];
+            try
+            {
+                var stored = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+                    _encryption.Decrypt(project.EnvironmentVariablesEncrypted));
+                if (stored is not null)
+                {
+                    keys.AddRange(stored.Keys);
+                }
+            }
+            catch (Exception ex) when (ex is JsonException or System.Security.Cryptography.CryptographicException)
+            {
+                _logger.LogWarning(ex, "Could not read stored environment variables for project {ProjectId}.", project.Id);
+            }
         }
 
-        try
-        {
-            var stored = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
-                _encryption.Decrypt(project.EnvironmentVariablesEncrypted));
-            return stored?.Keys.ToList() ?? [];
-        }
-        catch (Exception ex) when (ex is JsonException or System.Security.Cryptography.CryptographicException)
-        {
-            _logger.LogWarning(ex, "Could not read stored environment variables for project {ProjectId}.", project.Id);
-            return [];
-        }
+        return keys.Distinct(StringComparer.Ordinal).ToList();
     }
 }

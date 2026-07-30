@@ -10,7 +10,12 @@ namespace DeployAI.Api.Services;
 
 public sealed record ObjectStorageProvisioningResult(
     string Bucket,
-    IReadOnlyList<string> AppliedKeys);
+    IReadOnlyList<string> AppliedKeys,
+    /// <summary>
+    /// What was proven about the bucket, not just what was configured on it. Null only when
+    /// verification could not be attempted.
+    /// </summary>
+    ObjectStorageVerification? Verification = null);
 
 public interface IObjectStorageProvisioningService
 {
@@ -38,17 +43,23 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
     private readonly IObjectStorageProviderFactory _storageFactory;
     private readonly IProviderManagementFactory _managementFactory;
     private readonly IEncryptionService _encryption;
+    private readonly IObjectStorageVerifier _verifier;
+    private readonly ILogger<ObjectStorageProvisioningService> _logger;
 
     public ObjectStorageProvisioningService(
         DeployAIDbContext db,
         IObjectStorageProviderFactory storageFactory,
         IProviderManagementFactory managementFactory,
-        IEncryptionService encryption)
+        IEncryptionService encryption,
+        IObjectStorageVerifier verifier,
+        ILogger<ObjectStorageProvisioningService> logger)
     {
         _db = db;
         _storageFactory = storageFactory;
         _managementFactory = managementFactory;
         _encryption = encryption;
+        _verifier = verifier;
+        _logger = logger;
     }
 
     public async Task<ObjectStorageProvisioningResult?> ProvisionAsync(
@@ -70,10 +81,6 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
             .ToList();
 
         var storage = targets.FirstOrDefault(t => t.Config.IsStorageTarget);
-        if (storage.Target is null)
-        {
-            return null;
-        }
 
         // Keyed off role, not provider name: under a single-origin compose plan both halves
         // share the Coolify provider, so matching on provider would pick the wrong target.
@@ -84,10 +91,43 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
         {
             throw new DeployAIException(
                 "storage_no_server",
-                "This app has a bucket but no server to wire it into.");
+                "This app has no server to wire a bucket into.");
         }
 
-        var connectionCredential = await ResolveStorageCredentialAsync(userId, storage.Config, cancellationToken);
+        var connectionCredential = await ResolveStorageCredentialAsync(
+            userId,
+            storage.Target is null ? new DeployTargetConfig() : storage.Config,
+            cancellationToken);
+
+        if (storage.Target is null)
+        {
+            // Nothing else in the codebase ever created one. DeploymentPartRoles.Storage was
+            // referenced in exactly one place -- the predicate testing for it -- so this branch
+            // returned null for every project, and the whole object-storage capability (provider,
+            // provisioning, env wiring, twelve endpoints) could not be reached at all.
+            //
+            // Creating it here is safe because this runs only from an explicit request to
+            // provision storage for one app; nothing in the deploy pipeline calls it, so no app
+            // gets a bucket it did not ask for.
+            var created = new DeployTarget
+            {
+                Id = Guid.NewGuid(),
+                ProjectId = project.Id,
+                ProviderName = connectionCredential.ProviderName,
+                CredentialId = connectionCredential.Id,
+                ConfigJson = new DeployTargetConfig
+                {
+                    Role = DeploymentPartRoles.Storage,
+                    // Which connection the bucket belongs to, so a second connection added later
+                    // cannot silently re-point an app at a different account's storage.
+                    RailwayProjectId = connectionCredential.Id.ToString()
+                }.ToJson(),
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            _db.DeployTargets.Add(created);
+            storage = (created, DeployTargetConfig.Parse(created.ConfigJson));
+        }
         var provider = _storageFactory.GetObjectStorage(connectionCredential.ProviderName)
             ?? throw new DeployAIException(
                 "storage_provider_unavailable",
@@ -105,6 +145,17 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
 
         var bucket = await provider.CreateBucketAsync(storageCredentials, bucketName, cancellationToken);
 
+        // The browser PUTs to the bucket directly using a presigned URL, so the API's CORS policy
+        // is not in that request's path -- the bucket's own is. A new bucket allows no origin, so
+        // the preflight returns 403 and the upload never starts, from an app that is otherwise
+        // correctly wired. Told here, on every deploy, because a site's origin changes with its
+        // domain.
+        var websiteOrigins = await ResolveWebsiteOriginsAsync(project.Id, cancellationToken);
+        if (websiteOrigins.Count > 0)
+        {
+            await provider.SetBucketCorsAsync(storageCredentials, bucket.Name, websiteOrigins, cancellationToken);
+        }
+
         var connection = new ObjectStorageConnection(
             payload.Endpoint,
             payload.Region,
@@ -120,7 +171,57 @@ public sealed class ObjectStorageProvisioningService : IObjectStorageProvisionin
         storage.Target.ConfigJson = storage.Config.ToJson();
         await _db.SaveChangesAsync(cancellationToken);
 
-        return new ObjectStorageProvisioningResult(bucket.Name, applied);
+        // Everything above configured the bucket. This is the only part that finds out whether it
+        // works. Advisory -- a failed check must not undo a provision that otherwise succeeded --
+        // but never silent, because "configured" is exactly what four broken storage setups all
+        // looked like.
+        ObjectStorageVerification? verification = null;
+        try
+        {
+            verification = await _verifier.VerifyAsync(
+                provider, storageCredentials, payload.Endpoint, bucket.Name, websiteOrigins, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not verify object storage for project {ProjectId}.", project.Id);
+        }
+
+        return new ObjectStorageProvisioningResult(bucket.Name, applied, verification);
+    }
+
+    /// <summary>
+    /// The origins a browser will upload from: the website's last known deployed URL. Taken from
+    /// the deployment record rather than guessed, because that is the address the browser actually
+    /// sends as <c>Origin</c>, and a rule for any other value silently allows nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> ResolveWebsiteOriginsAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var urls = await _db.DeploymentTargets
+            .Where(dt => dt.Deployment.ProjectId == projectId
+                         && dt.DeployUrl != null
+                         && dt.Status == DeploymentStatuses.Success)
+            .OrderByDescending(dt => dt.CompletedAt)
+            .Select(dt => new { dt.DeployUrl, dt.DeployTargetId })
+            .Take(20)
+            .ToListAsync(cancellationToken);
+
+        var websiteTargetIds = await _db.DeployTargets
+            .Where(t => t.ProjectId == projectId)
+            .Select(t => new { t.Id, t.ConfigJson })
+            .ToListAsync(cancellationToken);
+
+        var websiteIds = websiteTargetIds
+            .Where(t => DeploymentPartRoles.Is(DeployTargetConfig.Parse(t.ConfigJson).Role, DeploymentPartRoles.Website))
+            .Select(t => t.Id)
+            .ToHashSet();
+
+        return urls
+            .Where(u => websiteIds.Contains(u.DeployTargetId))
+            .Select(u => u.DeployUrl!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private async Task<IReadOnlyList<string>> ApplyEnvVarsAsync(

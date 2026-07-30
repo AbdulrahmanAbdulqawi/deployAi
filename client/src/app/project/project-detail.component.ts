@@ -15,7 +15,9 @@ import {
   ProjectServicesResponse,
   ProviderEnvVar,
   ProviderName,
-  EnvVariable
+  EnvVariable,
+  UnreadableEnvTarget,
+  MissingConfigurationItem
 } from '../core/models/api.models';
 import {
   databaseEngineLabel,
@@ -90,11 +92,23 @@ export class ProjectDetailComponent implements OnInit {
   readonly loadingManagedEnv = signal(false);
   readonly savingManagedEnvKey = signal<string | null>(null);
   readonly revealedEnv = signal<Record<string, boolean>>({});
+  readonly unreadableEnvTargets = signal<UnreadableEnvTarget[]>([]);
   // Working copy of each var's value, so edits stay local until saved.
   managedEnvDraft: Record<string, string> = {};
   newManagedKey = '';
   newManagedValue = '';
   newManagedSecret = false;
+  // Which app receives the variable. Without this the API picks, and it picks the website — so on a
+  // split deploy a server-side setting lands in the frontend container, where nothing reads it and
+  // nothing says so. A CORS origin set this way left the API rejecting the site's own requests.
+  newManagedTargetId = '';
+
+  // Configuration the running app said it lacked. Distinct from managedEnv, which is only what
+  // DeployAI already knows about — the whole point is the keys nobody knew to ask for.
+  readonly missingConfig = signal<MissingConfigurationItem[]>([]);
+  readonly missingConfigService = signal<ProjectServiceView | null>(null);
+  readonly missingConfigUnreadable = signal<string | null>(null);
+  readonly checkingMissingConfig = signal(false);
 
   projectId = '';
 
@@ -667,17 +681,74 @@ export class ProjectDetailComponent implements OnInit {
     this.loadingManagedEnv.set(true);
     this.api.getEnvironment(this.projectId).subscribe({
       next: (response) => {
-        const vars = [...response.variables].sort((a, b) => a.key.localeCompare(b.key));
+        // Server order already groups by app; re-sorting by key alone would interleave them.
+        const vars = response.variables;
         this.managedEnv.set(vars);
-        this.managedEnvDraft = Object.fromEntries(vars.map(v => [v.key, v.value]));
+        this.unreadableEnvTargets.set(response.unreadable ?? []);
+        // Keyed by app as well as name: the same key can legitimately exist on both containers
+        // with different values, and a single map would let one overwrite the other's draft.
+        this.managedEnvDraft = Object.fromEntries(vars.map(v => [this.envRowId(v), v.value]));
         this.revealedEnv.set({});
         this.loadingManagedEnv.set(false);
       },
       error: () => {
         this.managedEnv.set([]);
+        this.unreadableEnvTargets.set([]);
         this.loadingManagedEnv.set(false);
       }
     });
+  }
+
+  /**
+   * Asks the running app what it lacks. Repository scanning reads a fixed set of files at a repo's
+   * root, so an app whose configuration lives deeper produces nothing to ask for — and then says
+   * exactly what it needed in its own startup output. This reads that.
+   */
+  checkMissingConfig(): void {
+    // The server if there is one — it is where startup configuration failures show up — otherwise
+    // the first application. Data services have no application logs to read.
+    const apps = this.services()?.applicationServices ?? [];
+    const service = apps.find(s => s.role === 'server') ?? apps[0] ?? null;
+    if (!service) {
+      return;
+    }
+
+    this.checkingMissingConfig.set(true);
+    this.missingConfigService.set(service);
+    this.api.getMissingConfiguration(this.projectId, service.id).subscribe({
+      next: (response) => {
+        this.checkingMissingConfig.set(false);
+        this.missingConfig.set(response.missing ?? []);
+        // "Could not look" is not "nothing missing". A stopped container is the usual cause and is
+        // precisely the state worth reporting, so it gets its own message rather than an empty list.
+        this.missingConfigUnreadable.set(
+          response.readable ? null : (response.message ?? "Could not read this app's logs.")
+        );
+      },
+      error: (err) => {
+        this.checkingMissingConfig.set(false);
+        this.missingConfig.set([]);
+        this.missingConfigUnreadable.set(
+          err?.error?.error?.message ?? "Could not read this app's logs."
+        );
+      }
+    });
+  }
+
+  /**
+   * Puts a finding into the add-variable fields for review rather than saving it. A section gives a
+   * prefix to complete — .NET says "Jwt configuration missing" without saying whether it wants
+   * Jwt__Key or Jwt__Issuer — so the key is left unfinished on purpose.
+   */
+  useMissingConfig(item: MissingConfigurationItem): void {
+    this.newManagedKey = item.kind === 'section' ? `${item.name}__` : item.name;
+    this.newManagedValue = item.suggestedValue;
+    this.newManagedSecret = true;
+    this.toast.success(
+      item.kind === 'section'
+        ? `Complete the key below — the app reported the "${item.name}" section, not a single variable.`
+        : `${item.name} filled in below. Review it, then add.`
+    );
   }
 
   isEnvRevealed(key: string): boolean {
@@ -688,20 +759,48 @@ export class ProjectDetailComponent implements OnInit {
     this.revealedEnv.update(state => ({ ...state, [key]: !state[key] }));
   }
 
+  /** Identifies a row by app as well as name — the same key can exist on both containers. */
+  envRowId(item: EnvVariable): string {
+    return `${item.targetId ?? 'unplaced'}:${item.key}`;
+  }
+
+  /** The variables on one app, in the order the server grouped them. */
+  envGroups(): { targetId: string | null; role: string; items: EnvVariable[] }[] {
+    const groups = new Map<string, { targetId: string | null; role: string; items: EnvVariable[] }>();
+    for (const item of this.managedEnv()) {
+      const id = item.targetId ?? 'unplaced';
+      if (!groups.has(id)) {
+        groups.set(id, {
+          targetId: item.targetId,
+          // A variable DeployAI stores that no app reported back: either its app could not be read,
+          // or the value never reached the provider. Both are worth showing, not hiding.
+          role: item.targetRole ?? 'not on any app',
+          items: []
+        });
+      }
+      groups.get(id)!.items.push(item);
+    }
+    return [...groups.values()];
+  }
+
   envValueChanged(item: EnvVariable): boolean {
-    return (this.managedEnvDraft[item.key] ?? '') !== item.value;
+    return (this.managedEnvDraft[this.envRowId(item)] ?? '') !== item.value;
   }
 
   saveManagedEnv(item: EnvVariable): void {
-    const value = this.managedEnvDraft[item.key] ?? '';
+    const value = this.managedEnvDraft[this.envRowId(item)] ?? '';
     if (!value || value === item.value) {
       return;
     }
 
-    this.savingManagedEnvKey.set(item.key);
-    this.api.setComposeEnvironment(this.projectId, [
-      { key: item.key, value, isSecret: item.isSecret }
-    ]).subscribe({
+    this.savingManagedEnvKey.set(this.envRowId(item));
+    this.api.setComposeEnvironment(
+      this.projectId,
+      [{ key: item.key, value, isSecret: item.isSecret }],
+      // Save back to the app it came from. Without this it would go to the API's default (the
+      // website), so editing a server variable would write a copy to the frontend instead.
+      item.targetId ?? undefined
+    ).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.toast.success(`${item.key} saved. Redeploy to apply it.`);
@@ -714,6 +813,40 @@ export class ProjectDetailComponent implements OnInit {
     });
   }
 
+  /**
+   * The apps a variable can be sent to. A project with one app needs no choice; a split deploy does,
+   * because the two containers read entirely different configuration.
+   */
+  envTargets(): ProjectServiceView[] {
+    return this.services()?.applicationServices ?? [];
+  }
+
+  /** Defaults to the server: hand-typed configuration is server-side far more often than not. */
+  resolveManagedTargetId(): string {
+    if (this.newManagedTargetId) {
+      return this.newManagedTargetId;
+    }
+
+    const apps = this.envTargets();
+    return (apps.find(s => s.role === 'server') ?? apps[0])?.id ?? '';
+  }
+
+  /** Fills the value box with something DeployAI invented, and marks it secret. */
+  generateManagedValue(): void {
+    const key = this.newManagedKey.trim();
+    if (!key) {
+      return;
+    }
+
+    this.api.generateEnvValue(this.projectId, key).subscribe({
+      next: ({ value }) => {
+        this.newManagedValue = value;
+        this.newManagedSecret = true;
+      },
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not generate a value.')
+    });
+  }
+
   addManagedEnv(): void {
     const key = this.newManagedKey.trim();
     const value = this.newManagedValue;
@@ -721,16 +854,21 @@ export class ProjectDetailComponent implements OnInit {
       return;
     }
 
+    const targetId = this.resolveManagedTargetId();
+    const targetName = this.envTargets().find(s => s.id === targetId)?.role ?? 'app';
+
     this.savingManagedEnvKey.set(key);
-    this.api.setComposeEnvironment(this.projectId, [
-      { key, value, isSecret: this.newManagedSecret }
-    ]).subscribe({
+    this.api.setComposeEnvironment(
+      this.projectId,
+      [{ key, value, isSecret: this.newManagedSecret }],
+      targetId || undefined
+    ).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.newManagedKey = '';
         this.newManagedValue = '';
         this.newManagedSecret = false;
-        this.toast.success(`${key} added. Redeploy to apply it.`);
+        this.toast.success(`${key} added to the ${targetName}. Redeploy to apply it.`);
         this.loadManagedEnv();
       },
       error: (err) => {
@@ -743,7 +881,9 @@ export class ProjectDetailComponent implements OnInit {
   async deleteManagedEnv(item: EnvVariable): Promise<void> {
     const confirmed = await this.confirm.ask({
       title: `Remove ${item.key}?`,
-      message: 'This removes the variable from the live app and from DeployAI. Redeploy to apply.',
+      message: item.targetRole
+        ? `This removes ${item.key} from the ${item.targetRole}. Redeploy to apply.`
+        : 'This removes the variable from the live app and from DeployAI. Redeploy to apply.',
       confirmLabel: 'Remove',
       destructive: true
     });
@@ -751,8 +891,10 @@ export class ProjectDetailComponent implements OnInit {
       return;
     }
 
-    this.savingManagedEnvKey.set(item.key);
-    this.api.deleteEnvironmentVariable(this.projectId, item.key).subscribe({
+    this.savingManagedEnvKey.set(this.envRowId(item));
+    // From the app it is actually on. Defaulting would delete DeployAI's record while leaving the
+    // value live on the other container.
+    this.api.deleteEnvironmentVariable(this.projectId, item.key, item.targetId ?? undefined).subscribe({
       next: () => {
         this.savingManagedEnvKey.set(null);
         this.toast.success(`${item.key} removed.`);
@@ -795,6 +937,8 @@ export class ProjectDetailComponent implements OnInit {
     this.api.getProjectServices(this.projectId).subscribe({
       next: (response) => {
         this.services.set(response);
+        // Bind the picker once the apps are known, so it opens on the server rather than blank.
+        this.newManagedTargetId = this.resolveManagedTargetId();
         for (const service of [...response.applicationServices, ...response.dataServices]) {
           this.newEnvKey[service.id] = '';
           this.newEnvValue[service.id] = '';

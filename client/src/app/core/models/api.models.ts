@@ -454,6 +454,32 @@ export interface EnvVariable {
   key: string;
   value: string;
   isSecret: boolean;
+  /** Which app has it. Null when DeployAI stores it but no app reported it back. */
+  targetId: string | null;
+  targetRole: string | null;
+  /** Whether DeployAI itself set it, as opposed to reading it off the provider. */
+  managed: boolean;
+}
+
+/** A deploy target whose variables could not be read — reported so a short list isn't mistaken for a complete one. */
+export interface UnreadableEnvTarget {
+  targetId: string;
+  targetRole: string;
+  reason: string;
+}
+
+/**
+ * Configuration an application reported missing in its own startup output.
+ *
+ * `kind` matters: .NET's "Jwt configuration missing" names the section, not which of
+ * `Jwt__Key`/`Jwt__Issuer` is absent, so a `section` gives a prefix to complete rather than a key
+ * to write. Filling it in blindly would set a variable no app reads.
+ */
+export interface MissingConfigurationItem {
+  name: string;
+  kind: 'section' | 'variable';
+  evidence: string;
+  suggestedValue: string;
 }
 
 /** One env var the repo was detected to need, with an optional server-suggested value. */

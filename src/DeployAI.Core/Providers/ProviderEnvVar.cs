@@ -52,7 +52,15 @@ public sealed record CreateProviderProjectRequest(
     /// Dockerfile we know the port it EXPOSEs (e.g. 8080 for .NET), and Coolify does not infer it —
     /// left unset, it defaults the proxy to 3000 and a .NET app 502s. Overrides framework guessing.
     /// </summary>
-    string? ExposedPort = null);
+    string? ExposedPort = null,
+    /// <summary>
+    /// Whether the provider should redeploy on its own when the branch is pushed. Off by default,
+    /// and it must stay off unless the user asked for it: DeployAI writes generated files
+    /// (Dockerfiles, compose files) into the repository as part of a publish, and with provider
+    /// auto-deploy on, each of those commits fires a webhook build that races the deploy DeployAI
+    /// is already orchestrating for the same commit.
+    /// </summary>
+    bool AutoDeployEnabled = false);
 
 /// <summary>A key/value to create or update as an environment variable on a provider project.</summary>
 public sealed record UpsertProviderEnvVarRequest(

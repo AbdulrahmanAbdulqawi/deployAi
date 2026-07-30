@@ -61,6 +61,7 @@ builder.Services.Configure<FixBuildOptions>(builder.Configuration.GetSection(Fix
 builder.Services.AddScoped<IProcessBuildRunner, ProcessBuildRunner>();
 builder.Services.AddScoped<IFixBuildWorkspaceService, FixBuildWorkspaceService>();
 builder.Services.AddScoped<IDeploymentFailureAnalyzer, DeploymentFailureAnalyzer>();
+builder.Services.AddScoped<IMissingConfigurationDetector, MissingConfigurationDetector>();
 builder.Services.AddScoped<IDeploymentFixService, DeploymentFixService>();
 builder.Services.AddScoped<IDeploymentFixGenerator, ClaudeDeploymentFixGenerator>();
 builder.Services.AddSingleton<DeploymentTemplateCatalog>();
@@ -97,7 +98,10 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IDeploymentOrchestrator, DeploymentOrchestrator>();
 builder.Services.AddScoped<DeploymentJobRunner>();
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
+builder.Services.AddScoped<IObjectStorageVerifier, ObjectStorageVerifier>();
 builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();
+builder.Services.AddSingleton<DeployAI.Infrastructure.GitHub.IObjectStorageNeedDetector, DeployAI.Infrastructure.GitHub.ObjectStorageNeedDetector>();
+builder.Services.AddScoped<IObjectStorageAutoProvisioner, ObjectStorageAutoProvisioner>();
 builder.Services.AddScoped<IProjectTeardownService, ProjectTeardownService>();
 builder.Services.AddScoped<IDataServiceInspectionService, DataServiceInspectionService>();
 

@@ -403,60 +403,126 @@
       <div class="env-section__head">
         <div>
           <h2 class="section__label u-label-caps">Environment variables</h2>
-          <p class="detail__muted">The settings DeployAI manages for this app. Redeploy to apply changes.</p>
+          <p class="detail__muted">Every setting your apps are running with, read live from the provider. Redeploy to apply changes.</p>
         </div>
+        <button
+          type="button"
+          class="btn btn--ghost"
+          (click)="checkMissingConfig()"
+          [disabled]="checkingMissingConfig()">
+          {{ checkingMissingConfig() ? 'Checking…' : 'Check for missing settings' }}
+        </button>
       </div>
+
+      @if (missingConfigUnreadable(); as reason) {
+        <div class="missing-config missing-config--muted">
+          <p class="detail__muted">
+            Couldn't read the app's logs, so this isn't a clean bill of health — {{ reason }}
+          </p>
+          <p class="detail__muted">
+            A stopped container has no logs to read. Start it from its Actions menu, then check again.
+          </p>
+        </div>
+      }
+
+      @if (missingConfig().length > 0) {
+        <div class="missing-config">
+          <p class="missing-config__lead">
+            {{ missingConfigService()?.displayName }} reported {{ missingConfig().length === 1 ? 'a setting' : 'settings' }}
+            it needs but doesn't have:
+          </p>
+          @for (item of missingConfig(); track item.name) {
+            <div class="missing-config__row">
+              <div>
+                <strong class="u-code-sm">{{ item.name }}</strong>
+                @if (item.kind === 'section') {
+                  <span class="managed-env__tag">SECTION</span>
+                }
+                <p class="detail__muted u-code-sm">{{ item.evidence }}</p>
+                @if (item.kind === 'section') {
+                  <p class="detail__muted">
+                    The app named a section, not a single variable — you'll complete the key.
+                  </p>
+                }
+              </div>
+              <button type="button" class="btn btn--ghost" (click)="useMissingConfig(item)">
+                Fill in below
+              </button>
+            </div>
+          }
+        </div>
+      }
 
       @if (loadingManagedEnv()) {
         <p class="detail__muted">Loading…</p>
       } @else {
         <div class="managed-env">
-          @for (item of managedEnv(); track item.key) {
-            <div class="managed-env__row">
-              <div class="managed-env__key">
-                <strong class="u-code-sm">{{ item.key }}</strong>
-                @if (item.isSecret) {
-                  <span class="managed-env__tag">SECRET</span>
-                }
-              </div>
-              <div class="managed-env__value">
-                <input
-                  [type]="item.isSecret && !isEnvRevealed(item.key) ? 'password' : 'text'"
-                  [(ngModel)]="managedEnvDraft[item.key]"
-                  autocomplete="off"
-                  spellcheck="false" />
-                @if (item.isSecret) {
+          @for (target of unreadableEnvTargets(); track target.targetId) {
+            <p class="managed-env__unreadable">
+              Couldn't read the {{ target.targetRole }}'s settings, so anything on it is missing from
+              this list — {{ target.reason }}
+            </p>
+          }
+
+          @for (group of envGroups(); track group.targetId) {
+            <p class="managed-env__group">{{ group.role }}</p>
+            @for (item of group.items; track envRowId(item)) {
+              <div class="managed-env__row">
+                <div class="managed-env__key">
+                  <strong class="u-code-sm">{{ item.key }}</strong>
+                  @if (item.isSecret) {
+                    <span class="managed-env__tag">SECRET</span>
+                  }
+                </div>
+                <div class="managed-env__value">
+                  <input
+                    [type]="item.isSecret && !isEnvRevealed(envRowId(item)) ? 'password' : 'text'"
+                    [(ngModel)]="managedEnvDraft[envRowId(item)]"
+                    autocomplete="off"
+                    spellcheck="false" />
+                  @if (item.isSecret) {
+                    <button
+                      type="button"
+                      class="text-btn"
+                      (click)="toggleEnvReveal(envRowId(item))">
+                      {{ isEnvRevealed(envRowId(item)) ? 'Hide' : 'Show' }}
+                    </button>
+                  }
+                </div>
+                <div class="managed-env__actions">
+                  <app-ui-button
+                    variant="secondary"
+                    icon="check"
+                    [disabled]="!envValueChanged(item) || savingManagedEnvKey() === envRowId(item)"
+                    [loading]="savingManagedEnvKey() === envRowId(item)"
+                    (click)="saveManagedEnv(item)">
+                    Save
+                  </app-ui-button>
                   <button
                     type="button"
-                    class="text-btn"
-                    (click)="toggleEnvReveal(item.key)">
-                    {{ isEnvRevealed(item.key) ? 'Hide' : 'Show' }}
+                    class="text-btn text-btn--danger"
+                    [disabled]="savingManagedEnvKey() === envRowId(item)"
+                    (click)="deleteManagedEnv(item)">
+                    Delete
                   </button>
-                }
+                </div>
               </div>
-              <div class="managed-env__actions">
-                <app-ui-button
-                  variant="secondary"
-                  icon="check"
-                  [disabled]="!envValueChanged(item) || savingManagedEnvKey() === item.key"
-                  [loading]="savingManagedEnvKey() === item.key"
-                  (click)="saveManagedEnv(item)">
-                  Save
-                </app-ui-button>
-                <button
-                  type="button"
-                  class="text-btn text-btn--danger"
-                  [disabled]="savingManagedEnvKey() === item.key"
-                  (click)="deleteManagedEnv(item)">
-                  Delete
-                </button>
-              </div>
-            </div>
+            }
           } @empty {
             <p class="detail__muted">No environment variables set yet. Add one below.</p>
           }
 
           <div class="managed-env__add">
+            @if (envTargets().length > 1) {
+              <select
+                class="managed-env__add-target"
+                [(ngModel)]="newManagedTargetId"
+                aria-label="Which app receives this setting">
+                @for (service of envTargets(); track service.id) {
+                  <option [value]="service.id">{{ service.role || 'app' }}</option>
+                }
+              </select>
+            }
             <input
               class="managed-env__add-key"
               type="text"
@@ -471,6 +537,13 @@
               placeholder="Value"
               autocomplete="off"
               spellcheck="false" />
+            <button
+              type="button"
+              class="text-btn managed-env__add-generate"
+              [disabled]="!newManagedKey.trim()"
+              (click)="generateManagedValue()">
+              Generate
+            </button>
             <label class="checkbox managed-env__add-secret">
               <input type="checkbox" [(ngModel)]="newManagedSecret" />
               Secret

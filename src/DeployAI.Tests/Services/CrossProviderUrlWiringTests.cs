@@ -26,6 +26,37 @@ public class CrossProviderUrlWiringTests
         Assert.DoesNotContain("IDAARA_API_URL", keys);
     }
 
+    [Theory]
+    [InlineData("dotnet")]
+    [InlineData("aspnetcore")]
+    [InlineData("docker")]
+    public void ResolveServerCorsEnvKeys_IncludesAspNetsOwnCorsConfigurationKeys(string framework)
+    {
+        // App__FrontendUrl alone is a DeployAI convention -- it only does anything if the app happens
+        // to read that key. A real ASP.NET app binds its policy straight from configuration, e.g.
+        //   .WithOrigins(Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:3000"])
+        // and a section binds to a string[] only through indexed keys. Writing App__FrontendUrl and
+        // stopping there left that policy on its localhost fallback: the deployed site's login call
+        // was blocked by CORS, the API logged nothing, and the browser showed "cannot reach server".
+        var keys = CrossProviderUrlWiring.ResolveServerCorsEnvKeys(framework);
+
+        Assert.Contains("Cors__Origins__0", keys);
+        Assert.Contains("Cors__AllowedOrigins__0", keys);
+        // Still written: apps that read DeployAI's own convention must keep working.
+        Assert.Contains("App__FrontendUrl", keys);
+    }
+
+    [Fact]
+    public void IsIndexedAllowedOriginsKey_CoversTheCorsSectionForm()
+    {
+        // Indexed keys carry exactly one origin, never a comma-separated list -- ASP.NET binds
+        // element 0 verbatim, so a list written into one produces a single unusable origin.
+        Assert.True(CrossProviderUrlWiring.IsIndexedAllowedOriginsKey("Cors__Origins__0"));
+        Assert.True(CrossProviderUrlWiring.IsIndexedAllowedOriginsKey("Cors__AllowedOrigins__0"));
+        Assert.True(CrossProviderUrlWiring.IsIndexedAllowedOriginsKey("AllowedOrigins__0"));
+        Assert.False(CrossProviderUrlWiring.IsIndexedAllowedOriginsKey("App__FrontendUrl"));
+    }
+
     [Fact]
     public void ShouldUseSplitOrigin_ForAngularDockerStack()
     {

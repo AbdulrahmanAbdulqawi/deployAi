@@ -5,6 +5,12 @@ namespace DeployAI.Tests.Graph;
 
 public class EnvVarDetectorTests
 {
+    /// <summary>
+    /// The variables alone. Detect now also reports which sources it read, so that an empty result
+    /// can be told apart from "none of those files exist here" — see the InconclusiveWhen… tests.
+    /// </summary>
+    private IReadOnlyList<DetectedEnvVar> DetectVars(EnvScanInputs inputs) => _detector.Detect(inputs).Variables;
+
     // Taken from yemenBreeze's real docker-compose.coolify.yml — the file this detector must
     // read correctly for the live end-to-end to work.
     private const string YemenBreezeCompose = """
@@ -34,7 +40,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void Detect_ReadsYemenBreezeCompose_Completely()
     {
-        var vars = _detector.Detect(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
+        var vars = DetectVars(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
         var byName = vars.ToDictionary(v => v.Name);
 
         // SITE_ORIGIN appears twice (CORS + email base URL) and must dedupe to one entry.
@@ -55,7 +61,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void Detect_ClassifiesForSmartFill()
     {
-        var vars = _detector.Detect(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
+        var vars = DetectVars(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
         var byName = vars.ToDictionary(v => v.Name);
 
         Assert.Equal(EnvVarCategory.Storage, byName["STORAGE_ENDPOINT"].Category);
@@ -81,7 +87,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void Detect_MergesMentionsAcrossSources()
     {
-        var vars = _detector.Detect(new EnvScanInputs(
+        var vars = DetectVars(new EnvScanInputs(
             ComposeContent: "  - Jwt__Key=${JWT_KEY}",
             DotEnvExampleContent: "JWT_KEY=\nAPI_RATE_LIMIT=100",
             GithubWorkflowContents: ["run: deploy\nenv:\n  JWT_KEY: ${{ secrets.JWT_KEY }}"]));
@@ -99,7 +105,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void DotEnvPlaceholders_AreRequired_NotDefaults()
     {
-        var vars = _detector.Detect(new EnvScanInputs(
+        var vars = DetectVars(new EnvScanInputs(
             DotEnvExampleContent: "API_KEY=changeme\nSMTP_HOST=your-smtp-host\nREAL_DEFAULT=587"));
 
         Assert.False(vars.Single(v => v.Name == "API_KEY").HasDefault);
@@ -110,7 +116,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void AppsettingsEmptyLeaves_BecomeSectionKeyNames()
     {
-        var vars = _detector.Detect(new EnvScanInputs(AppsettingsContent: """
+        var vars = DetectVars(new EnvScanInputs(AppsettingsContent: """
             {
               "Logging": { "LogLevel": { "Default": "" } },
               "Jwt": { "Key": "" },
@@ -130,7 +136,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void PlatformVariables_AreExcluded()
     {
-        var vars = _detector.Detect(new EnvScanInputs(ComposeContent: """
+        var vars = DetectVars(new EnvScanInputs(ComposeContent: """
             environment:
               - X=${COOLIFY_URL}
               - Y=${SERVICE_FQDN_WEB}
@@ -145,7 +151,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void Detect_OrdersRequiredSecretsFirst()
     {
-        var vars = _detector.Detect(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
+        var vars = DetectVars(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
 
         Assert.True(vars[0].IsSecret && !vars[0].HasDefault);
         // Defaults sink to the bottom.
@@ -155,7 +161,7 @@ public class EnvVarDetectorTests
     [Fact]
     public void ReadmeFencedBlocks_AreScanned_ProseIsNot()
     {
-        var vars = _detector.Detect(new EnvScanInputs(ReadmeContent: """
+        var vars = DetectVars(new EnvScanInputs(ReadmeContent: """
             Set these before deploying:
 
             ```
@@ -167,5 +173,50 @@ public class EnvVarDetectorTests
 
         Assert.Single(vars);
         Assert.Equal("APP_SECRET", vars[0].Name);
+    }
+
+    [Fact]
+    public void Detect_IsInconclusive_WhenNoSourceFileWasFound()
+    {
+        // Regression: an empty result used to be indistinguishable from "this repo declares no
+        // configuration". A real deploy went out on that ambiguity — the scan found nothing for a
+        // repo whose API reads Jwt settings (its appsettings.json is nested under a monorepo path
+        // the scan never read), the wizard skipped its environment step because there was nothing
+        // to show, and the container died on startup with "Jwt configuration missing", restarting
+        // until Coolify stopped it at 10 attempts.
+        var scan = _detector.Detect(new EnvScanInputs());
+
+        Assert.Empty(scan.Variables);
+        Assert.Empty(scan.SourcesRead);
+        Assert.True(scan.IsInconclusive);
+        Assert.Contains("appsettings", scan.SourcesMissing);
+        Assert.Contains("compose", scan.SourcesMissing);
+    }
+
+    [Fact]
+    public void Detect_IsNotInconclusive_WhenAFileWasReadButDeclaredNothing()
+    {
+        // The other empty case, and the only one safe to deploy on: a file was read and genuinely
+        // declares no variables. Distinguishing this from the case above is the whole point.
+        var scan = _detector.Detect(new EnvScanInputs(AppsettingsContent: """
+            { "Logging": { "LogLevel": { "Default": "Information" } } }
+            """));
+
+        Assert.Empty(scan.Variables);
+        Assert.Contains("appsettings", scan.SourcesRead);
+        Assert.False(scan.IsInconclusive);
+    }
+
+    [Fact]
+    public void Detect_ReportsEverySourceAsReadOrMissing()
+    {
+        // No source may go unaccounted for: a scanner that is never fed has to show up as missing
+        // rather than vanish, or coverage silently overstates itself as more scanners are added.
+        var scan = _detector.Detect(new EnvScanInputs(ComposeContent: YemenBreezeCompose));
+
+        Assert.Contains("compose", scan.SourcesRead);
+        Assert.Equal(
+            new[] { "appsettings", "compose", "dockerfile", "dotenv", "readme", "workflows" },
+            scan.SourcesRead.Concat(scan.SourcesMissing).OrderBy(s => s, StringComparer.Ordinal));
     }
 }

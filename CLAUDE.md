@@ -105,12 +105,71 @@ Recorded so they get closed rather than re-done by hand.
   single request, but `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still
   loop key by key. Batching would cut N round trips to one and leave no window for a concurrent
   sync to interleave mid-set.
+- **DeployAI cannot create a Coolify project, only deploy into an existing one.** A missing
+  environment is now created rather than dead-ending, but the project picker still only offers
+  projects that already exist. Coolify exposes `POST /projects`, so nothing prevents closing this
+  — until then, the first deploy into a new Coolify instance is a manual step.
+- **Only .NET apps get their schema created.** The generated .NET Dockerfile now bundles EF
+  migrations and applies them before the app starts. Nothing equivalent exists for the other
+  runtimes DeployAI deploys — a Node or Python service provisioned a database still meets an empty
+  one, and the failure looks like a healthy app returning 500s.
+- **Coolify's proxy labels are managed by Coolify, and DeployAI must not write them.** Writing
+  `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The problem
+  that change was originally for is still open: Coolify caches the Traefik labels it generates at
+  first deploy, so a later build-pack or port change does not reach the live proxy until someone
+  presses "Reset Labels to Defaults" and redeploys.
+- **Nothing acts on an inconclusive env scan yet.** `env-schema` now reports which sources it read
+  and flags `inconclusive` when it read none, but the wizard still shows no environment step for an
+  empty result either way. Until it distinguishes them, a repo whose configuration lives somewhere
+  the scan does not look still deploys with nothing set — which is how an API reached production
+  and crash-looped on `Jwt configuration missing`.
+- **Seven scanners each guess where an app lives, and a wrong guess is silent.** `env-schema`,
+  `RepositoryClassifier` and `RailwayDatabaseProvisioningService` read the repo root;
+  `SsrWebsiteBuildProvisioner` reads one app directory; only `ServerDockerfileProvisioner` and
+  `ObjectStorageAutoProvisioner` look one level down, each via its own bespoke patch. A monorepo
+  that nests its API — `backend/src/YemenHub.Api` — is invisible to the rest, and an empty scan is
+  indistinguishable from "this repo has no such file", so the dependent capability quietly does not
+  run. Four separate instances of this were hit in one day; two were patched per-caller, which is
+  why it keeps recurring. `docs/12-repository-scanning.md` specifies the shared resolver that fixes
+  it once, and the pre-deploy configuration check it unlocks.
+- **Nothing compares the deployed ref's required configuration against what the target has.**
+  Merging a branch that introduced a Media module needing `Storage:*` took every route down:
+  `AmazonS3Client` threw before `builder.Build()`, and Coolify gave up after eleven restarts. The
+  migration chain validated and the build was green; neither can catch this. DeployAI now has both
+  halves separately — reading an app's config files, and reading what a target actually has (the
+  environment listing) — so this is short work once the scanner above exists.
+- **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
+  "Application is not running" for a stopped container, so the capability added for "an app that
+  builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
+  container that has hit Coolify's restart limit stays stopped until something starts it.
+- **Project status is never revalidated against the provider.** A project whose Coolify
+  applications have been deleted still shows as deployed and healthy, with links to domains that
+  return 404. The status and URLs come from the last deployment record and are never rechecked, so
+  the dashboard can advertise a dead app indefinitely.
 - **No divergence warning.** DeployAI deploys whatever ref it is pointed at without reporting
   how that ref relates to the user's other branches.
 - **No migration-chain validation.** Nothing checks for colliding or misordered migrations
   before a deploy.
 - **Verification is shallow.** A deployment probing `/health` successfully can still have a
   fully broken API surface. See `DeploymentVerificationService.cs` / `DeploymentEndpointProbes.cs`.
+- **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
+  `Project.EnvironmentVariablesEncrypted` is one blob per project, so a listed variable carries no
+  record of which container it was pushed to. Adding one now asks (the add row has a target picker
+  and defaults to the server), but editing and deleting still fall through to the API's default,
+  which is the *website* — so removing a server-side variable can delete DeployAI's record of it
+  while leaving the value live on the server, and saving a new value can write it to the frontend.
+  The fix is to store the target alongside each variable and show it in the list; until then the
+  list is a set of names whose location is unknowable from the UI.
+- **CORS wiring is a guess, and nothing checks whether the guess was right.**
+  `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
+  own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
+  is still a list of names hoped to match. An app reading any other key gets its origins written
+  nowhere it looks, keeps whatever hardcoded fallback its source has, and nothing reports it: the API
+  logs nothing (the browser never sends the request), both deploy targets go green, `/health` passes,
+  and the only symptom is the frontend's own "cannot reach the server" message. One `OPTIONS` from the
+  website origin to the API, checking for `Access-Control-Allow-Origin`, would settle it in a single
+  request at the end of a deploy — that is the fix; the key list is a stopgap. Better still: read the
+  key out of the repository (`GetSection("...")` in `Program.cs`) rather than guessing names at all.
 - **Generated commit messages are generic.** Dockerfile generation has produced several commits
   sharing one message, obscuring what each changed.
 - **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR

@@ -20,6 +20,7 @@ The core design goal is **extensibility**: adding a new hosting provider should 
 | `03-data-model.md` | Database schema, entities, relationships, migrations |
 | `04-api-spec.md` | REST/WebSocket API endpoints, request/response contracts |
 | `05-implementation-plan.md` | Phased roadmap, timeline, milestones, testing strategy |
+| `12-repository-scanning.md` | **Proposed.** One resolver for "where does this app live in the repo", replacing seven independent guesses |
 
 ## Tech stack at a glance
 

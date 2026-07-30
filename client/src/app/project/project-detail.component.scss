@@ -633,6 +633,34 @@
   gap: var(--space-2);
 }
 
+.missing-config {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.missing-config__lead {
+  margin: 0;
+  font-weight: 600;
+}
+
+.missing-config__row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+
+  p {
+    margin: var(--space-1) 0 0;
+    word-break: break-word;
+  }
+}
+
 .managed-env__row {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto;
@@ -692,12 +720,36 @@
 
 .managed-env__add {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto auto;
+  // `auto` for the target picker so the row keeps its shape whether or not it is rendered — it
+  // only appears when the project has more than one app to choose between.
+  grid-template-columns: auto minmax(140px, 1fr) minmax(0, 2fr) auto auto auto;
   gap: var(--space-3);
   align-items: center;
   margin-top: var(--space-3);
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
+}
+
+.managed-env__add-target {
+  text-transform: capitalize;
+}
+
+.managed-env__group {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+
+  &:first-child {
+    margin-top: 0;
+  }
+}
+
+.managed-env__unreadable {
+  margin-bottom: var(--space-3);
+  color: var(--text-warning, var(--text-muted));
+  font-size: var(--text-sm);
 }
 
 .managed-env__add-secret {

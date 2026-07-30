@@ -16,6 +16,12 @@ public static class DotnetServerDockerfile
     public const int ContainerPort = 8080;
 
     /// <summary>
+    /// The migration executable copied into the runtime image. Named for its origin so it is
+    /// obvious in a container listing that DeployAI put it there.
+    /// </summary>
+    public const string MigrationBundleName = "deployai-migrate";
+
+    /// <summary>
     /// <paramref name="buildRootDirectory"/> is the Docker build context (Coolify base directory).
     /// <paramref name="serviceDirectory"/> is where the entry csproj lives; when it is nested under
     /// the build root (a modular monolith), the publish path is made relative to the root.
@@ -41,12 +47,32 @@ public static class DotnetServerDockerfile
             COPY . .
             RUN dotnet publish {{csprojPath}} -c Release -o /app
 
+            # A provisioned database starts empty, and nothing else in the pipeline creates its
+            # schema -- an app deployed against one runs and fails every query on a missing table.
+            # `migrations bundle` produces a standalone executable that applies them using the app's
+            # own configuration, so the runtime image needs no SDK. Best effort: a project with no
+            # DbContext or no migrations is not an error, it just has nothing to bundle.
+            RUN dotnet tool install --global dotnet-ef --version {{major}}.* \
+             && export PATH="$PATH:/root/.dotnet/tools" \
+             && dotnet ef migrations bundle --startup-project {{csprojPath}} --configuration Release --force --output /app/{{MigrationBundleName}} \
+             || echo "DeployAI: no EF migrations to bundle; the app will start without applying any."
+
             FROM mcr.microsoft.com/dotnet/aspnet:{{major}}.0
+            # Npgsql loads GSSAPI when it opens a connection, and the ASP.NET runtime image does not
+            # ship it. Without this every Postgres query fails with "libgssapi_krb5.so.2: cannot open
+            # shared object file" -- from an app that started cleanly and looks healthy, because the
+            # failure is per-request rather than at boot.
+            RUN apt-get update \
+             && apt-get install -y --no-install-recommends libgssapi-krb5-2 \
+             && rm -rf /var/lib/apt/lists/*
             WORKDIR /app
             COPY --from=build /app .
             ENV ASPNETCORE_URLS=http://+:{{ContainerPort}}
             EXPOSE {{ContainerPort}}
-            ENTRYPOINT ["dotnet", "{{assemblyName}}.dll"]
+            # Migrations run before the app, and a failure stops the container rather than letting it
+            # serve against a half-built schema -- a running app with a broken database looks healthy
+            # from every angle except the responses.
+            ENTRYPOINT ["/bin/sh", "-c", "if [ -x ./{{MigrationBundleName}} ]; then ./{{MigrationBundleName}} || exit 1; fi; exec dotnet {{assemblyName}}.dll"]
             """;
     }
 

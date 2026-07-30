@@ -65,6 +65,179 @@ public class CoolifyProviderManagementTests
         Assert.Equal("main", project.GitBranch);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateProjectAsync_SendsTheRequestedAutoDeploySetting(bool autoDeploy)
+    {
+        // Regression: this was hardcoded to true. It overrode users who had turned auto-deploy off,
+        // and it made a publish build the same commit more than once -- DeployAI writes generated
+        // files (Dockerfile, compose) into the repository mid-publish, so Coolify's webhook started
+        // a build for that commit while DeployAI was already deploying it. One observed publish ran
+        // three concurrent builds of a single Next.js site: 6m19s, 11m10s and 11m17s, for an app
+        // whose actual `next build` takes 16 seconds.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
+
+        string? sent = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .Respond(async req =>
+            {
+                sent = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "uuid": "app-new" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-new")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-new", "name": "my-app" }""");
+
+        var provider = CreateProvider(handler);
+        await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest(
+                "my-app", "acme/widget", null, GitBranch: "main", AutoDeployEnabled: autoDeploy),
+            CancellationToken.None);
+
+        Assert.NotNull(sent);
+        Assert.Equal(
+            autoDeploy,
+            JsonDocument.Parse(sent!).RootElement.GetProperty("is_auto_deploy_enabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_CreatesAnEnvironment_WhenTheProjectHasNone()
+    {
+        // Regression: a Coolify project with no environments dead-ended the deploy, and the only
+        // way forward was for someone to open Coolify and add one by hand. That state is easy to
+        // reach -- deleting a project's last environment leaves the project behind, and Coolify's
+        // dashboard then stops listing it, so it is invisible until a deploy fails on it.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+
+        string? createdBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(async req =>
+            {
+                createdBody = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "uuid": "env-created" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+
+        string? appBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .Respond(async req =>
+            {
+                appBody = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "uuid": "app-new" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-new")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-new", "name": "my-app" }""");
+
+        var provider = CreateProvider(handler);
+        var project = await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest("my-app", "acme/widget", null, GitBranch: "main"),
+            CancellationToken.None);
+
+        Assert.Equal("app-new", project.Id);
+
+        // Coolify rejects any field other than name on this endpoint with a 422.
+        Assert.NotNull(createdBody);
+        var createPayload = JsonDocument.Parse(createdBody!).RootElement;
+        Assert.Equal("production", createPayload.GetProperty("name").GetString());
+        Assert.Single(createPayload.EnumerateObject());
+
+        // The environment it just created must be the one the application is placed in, otherwise
+        // the app lands somewhere unrelated to the project the user chose.
+        Assert.NotNull(appBody);
+        Assert.Contains("\"environment_uuid\":\"env-created\"", appBody);
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_ReusesTheExistingEnvironment_WhenCreateRacesTo409()
+    {
+        // Coolify answers 409 when the name already exists. Something else creating it between the
+        // list and the create is the outcome we wanted, so it must not fail the deploy.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "proj-1", "name": "Main" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+
+        var listCount = 0;
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(_ =>
+            {
+                listCount++;
+                var body = listCount == 1
+                    ? "[]"
+                    : """[{ "uuid": "env-raced", "name": "production" }]""";
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
+                };
+            });
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/projects/proj-1/environments")
+            .Respond(HttpStatusCode.Conflict, "application/json", """{ "message": "Environment with this name already exists." }""");
+
+        string? appBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .Respond(async req =>
+            {
+                appBody = await req.Content!.ReadAsStringAsync();
+                return new HttpResponseMessage(HttpStatusCode.Created)
+                {
+                    Content = new StringContent(
+                        """{ "uuid": "app-new" }""",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                };
+            });
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-new")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-new", "name": "my-app" }""");
+
+        var provider = CreateProvider(handler);
+        var project = await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest("my-app", "acme/widget", null, GitBranch: "main"),
+            CancellationToken.None);
+
+        Assert.Equal("app-new", project.Id);
+        Assert.NotNull(appBody);
+        Assert.Contains("\"environment_uuid\":\"env-raced\"", appBody);
+    }
+
     [Fact]
     public async Task CreateProjectAsync_UsesPrivateGithubAppEndpoint()
     {
@@ -411,7 +584,10 @@ public class CoolifyProviderManagementTests
         var root = document.RootElement;
         Assert.Equal("nixpacks", root.GetProperty("build_pack").GetString());
         Assert.Equal("3000", root.GetProperty("ports_exposes").GetString());
-        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        // Never sent. The proxy runs with exposedbydefault=false, so writing an empty label
+        // set leaves the container with no traefik.enable and no router — reachable by
+        // nothing, and not recoverable by redeploying, because the empty set is reapplied.
+        Assert.False(root.TryGetProperty("custom_labels", out _));
         Assert.Equal("/client", root.GetProperty("base_directory").GetString());
         Assert.Equal("/dist/app/browser", root.GetProperty("publish_directory").GetString());
         Assert.Equal("npm run build", root.GetProperty("build_command").GetString());
@@ -446,7 +622,10 @@ public class CoolifyProviderManagementTests
         var root = document.RootElement;
         Assert.Equal("dockerfile", root.GetProperty("build_pack").GetString());
         Assert.Equal("8080", root.GetProperty("ports_exposes").GetString());
-        Assert.Equal("W10=", root.GetProperty("custom_labels").GetString());
+        // Never sent. The proxy runs with exposedbydefault=false, so writing an empty label
+        // set leaves the container with no traefik.enable and no router — reachable by
+        // nothing, and not recoverable by redeploying, because the empty set is reapplied.
+        Assert.False(root.TryGetProperty("custom_labels", out _));
         Assert.Equal("src/Api/Dockerfile", root.GetProperty("dockerfile_location").GetString());
     }
 

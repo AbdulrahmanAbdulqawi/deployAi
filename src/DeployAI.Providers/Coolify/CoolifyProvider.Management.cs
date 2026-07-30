@@ -1,5 +1,5 @@
+using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DeployAI.Core.Exceptions;
@@ -27,15 +27,22 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         var body = new Dictionary<string, object?>
         {
             ["build_pack"] = buildPack,
-            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework),
-            // Coolify caches the Traefik labels it generates at first deploy in custom_labels and
-            // never regenerates them on redeploy unless this field is cleared - without this, a
-            // build pack/port change here silently has no effect on the live proxy until someone
-            // notices and clears it by hand (see the manual fix this method replaces). Like
-            // custom_nginx_configuration, Coolify's validator requires this field to be base64
-            // encoded - and rejects an empty string as "not base64" (its regex likely requires at
-            // least one base64 character), so encode an empty JSON array instead of an empty string.
-            ["custom_labels"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("[]"))
+            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, exposedPort: null, request.Framework)
+
+            // custom_labels is deliberately not sent. It used to be set to a base64 empty array to
+            // force Coolify to regenerate the Traefik labels it caches at first deploy, because a
+            // build pack or port change otherwise had no effect on the live proxy. That cure was
+            // worse: the proxy runs with --providers.docker.exposedbydefault=false, so a container
+            // is routed only if it carries traefik.enable=true and its router labels, and writing an
+            // empty set leaves it with none. Two applications deployed through this method were
+            // reachable by nothing -- correct domain, correct port, container running, and Traefik
+            // answering its own 404 -- while an application deployed before this method existed
+            // still routed. Restarting and redeploying could not recover it, because the empty set
+            // was reapplied every time.
+            //
+            // Leaving the field alone keeps Coolify's own label management, which every working
+            // application on that instance already relies on. The stale-label problem this was
+            // meant to solve is recorded in CLAUDE.md rather than traded for an unroutable app.
         };
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory))
@@ -148,9 +155,14 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             // before the first deploy has had a chance to populate it.
         }
 
-        // Pushes to the deployment branch redeploy on their own. Without this the app only ever
-        // updates when someone comes back to DeployAI and presses publish.
-        body["is_auto_deploy_enabled"] = true;
+        // Follows the project's own setting rather than being forced on. Hardcoding it to true
+        // both overrode a user who had deliberately turned auto-deploy off, and made every publish
+        // build the same commit twice: DeployAI writes generated files (Dockerfile, compose) into
+        // the repository mid-publish, and Coolify's webhook then started a build for that commit
+        // alongside the deploy DeployAI was already running for it. One observed publish produced
+        // three concurrent builds of one website -- 6m19s, 11m10s and 11m17s -- for a Next.js app
+        // that compiles in 16 seconds, because the duplicates contended for the same machine.
+        body["is_auto_deploy_enabled"] = request.AutoDeployEnabled;
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory) && !isCompose)
         {
@@ -852,9 +864,18 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         var environments = await ListCoolifyEnvironmentsAsync(session, projectUuid, cancellationToken);
         if (environments.Count == 0)
         {
-            throw new DeployAIException(
-                "coolify_no_environment",
-                "No environments are configured for the selected Coolify project.");
+            // A Coolify project with no environments used to dead-end here, and the only way out
+            // was for someone to open Coolify and add one by hand -- the exact manual step this
+            // product exists to remove. It happens for real: deleting a project's last environment
+            // leaves the project itself behind, and Coolify's dashboard stops listing it, so the
+            // state is easy to reach and hard to see.
+            return await CreateEnvironmentAsync(
+                session,
+                projectUuid,
+                string.IsNullOrWhiteSpace(request.CoolifyEnvironmentName)
+                    ? "production"
+                    : request.CoolifyEnvironmentName.Trim(),
+                cancellationToken);
         }
 
         if (!string.IsNullOrWhiteSpace(request.CoolifyEnvironmentName))
@@ -948,6 +969,54 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
         await EnsureSuccessAsync(response, cancellationToken, "Could not list Coolify GitHub apps.");
         var githubApps = await response.Content.ReadFromJsonAsync<List<CoolifyNamedResource>>(cancellationToken) ?? [];
         return githubApps.Where(app => !string.IsNullOrWhiteSpace(app.Uuid)).ToList();
+    }
+
+    /// <summary>
+    /// Creates an environment in a Coolify project and returns it.
+    /// </summary>
+    /// <remarks>
+    /// Coolify's create endpoint accepts <c>name</c> and nothing else -- any extra field is
+    /// rejected with a 422 -- and answers with the uuid alone, so the name is carried over from
+    /// the request rather than read back. A 409 means something created the same name in between
+    /// the list and this call; that is the outcome we wanted, so re-read and use it instead of
+    /// failing the deploy.
+    /// </remarks>
+    private async Task<CoolifyEnvironmentOption> CreateEnvironmentAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string projectUuid,
+        string environmentName,
+        CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(
+            HttpMethod.Post,
+            session,
+            $"projects/{projectUuid}/environments");
+        request.Content = JsonContent.Create(new { name = environmentName });
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Conflict)
+        {
+            var existing = await ListCoolifyEnvironmentsAsync(session, projectUuid, cancellationToken);
+            var match = existing.FirstOrDefault(env =>
+                string.Equals(env.Name, environmentName, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+
+        await EnsureSuccessAsync(response, cancellationToken, "Could not create a Coolify environment.");
+
+        var created = await response.Content.ReadFromJsonAsync<CoolifyUuidResponse>(cancellationToken);
+        if (string.IsNullOrWhiteSpace(created?.Uuid))
+        {
+            throw new DeployAIException(
+                "coolify_api_error",
+                "Coolify did not return an environment id.");
+        }
+
+        return new CoolifyEnvironmentOption { Uuid = created.Uuid, Name = environmentName };
     }
 
     private async Task<IReadOnlyList<CoolifyEnvironmentOption>> ListCoolifyEnvironmentsAsync(

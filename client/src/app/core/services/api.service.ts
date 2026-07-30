@@ -41,7 +41,9 @@ import {
   StorageConnectionSummary,
   StorageBucket,
   EnvSchemaVar,
-  EnvVariable
+  EnvVariable,
+  UnreadableEnvTarget,
+  MissingConfigurationItem
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -732,25 +734,58 @@ export class ApiService {
     );
   }
 
-  /** Persists env vars (encrypted) and pushes them onto the project's Coolify app. */
-  setComposeEnvironment(projectId: string, variables: { key: string; value: string; isSecret: boolean }[]) {
+  /**
+   * Persists env vars (encrypted) and pushes them onto the project's Coolify app.
+   *
+   * `targetId` decides which app receives them. Omitting it makes the server pick, and its pick is
+   * the website — so a split deploy sends server-side configuration to the frontend container,
+   * where nothing reads it and nothing reports that it went astray.
+   */
+  setComposeEnvironment(
+    projectId: string,
+    variables: { key: string; value: string; isSecret: boolean }[],
+    targetId?: string
+  ) {
     return this.http.post<{ applied: string[] }>(
-      `/api/projects/${projectId}/environment/compose`,
+      `/api/projects/${projectId}/environment/compose${targetId ? `?targetId=${targetId}` : ''}`,
       { variables }
     );
   }
 
   /** The env vars DeployAI manages for this app — for viewing and editing after deploy. */
   getEnvironment(projectId: string) {
-    return this.http.get<{ variables: EnvVariable[] }>(
+    return this.http.get<{ variables: EnvVariable[]; unreadable: UnreadableEnvTarget[] }>(
       `/api/projects/${projectId}/environment`
     );
   }
 
+  /**
+   * Configuration a target's container said it was missing, read from its own startup output.
+   *
+   * `readable: false` means the logs could not be read at all — a stopped container is the usual
+   * cause, and it is exactly the state this is for — so it must not be shown as "nothing missing".
+   */
+  getMissingConfiguration(projectId: string, targetId: string) {
+    return this.http.get<{
+      missing: MissingConfigurationItem[];
+      readable: boolean;
+      reason?: string;
+      message?: string;
+    }>(`/api/projects/${projectId}/environment/missing`, { params: { targetId } });
+  }
+
   /** Removes a single env var from the live app and DeployAI's store. */
-  deleteEnvironmentVariable(projectId: string, key: string) {
+  /** Asks DeployAI to invent a value, so a secret is never typed by hand. */
+  generateEnvValue(projectId: string, key: string) {
+    return this.http.get<{ value: string }>(
+      `/api/projects/${projectId}/environment/generated-value?key=${encodeURIComponent(key)}`
+    );
+  }
+
+  /** `targetId` names the app to remove it from; without it the API removes from the website. */
+  deleteEnvironmentVariable(projectId: string, key: string, targetId?: string) {
     return this.http.delete<{ deleted: string }>(
-      `/api/projects/${projectId}/environment/${encodeURIComponent(key)}`
+      `/api/projects/${projectId}/environment/${encodeURIComponent(key)}${targetId ? `?targetId=${targetId}` : ''}`
     );
   }
 

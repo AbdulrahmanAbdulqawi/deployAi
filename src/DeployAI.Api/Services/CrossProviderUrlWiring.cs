@@ -133,8 +133,16 @@ internal static class CrossProviderUrlWiring
 
         return framework.ToLowerInvariant() switch
         {
+            // App__* are DeployAI's own convention: they do something only if the app happens to read
+            // those names. Cors__Origins and Cors__AllowedOrigins are what an ASP.NET app actually
+            // binds its policy from, and a configuration section binds to a string[] only through
+            // indexed keys -- hence the __0. Writing just the App__* pair left one API's policy on its
+            // hardcoded localhost fallback, so the deployed site's login was blocked by CORS while the
+            // API logged nothing and the browser reported only "cannot reach the server".
             "dotnet" or "aspnet" or "aspnetcore" or "docker" =>
             [
+                "Cors__Origins__0",
+                "Cors__AllowedOrigins__0",
                 "App__BaseUrl",
                 "App__FrontendUrl"
             ],
@@ -179,9 +187,17 @@ internal static class CrossProviderUrlWiring
                 .Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
-    /// <summary>Whether a key is one of ASP.NET's indexed-array config keys (AllowedOrigins__0, __1, ...) rather than a single comma-separated CORS value.</summary>
+    /// <summary>
+    /// Whether a key is one of ASP.NET's indexed-array config keys (AllowedOrigins__0,
+    /// Cors__Origins__0, ...) rather than a single comma-separated CORS value. An indexed key holds
+    /// exactly one origin: ASP.NET binds element 0 verbatim, so a comma-separated list written into
+    /// one becomes a single origin string that matches nothing.
+    /// </summary>
     internal static bool IsIndexedAllowedOriginsKey(string key) =>
-        key.StartsWith("AllowedOrigins__", StringComparison.OrdinalIgnoreCase);
+        IndexedAllowedOriginsPrefixes.Any(prefix => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] IndexedAllowedOriginsPrefixes =
+        ["AllowedOrigins__", "Cors__Origins__", "Cors__AllowedOrigins__"];
 
     /// <summary>Combines the primary website URL with any additional known origins (e.g. custom domains) into a normalized, deduplicated list.</summary>
     internal static IReadOnlyList<string> NormalizeWebsiteOrigins(

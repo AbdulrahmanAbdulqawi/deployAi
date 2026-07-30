@@ -24,6 +24,19 @@ public sealed record StorageDeleteResult(
     IReadOnlyList<StorageDeleteError> Errors);
 
 /// <summary>
+/// The result of writing, reading and deleting a probe object. <paramref name="FailedStep"/> names
+/// which operation broke, because "storage is not working" and "storage can write but not read" send
+/// you to completely different places.
+/// </summary>
+public sealed record StorageRoundTrip(
+    bool Succeeded,
+    string? FailedStep = null,
+    string? Detail = null)
+{
+    public static readonly StorageRoundTrip Ok = new(true);
+}
+
+/// <summary>
 /// Object storage (S3-compatible) management. This is a capability in its own right,
 /// deliberately separate from <see cref="IDeploymentProvider"/>: a bucket is not somewhere
 /// an application is deployed, so storage providers must never appear in deploy-target pickers.
@@ -43,12 +56,47 @@ public interface IObjectStorageProvider
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Writes, reads back and deletes a small probe object, proving the bucket is actually usable
+    /// with these credentials.
+    /// </summary>
+    /// <remarks>
+    /// Listing buckets proves almost nothing: it succeeds while writes fail on a signature version
+    /// the backend rejects, a checksum header it refuses, a payload it will not accept unsigned, or
+    /// credentials that can read but not write. Each of those has cost a day, and each was found
+    /// only when a person finally attempted an upload. A round trip is the smallest thing that
+    /// exercises the same path an upload takes.
+    /// </remarks>
+    Task<StorageRoundTrip> VerifyRoundTripAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Creates a bucket, or returns the existing one when the caller already owns a bucket by
     /// that name — provisioning runs on every deploy, so it has to be idempotent.
     /// </summary>
     Task<StorageBucket> CreateBucketAsync(
         ProviderCredentials credentials,
         string bucket,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Allows a browser at <paramref name="allowedOrigins"/> to upload to and read from the bucket.
+    /// </summary>
+    /// <remarks>
+    /// A presigned upload URL is handed to the browser, which PUTs to the bucket directly — the
+    /// server is not in that request's path, so the API's own CORS policy has no bearing on it. The
+    /// bucket has its own, and a new bucket allows nothing: the preflight comes back 403 and the
+    /// upload never starts. Every provisioned bucket therefore has to be told which site may use it.
+    /// <para>
+    /// Idempotent, like <see cref="CreateBucketAsync"/> — provisioning runs on every deploy, and a
+    /// site's origin changes when its domain does.
+    /// </para>
+    /// </remarks>
+    Task SetBucketCorsAsync(
+        ProviderCredentials credentials,
+        string bucket,
+        IReadOnlyList<string> allowedOrigins,
         CancellationToken cancellationToken);
 
     Task<StorageObjectPage> ListObjectsAsync(
