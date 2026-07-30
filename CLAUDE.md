@@ -161,14 +161,24 @@ Recorded so they get closed rather than re-done by hand.
   discovery half is exercised only when a repository is first classified. A test asserts the
   divergence so it stays deliberate.
 - **The required-configuration check warns; it does not stop a deploy.** `RequiredConfigurationCheck`
-  now compares what the deployed ref declares it needs against what the target actually has, and
-  names the difference in the deploy log before the app starts — the three incidents it was built
-  from (`Jwt`, `Storage`, `Tickets`) would each have been named rather than discovered by a
-  crash-loop. It is deliberately advisory: "required" means a key the app declares with no value of
+  compares what the deployed ref declares it needs against what the target actually has, and names
+  the difference in the deploy log before the app starts. It also names whole sections that only
+  `appsettings.Development.json` declares and the app has nothing from — added after finding that on
+  yemenConnect, `Jwt`, `Tickets` and `Bootstrap` appear *only* in that file, so the check built for
+  the `Jwt configuration missing` crash-loop was blind to `Jwt` on the very repository that
+  crash-looped. It is deliberately advisory: "required" means a key the app declares with no value of
   its own, which is a strong signal and not proof, since a value can arrive from somewhere DeployAI
   cannot see. Two things remain — it reads only the server target (a website with required config is
   unchecked), and nobody has to act on the warning, so a deploy can still proceed into a known
   crash-loop.
+
+- **Nothing reports a setting the app has that no code reads.** The mirror of the check above.
+  yemenConnect carries `Jwt__Key` and `Jwt__Secret` on its API; `JwtOptions` binds only `Issuer`,
+  `Audience`, `SigningKey` and `AccessTokenMinutes`, so both are dead weight that reads as
+  configured. The obvious rule — "flag any key the repository never declares" — was tried and
+  discarded: on this app it produces zero true positives and flags DeployAI's own
+  `ConnectionStrings__Default` conventions, and noise is what teaches people to skip the line that
+  matters. A sound version needs to read the options classes, not the settings files.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
@@ -187,13 +197,14 @@ Recorded so they get closed rather than re-done by hand.
   signed write-read-delete and a real browser preflight on every deploy, and reports whether it
   passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
 - **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
-  `Project.EnvironmentVariablesEncrypted` is one blob per project, so a listed variable carries no
-  record of which container it was pushed to. Adding one now asks (the add row has a target picker
-  and defaults to the server), but editing and deleting still fall through to the API's default,
-  which is the *website* — so removing a server-side variable can delete DeployAI's record of it
-  while leaving the value live on the server, and saving a new value can write it to the frontend.
-  The fix is to store the target alongside each variable and show it in the list; until then the
-  list is a set of names whose location is unknowable from the UI.
+  The *routing* is fixed: the list reads live per target and shows which app each variable is on,
+  and adding, editing and deleting all carry that target through to the provider. What is still
+  project-wide is DeployAI's own copy — `Project.EnvironmentVariablesEncrypted` is one blob keyed by
+  name alone. Two apps legitimately holding the same key (`API_URL` is on both halves of every split
+  deploy) share one stored record, so saving on one overwrites the record of the other's value, and
+  deleting from one erases the record for both. The live apps stay correct; the export, which is the
+  only recovery path for generated secrets, does not. The fix is to key the store by target as well
+  as name.
 - **CORS wiring is a guess, and nothing checks whether the guess was right.**
   `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
   own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
