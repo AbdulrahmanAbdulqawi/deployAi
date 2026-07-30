@@ -113,16 +113,48 @@ public class ObjectStorageVerifierTests
         return response;
     }
 
+    [Fact]
+    public async Task VerifyAsync_SaysHowFarTheCredentialsReach_WhenTheAccountHasOtherBuckets()
+    {
+        // Hetzner issues S3 credentials per project, valid for every bucket in it, and keys can only
+        // be made in its console -- so DeployAI cannot narrow this itself. It can refuse to let the
+        // blast radius stay invisible.
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Options, "*").Respond(_ => Preflight(HttpStatusCode.OK, Origin));
+
+        var verification = await Verify(handler, StorageRoundTrip.Ok, buckets: 4);
+
+        Assert.True(verification.Ok, "wider reach is a disclosure, not a failure");
+        Assert.Contains(verification.Findings, f =>
+            f.Contains("all 4 buckets") && f.Contains("own key pair"));
+    }
+
+    [Fact]
+    public async Task VerifyAsync_StaysSilentAboutReach_WhenTheAppOwnsTheOnlyBucket()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Options, "*").Respond(_ => Preflight(HttpStatusCode.OK, Origin));
+
+        var verification = await Verify(handler, StorageRoundTrip.Ok, buckets: 1);
+
+        Assert.DoesNotContain(verification.Findings, f => f.Contains("buckets in the storage account"));
+    }
+
     private static async Task<ObjectStorageVerification> Verify(
         MockHttpMessageHandler handler,
         StorageRoundTrip roundTrip,
         IReadOnlyList<string>? origins = null,
-        string endpoint = Endpoint)
+        string endpoint = Endpoint,
+        int buckets = 1)
     {
         var provider = new Mock<IObjectStorageProvider>();
         provider.Setup(p => p.VerifyRoundTripAsync(
                 It.IsAny<ProviderCredentials>(), Bucket, It.IsAny<CancellationToken>()))
             .ReturnsAsync(roundTrip);
+        provider.Setup(p => p.ListBucketsAsync(It.IsAny<ProviderCredentials>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Range(0, buckets)
+                .Select(i => new StorageBucket($"bucket-{i}", DateTimeOffset.UtcNow))
+                .ToList());
 
         var verifier = new ObjectStorageVerifier(
             new StubHttpClientFactory(handler),

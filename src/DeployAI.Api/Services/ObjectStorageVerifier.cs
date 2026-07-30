@@ -77,6 +77,26 @@ public sealed class ObjectStorageVerifier : IObjectStorageVerifier
                 "Uploads will fail until this is fixed.");
         }
 
+        // What the app was just handed, said out loud. Hetzner issues S3 credentials per project and
+        // they reach every bucket in it; scoping one to a single bucket needs a second key pair and a
+        // bucket policy, and keys can only be created in Hetzner's console -- there is no API, so
+        // DeployAI cannot mint one. It can at least refuse to let the blast radius stay invisible.
+        try
+        {
+            var buckets = await provider.ListBucketsAsync(credentials, cancellationToken);
+            if (buckets.Count > 1)
+            {
+                findings.Add(
+                    $"Note: these credentials reach all {buckets.Count} buckets in the storage account, "
+                    + $"not just '{bucket}'. To narrow that, give this app its own key pair in your "
+                    + "provider's console and a bucket policy allowing only it.");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Could not list buckets to report credential reach.");
+        }
+
         foreach (var origin in websiteOrigins)
         {
             var cors = await CheckPreflightAsync(endpoint, bucket, origin, cancellationToken);
