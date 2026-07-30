@@ -75,6 +75,12 @@ by the standard above, that makes it a design smell. CI (`.github/workflows/buil
 suite on every PR to `main`, but nothing yet requires a change to arrive with tests. Closing
 that is the real fix; until then, the rule is a promise we keep by hand.
 
+**A red build that everyone ignores is worse than no build.** CI was failing on every run for
+weeks — one stale Angular spec asserting a rendering the component had deliberately replaced —
+so "the build is red" carried no information and nobody looked. Six merges went into an
+already-failing pipeline before anyone checked. When CI breaks, fix it or delete the check;
+leaving it red trains the team to stop reading the one signal that runs on every change.
+
 **A fix has to reach the resources that already exist.** An operation that runs only when a
 resource is created never runs again — so a fix lands on things made after it, and the person who
 reported the bug still has it. Prefer re-running the operation on every deploy, idempotently, over
