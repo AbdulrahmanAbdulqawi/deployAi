@@ -97,6 +97,16 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
         }
 
         var token = await _tokens.GetTokenAsync(websiteTarget.Credential, cancellationToken);
+
+        // Belt as well as braces. Everything below aims to build from the generated Dockerfile,
+        // which pins its own Node — but if any of it fails, or Coolify falls back for a reason of
+        // its own, the build lands on Nixpacks' default of Node 18. That is older than Angular,
+        // Next and Vite accept, so an app whose package.json declares no engines fails on a version
+        // nobody chose. Coolify prints the fix in the build log and waits for a human to go and set
+        // this variable; a platform that reads that log can set it itself.
+        await EnsureNixpacksNodeVersionAsync(
+            new ProviderCredentials(token), websiteTarget, provisioned.NodeMajor, cancellationToken);
+
         var switched = await _coolifyProvider.ConfigureDockerfileBuildAsync(
             new ProviderCredentials(token),
             websiteTarget.ProviderProjectId,
@@ -116,6 +126,61 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
         await _db.Database.ExecuteSqlInterpolatedAsync(
             $"""UPDATE deploy_targets SET "ConfigJson" = {configJson} WHERE "Id" = {websiteTarget.Id}""",
             cancellationToken);
+
+        // And onto the instance the rest of this deploy reads, which the row above is not.
+        //
+        // Without this the switch above was undone seconds later, every time. The caller re-parses
+        // this entity to build the configuration it pushes to Coolify before triggering the build;
+        // with DockerfilePath still missing from it, that push resolved the build pack to Nixpacks
+        // and overwrote the Dockerfile that had just been generated, committed and selected. The
+        // deploy then built an Angular 20 app on Nixpacks' default Node 18 and failed on the
+        // version check — three correct steps erased by one that was written only to the database.
+        websiteTarget.ConfigJson = configJson;
+        var tracked = project.DeployTargets.FirstOrDefault(t => t.Id == websiteTarget.Id);
+        if (tracked is not null)
+        {
+            tracked.ConfigJson = configJson;
+        }
+    }
+
+    /// <summary>
+    /// Tells Coolify which Node major to use if it ever builds this app with Nixpacks.
+    /// </summary>
+    /// <remarks>
+    /// Advisory in the strongest sense: it must not stop a deploy. The variable only matters on a
+    /// path this method is trying to avoid, so failing the deploy because it could not be written
+    /// would trade a possible problem for a certain one.
+    /// </remarks>
+    private async Task EnsureNixpacksNodeVersionAsync(
+        ProviderCredentials credentials,
+        DeployTarget websiteTarget,
+        int? nodeMajor,
+        CancellationToken cancellationToken)
+    {
+        if (nodeMajor is not { } major)
+        {
+            return;
+        }
+
+        try
+        {
+            await _coolifyProvider.UpsertEnvVarAsync(
+                credentials,
+                websiteTarget.ProviderProjectId!,
+                new UpsertProviderEnvVarRequest(
+                    "NIXPACKS_NODE_VERSION",
+                    major.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ProviderEnvVarTypes.Plain,
+                    []),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not set NIXPACKS_NODE_VERSION on website target {TargetId}; continuing.",
+                websiteTarget.Id);
+        }
     }
 
     /// <summary>
