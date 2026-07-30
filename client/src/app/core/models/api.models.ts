@@ -497,4 +497,11 @@ export interface EnvSchemaVar {
   category: 'generic' | 'domain' | 'storage' | 'database' | 'adminemail';
   sources: string[];
   suggestedValue?: string | null;
+  /**
+   * Where a prefilled value came from, when it came from a connection the user linked rather than
+   * a random generator ("your Coolify connection"). Absent for generated secrets.
+   */
+  suggestedFrom?: string | null;
+  /** What accepting the suggestion grants the app, when it grants more than the app needs. */
+  suggestionExposure?: string | null;
 }

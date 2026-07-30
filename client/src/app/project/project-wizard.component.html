@@ -161,12 +161,24 @@
                       [(ngModel)]="envValues[variable.name]"
                       [name]="variable.name"
                       autocomplete="off" />
-                    @if (variable.isSecret) {
+                    <!--
+                      Generate is only honest for a value this app signs with. Offering it for a
+                      credential that authenticates somewhere else produces a container that starts,
+                      passes /health and fails every real call — so a setting DeployAI recognises as
+                      belonging to a linked connection does not get the button.
+                    -->
+                    @if (variable.isSecret && !variable.suggestedFrom) {
                       <button type="button" class="wizard__env-generate" (click)="regenerateSecret(variable.name)">
                         Generate
                       </button>
                     }
                   </span>
+                  @if (variable.suggestedFrom) {
+                    <small class="wizard__env-source">Filled from {{ variable.suggestedFrom }}.</small>
+                  }
+                  @if (variable.suggestionExposure) {
+                    <small class="wizard__env-exposure">{{ variable.suggestionExposure }}</small>
+                  }
                 </label>
               }
             }
