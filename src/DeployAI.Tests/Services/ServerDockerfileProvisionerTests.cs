@@ -66,7 +66,7 @@ public class ServerDockerfileProvisionerTests
         StubDirectory(github, "services/api/src", File("services/api/src/index.ts"));
 
         var logger = new CountingLogger<ServerDockerfileProvisioner>();
-        var provisioner = new ServerDockerfileProvisioner(github.Object, logger);
+        var provisioner = new ServerDockerfileProvisioner(github.Object, new RepositoryLayoutResolver(github.Object), logger);
 
         var result = await provisioner.EnsureDockerfileAsync(
             "token", Owner, Repo, Branch, "services/api", "services/api", CancellationToken.None);
@@ -104,8 +104,10 @@ public class ServerDockerfileProvisionerTests
         Assert.Contains("My.Api.csproj", written);
     }
 
+    /// <summary>The real resolver over the same mocked GitHub service: these tests exist to prove the
+    /// monorepo descent picks the web project, so stubbing it would remove what they check.</summary>
     private static ServerDockerfileProvisioner Create(Mock<IGitHubService> github) =>
-        new(github.Object, NullLogger<ServerDockerfileProvisioner>.Instance);
+        new(github.Object, new RepositoryLayoutResolver(github.Object), NullLogger<ServerDockerfileProvisioner>.Instance);
 
     private static GitHubContentItem Dir(string path) =>
         new(System.IO.Path.GetFileName(path), path, "dir");

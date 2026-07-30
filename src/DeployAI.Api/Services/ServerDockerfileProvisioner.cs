@@ -47,13 +47,16 @@ public sealed record ServerDockerfileResult(string BaseDirectory, string Dockerf
 public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
 {
     private readonly IGitHubService _gitHubService;
+    private readonly IRepositoryLayoutResolver _layoutResolver;
     private readonly ILogger<ServerDockerfileProvisioner> _logger;
 
     public ServerDockerfileProvisioner(
         IGitHubService gitHubService,
+        IRepositoryLayoutResolver layoutResolver,
         ILogger<ServerDockerfileProvisioner> logger)
     {
         _gitHubService = gitHubService;
+        _layoutResolver = layoutResolver;
         _logger = logger;
     }
 
@@ -69,24 +72,19 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         var buildRoot = Normalize(rootDirectory);
         var serviceDir = Normalize(serviceDirectory ?? rootDirectory);
 
-        // Find the entry csproj in the service directory.
-        var serviceContents = await _gitHubService.ListAllContentsAsync(
-            githubToken, owner, repo, serviceDir, branch, cancellationToken);
-        var csproj = serviceContents.FirstOrDefault(item =>
-            string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
-            item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
+        // The shared resolver finds the entry project, descending a level when the service directory
+        // holds projects rather than being one -- the modular monolith this generator exists for. It
+        // judges a csproj by its SDK attribute, so the entry point is the web project and not
+        // whichever library happened to sort first.
+        var layout = await _layoutResolver.ResolveAsync(
+            githubToken, owner, repo, branch, serviceDir, cancellationToken);
 
-        // ListAllContentsAsync reads one level despite its name, so a directory that holds projects
-        // rather than being one -- the modular monolith this generator exists for -- looks empty of
-        // csproj files. Descend one level and take the web project: the entry point is the one built
-        // with Microsoft.NET.Sdk.Web, and its siblings are libraries it references.
-        if (csproj is null)
-        {
-            csproj = await FindWebProjectOneLevelDownAsync(
-                githubToken, owner, repo, branch, serviceContents, cancellationToken);
-        }
+        var csprojPath = layout.EntryProjectPath is { } path &&
+                         path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+            ? path
+            : null;
 
-        if (csproj is null)
+        if (csprojPath is null)
         {
             // Never silent: returning null here means the app deploys on whatever build pack it
             // already had, and the reason has to be visible or it looks like nothing was attempted.
@@ -104,15 +102,13 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
         // directory we were told to look in -- and the publish path is built relative to the build
         // root, so a stale value here publishes "YemenHub.Api.csproj" instead of
         // "YemenHub.Api/YemenHub.Api.csproj" and the build fails to find the project.
-        var csprojDirectory = csproj.Path.Contains('/', StringComparison.Ordinal)
-            ? csproj.Path[..csproj.Path.LastIndexOf('/')]
-            : string.Empty;
-        serviceDir = Normalize(csprojDirectory);
+        serviceDir = layout.ProjectDirectory;
 
         var csprojContent = await _gitHubService.GetFileContentAsync(
-            githubToken, owner, repo, csproj.Path, branch, cancellationToken);
+            githubToken, owner, repo, csprojPath, branch, cancellationToken);
 
-        var dockerfileContent = DotnetServerDockerfile.Build(buildRoot, serviceDir, csprojContent, csproj.Name);
+        var csprojName = csprojPath[(csprojPath.LastIndexOf('/') + 1)..];
+        var dockerfileContent = DotnetServerDockerfile.Build(buildRoot, serviceDir, csprojContent, csprojName);
         var dockerfilePath = string.IsNullOrEmpty(buildRoot) ? "Dockerfile" : $"{buildRoot}/Dockerfile";
 
         // Idempotent: if a Dockerfile is already there, update it (needs the blob sha).
@@ -230,40 +226,6 @@ public sealed class ServerDockerfileProvisioner : IServerDockerfileProvisioner
     /// A modular monolith puts its entry project beside the libraries it references, and only the
     /// entry uses the Web SDK -- picking the first csproj found would build a class library.
     /// </summary>
-    private async Task<GitHubContentItem?> FindWebProjectOneLevelDownAsync(
-        string githubToken,
-        string owner,
-        string repo,
-        string branch,
-        IReadOnlyList<GitHubContentItem> serviceContents,
-        CancellationToken cancellationToken)
-    {
-        foreach (var directory in serviceContents.Where(item =>
-                     string.Equals(item.Type, "dir", StringComparison.OrdinalIgnoreCase)))
-        {
-            var inner = await _gitHubService.ListAllContentsAsync(
-                githubToken, owner, repo, directory.Path, branch, cancellationToken);
-
-            var candidate = inner.FirstOrDefault(item =>
-                string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase) &&
-                item.Name.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
-            if (candidate is null)
-            {
-                continue;
-            }
-
-            var content = await _gitHubService.GetFileContentAsync(
-                githubToken, owner, repo, candidate.Path, branch, cancellationToken);
-            if (content is not null &&
-                content.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase))
-            {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
     private static string Normalize(string? path) =>
         path?.Trim().Replace('\\', '/').Trim('/') ?? string.Empty;
 }
