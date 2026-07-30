@@ -304,6 +304,7 @@ public sealed class DeploymentJobRunner
     private readonly ISsrWebsiteBuildProvisioner _ssrWebsiteBuildProvisioner;
     private readonly IObjectStorageAutoProvisioner _objectStorageAutoProvisioner;
     private readonly IRequiredConfigurationCheck _requiredConfiguration;
+    private readonly IRuntimeExceptionCheck _runtimeExceptions;
     private readonly IProviderManagementFactory _providerManagementFactory;
     private readonly IServerDockerfileProvisioner _serverDockerfileProvisioner;
     private readonly IProviderApplicationConfigSyncFactory _applicationConfigSyncFactory;
@@ -324,6 +325,7 @@ public sealed class DeploymentJobRunner
         ISsrWebsiteBuildProvisioner ssrWebsiteBuildProvisioner,
         IObjectStorageAutoProvisioner objectStorageAutoProvisioner,
         IRequiredConfigurationCheck requiredConfiguration,
+        IRuntimeExceptionCheck runtimeExceptions,
         IProviderManagementFactory providerManagementFactory,
         IServerDockerfileProvisioner serverDockerfileProvisioner,
         IProviderApplicationConfigSyncFactory applicationConfigSyncFactory,
@@ -343,6 +345,7 @@ public sealed class DeploymentJobRunner
         _ssrWebsiteBuildProvisioner = ssrWebsiteBuildProvisioner;
         _objectStorageAutoProvisioner = objectStorageAutoProvisioner;
         _requiredConfiguration = requiredConfiguration;
+        _runtimeExceptions = runtimeExceptions;
         _providerManagementFactory = providerManagementFactory;
         _serverDockerfileProvisioner = serverDockerfileProvisioner;
         _applicationConfigSyncFactory = applicationConfigSyncFactory;
@@ -578,6 +581,19 @@ public sealed class DeploymentJobRunner
                     target.Id);
             }
 
+            // What the app that is about to be replaced was actually failing at. This runs before
+            // the build on purpose: the outgoing container has served real traffic, so its log holds
+            // the failures only real usage produces. The container this deploy creates will not have
+            // that history -- a route that 500s for every visitor logs nothing until a visitor
+            // arrives, which is why an after-only check would have missed the endpoint that
+            // motivated this and caught only crashes at startup.
+            await ReportRuntimeExceptionsAsync(
+                target,
+                deployTarget,
+                deployment,
+                before: true,
+                cancellationToken);
+
             if (string.Equals(target.ProviderName, "railway", StringComparison.OrdinalIgnoreCase))
             {
                 var databaseNote = await _railwayDatabaseProvisioning.EnsureFromRepoAsync(
@@ -799,6 +815,19 @@ public sealed class DeploymentJobRunner
                         $"Post-deploy check could not complete: {wiringEx.Message}",
                         cancellationToken);
                 }
+            }
+
+            // And whether the container this deploy just started came up cleanly. Catches the
+            // failures that need no traffic -- a missing setting throwing before the host is built,
+            // which is the shape of every crash-loop this platform has produced.
+            if (target.Status == DeploymentStatuses.Success)
+            {
+                await ReportRuntimeExceptionsAsync(
+                    target,
+                    deployTarget,
+                    deployment,
+                    before: false,
+                    cancellationToken);
             }
         }
         catch (Exception ex)
@@ -1042,6 +1071,77 @@ public sealed class DeploymentJobRunner
             .SendAsync("DeploymentCompleted", deploymentId, deployment.Status, cancellationToken);
 
         await _deploymentNotifications.NotifyDeploymentCompletedAsync(deploymentId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Reports what the application's own output says, on either side of a deploy.
+    /// </summary>
+    /// <remarks>
+    /// The generic answer to a deploy that passes every check DeployAI makes while the app is broken
+    /// for everyone using it. See <see cref="RuntimeExceptionCheck"/> for the incident.
+    /// <para>
+    /// Silent when the outgoing container was clean, and when there was no outgoing container at
+    /// all — a first deploy has nothing to look at, and saying so every time would be noise. Never
+    /// silent after the deploy: "started clean" and "could not be read" are different answers and
+    /// both get a line.
+    /// </para>
+    /// </remarks>
+    private async Task ReportRuntimeExceptionsAsync(
+        DeploymentTarget target,
+        DeployTarget deployTarget,
+        Deployment deployment,
+        bool before,
+        CancellationToken cancellationToken)
+    {
+        RuntimeExceptionScan scan;
+        try
+        {
+            scan = await _runtimeExceptions.ScanAsync(deployTarget, 400, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Advisory, like every other post-deploy check: reading a log must never fail a deploy.
+            _logger.LogWarning(ex, "Runtime log check failed for target {TargetId}; continuing.", target.Id);
+            return;
+        }
+
+        string? line;
+        if (scan.Findings.Count > 0)
+        {
+            var total = scan.Findings.Sum(f => f.Count);
+            var noun = total == 1 ? "error" : "errors";
+            var detail = string.Join(" ", scan.Findings.Take(3).Select(f =>
+                f.Count == 1 ? $"[{f.Summary}]" : $"[{f.Summary} ×{f.Count}]"));
+
+            line = before
+                ? $"Before this deploy, the running app had logged {total} {noun} of its own: {detail} "
+                  + "Nothing else reports these — the build was green and health checks passed while they happened. "
+                  + "If the cause is still in the code being deployed, they will come back."
+                : $"This app logged {total} {noun} while starting: {detail}";
+        }
+        else if (scan.Inconclusive)
+        {
+            // Before a deploy this is usually "no container yet", which is not worth a line.
+            line = before
+                ? null
+                : $"Could not read this app's own output ({scan.Reason}), so whether it started cleanly is unknown.";
+        }
+        else
+        {
+            line = before ? null : "This app logged no errors of its own while starting.";
+        }
+
+        if (line is null)
+        {
+            return;
+        }
+
+        await PersistAndBroadcastLogAsync(
+            target,
+            deployment.Id,
+            await NextSequenceAsync(target.Id, cancellationToken),
+            line,
+            cancellationToken);
     }
 
     /// <summary>
