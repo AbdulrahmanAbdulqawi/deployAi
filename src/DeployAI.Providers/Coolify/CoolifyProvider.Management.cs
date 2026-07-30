@@ -27,8 +27,7 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
 
         var body = new Dictionary<string, object?>
         {
-            ["build_pack"] = buildPack,
-            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, request.ExposedPort, request.Framework)
+            ["build_pack"] = buildPack
 
             // custom_labels is deliberately not sent. It used to be set to a base64 empty array to
             // force Coolify to regenerate the Traefik labels it caches at first deploy, because a
@@ -45,6 +44,18 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             // application on that instance already relies on. The stale-label problem this was
             // meant to solve is recorded in CLAUDE.md rather than traded for an unroutable app.
         };
+
+        // Omitted rather than sent as null. A compose deployment has no single port to expose —
+        // ResolveExposedPort says so by answering null — but the key was still written into the
+        // body, and Coolify validates the field whenever it is present: "ports_exposes: The
+        // ports_exposes should be a comma separated list of numbers." That rejected the whole
+        // config sync, so the deploy failed before it started. Absent and null are different
+        // requests, and only one of them means "leave this alone".
+        var exposedPort = CoolifyApiSupport.ResolveExposedPort(buildPack, request.ExposedPort, request.Framework);
+        if (!string.IsNullOrWhiteSpace(exposedPort))
+        {
+            body["ports_exposes"] = exposedPort;
+        }
 
         if (!string.IsNullOrWhiteSpace(request.RootDirectory))
         {

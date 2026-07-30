@@ -36,6 +36,63 @@ public class CoolifyProviderComposeTests
         Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
     }
 
+    /// <summary>
+    /// The same rule on the config sync, which runs before every deploy. It resolved the port to
+    /// null for a compose app — correctly — and then wrote the key into the body anyway. Coolify
+    /// validates the field whenever it is present, so the whole sync was rejected with
+    /// "ports_exposes: The ports_exposes should be a comma separated list of numbers." and the
+    /// deploy failed before it started. Absent and null are different requests.
+    /// </summary>
+    [Fact]
+    public async Task UpdateApplicationConfigAsync_ForCompose_OmitsTheExposedPortRatherThanSendingNull()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            "{}");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-compose",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "angular",
+                RootDirectory: "client",
+                OutputDirectory: "dist/client/browser",
+                BuildCommand: "npm run build",
+                ComposeFileLocation: "docker-compose.coolify.yml"),
+            CancellationToken.None);
+
+        var body = patchBody.Value;
+        Assert.False(body.TryGetProperty("ports_exposes", out _));
+        // And the reason it resolved to null in the first place still has to hold.
+        Assert.Equal("dockercompose", body.GetProperty("build_pack").GetString());
+    }
+
+    [Fact]
+    public async Task UpdateApplicationConfigAsync_ForASingleApp_StillSendsThePort()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-single"),
+            HttpStatusCode.OK,
+            "{}");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-single",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "angular",
+                RootDirectory: "client",
+                DockerfilePath: "/Dockerfile",
+                ExposedPort: "3000"),
+            CancellationToken.None);
+
+        Assert.Equal("3000", patchBody.Value.GetProperty("ports_exposes").GetString());
+    }
+
     [Fact]
     public async Task CreateProjectAsync_ForCompose_OmitsExposedPortAndSingleAppBuildFields()
     {
