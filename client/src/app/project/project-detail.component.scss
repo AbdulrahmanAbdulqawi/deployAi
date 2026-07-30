@@ -734,6 +734,12 @@
   text-transform: capitalize;
 }
 
+.env-section__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
 .managed-env__group {
   margin: var(--space-4) 0 var(--space-2);
   font-size: var(--text-xs);

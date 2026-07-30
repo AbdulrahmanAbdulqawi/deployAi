@@ -831,6 +831,28 @@ export class ProjectDetailComponent implements OnInit {
     return (apps.find(s => s.role === 'server') ?? apps[0])?.id ?? '';
   }
 
+  /**
+   * Downloads the project's settings as a .env file.
+   *
+   * DeployAI writes the secrets it generates to the provider write-only, so Coolify will not return
+   * them, and keeps its own copy encrypted in its database. Losing that database loses the values —
+   * and every token and ticket signature they signed — with no way to reconstruct them. This is the
+   * only recovery path, so it is one click from the list it backs up.
+   */
+  downloadEnvironment(): void {
+    this.api.exportEnvironment(this.projectId).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${this.project()?.name ?? 'settings'}.env`;
+        link.click();
+        URL.revokeObjectURL(url);
+      },
+      error: (err) => this.toast.error(err?.error?.error?.message ?? 'Could not export the settings.')
+    });
+  }
+
   /** Fills the value box with something DeployAI invented, and marks it secret. */
   generateManagedValue(): void {
     const key = this.newManagedKey.trim();

@@ -775,6 +775,14 @@ export class ApiService {
   }
 
   /** Removes a single env var from the live app and DeployAI's store. */
+  /**
+   * Downloads the project's settings as a .env file — the only recovery path for secrets DeployAI
+   * generated, since the provider stores them write-only and will not return them.
+   */
+  exportEnvironment(projectId: string) {
+    return this.http.get(`/api/projects/${projectId}/environment/export`, { responseType: 'blob' });
+  }
+
   /** Asks DeployAI to invent a value, so a secret is never typed by hand. */
   generateEnvValue(projectId: string, key: string) {
     return this.http.get<{ value: string }>(
