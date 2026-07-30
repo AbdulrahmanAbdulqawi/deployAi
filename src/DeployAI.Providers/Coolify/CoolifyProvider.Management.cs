@@ -57,7 +57,17 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             body["ports_exposes"] = exposedPort;
         }
 
-        if (!string.IsNullOrWhiteSpace(request.RootDirectory))
+        // A compose app's base directory is the repository root, whatever the website half's root
+        // directory says. Coolify resolves docker_compose_location relative to base_directory, and
+        // DeployAI writes docker-compose.coolify.yml at the root — so sending the website's "client"
+        // here made Coolify look for /client/docker-compose.coolify.yml and fail with "Docker
+        // Compose file not found". Sent explicitly rather than omitted, because omitting leaves
+        // whatever the application already had, which is exactly the wrong value.
+        if (!string.IsNullOrWhiteSpace(request.ComposeFileLocation))
+        {
+            body["base_directory"] = "/";
+        }
+        else if (!string.IsNullOrWhiteSpace(request.RootDirectory))
         {
             body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
         }

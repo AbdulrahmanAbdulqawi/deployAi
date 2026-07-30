@@ -68,6 +68,10 @@ public class CoolifyProviderComposeTests
         Assert.False(body.TryGetProperty("ports_exposes", out _));
         // And the reason it resolved to null in the first place still has to hold.
         Assert.Equal("dockercompose", body.GetProperty("build_pack").GetString());
+        // Coolify resolves docker_compose_location relative to base_directory, and the compose file
+        // is written at the repository root. Sending the website half's "client" made it look for
+        // /client/docker-compose.coolify.yml and fail with "Docker Compose file not found".
+        Assert.Equal("/", body.GetProperty("base_directory").GetString());
     }
 
     [Fact]
