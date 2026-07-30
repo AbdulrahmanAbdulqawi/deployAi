@@ -405,13 +405,22 @@
           <h2 class="section__label u-label-caps">Environment variables</h2>
           <p class="detail__muted">Every setting your apps are running with, read live from the provider. Redeploy to apply changes.</p>
         </div>
-        <button
-          type="button"
-          class="btn btn--ghost"
-          (click)="checkMissingConfig()"
-          [disabled]="checkingMissingConfig()">
-          {{ checkingMissingConfig() ? 'Checking…' : 'Check for missing settings' }}
-        </button>
+        <div class="env-section__actions">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            (click)="downloadEnvironment()"
+            title="Secrets DeployAI generated are stored write-only on the provider. If DeployAI's database is lost, this file is the only copy.">
+            Download settings
+          </button>
+          <button
+            type="button"
+            class="btn btn--ghost"
+            (click)="checkMissingConfig()"
+            [disabled]="checkingMissingConfig()">
+            {{ checkingMissingConfig() ? 'Checking…' : 'Check for missing settings' }}
+          </button>
+        </div>
       </div>
 
       @if (missingConfigUnreadable(); as reason) {

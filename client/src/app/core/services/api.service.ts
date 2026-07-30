@@ -728,7 +728,18 @@ export class ApiService {
     if (serverPath) {
       params['serverPath'] = serverPath;
     }
-    return this.http.get<{ vars: EnvSchemaVar[] }>(
+    // The coverage fields are as important as the variables. Typing this as `{ vars }` alone
+    // discarded them at the boundary, so an unreadable repository and a genuinely config-free one
+    // looked identical to the wizard — which is how an app deployed with nothing set and
+    // crash-looped on missing Jwt settings.
+    return this.http.get<{
+      vars: EnvSchemaVar[];
+      scanned: string[];
+      notFound: string[];
+      inconclusive: boolean;
+      projectDirectory: string;
+      searchedIn: string[];
+    }>(
       `/api/github/repos/${owner}/${repo}/env-schema`,
       { params }
     );
@@ -775,6 +786,14 @@ export class ApiService {
   }
 
   /** Removes a single env var from the live app and DeployAI's store. */
+  /**
+   * Downloads the project's settings as a .env file — the only recovery path for secrets DeployAI
+   * generated, since the provider stores them write-only and will not return them.
+   */
+  exportEnvironment(projectId: string) {
+    return this.http.get(`/api/projects/${projectId}/environment/export`, { responseType: 'blob' });
+  }
+
   /** Asks DeployAI to invent a value, so a secret is never typed by hand. */
   generateEnvValue(projectId: string, key: string) {
     return this.http.get<{ value: string }>(

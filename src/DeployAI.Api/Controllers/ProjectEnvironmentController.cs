@@ -204,6 +204,118 @@ public sealed class ProjectEnvironmentController : ControllerBase
     {
         var userId = RequireUserId();
         var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
+        var (variables, unreadable) = await ReadEnvironmentAsync(project, cancellationToken);
+
+        return Ok(new
+        {
+            variables = variables
+                .OrderBy(v => v.TargetRole ?? "￿", StringComparer.OrdinalIgnoreCase)
+                .ThenBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            unreadable
+        });
+    }
+
+    /// <summary>
+    /// Downloads the project's settings as a .env file, so the values DeployAI generated are not
+    /// held only by DeployAI.
+    /// </summary>
+    /// <remarks>
+    /// A generated signing key is written to the provider as a secret, which Coolify will not read
+    /// back, and stored encrypted in DeployAI's own database. If that database is lost — which has
+    /// happened — the value is unrecoverable, every token and ticket signature it signed breaks, and
+    /// there is no way to reconstruct it. Generating a secret on someone's behalf implies keeping it
+    /// recoverable, and until this endpoint existed nothing did.
+    /// <para>
+    /// No new exposure: the environment screen already returns these values to the authenticated
+    /// owner one at a time behind a reveal toggle. This is the same data in a form that survives.
+    /// </para>
+    /// </remarks>
+    [HttpGet("export")]
+    public async Task<IActionResult> ExportEnvironment(Guid projectId, CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var project = await LoadOwnedProjectWithTargetsAsync(projectId, userId, cancellationToken);
+        var (variables, unreadable) = await ReadEnvironmentAsync(project, cancellationToken);
+
+        var file = new StringBuilder();
+        file.AppendLine($"# {project.Name} — settings exported from DeployAI");
+        file.AppendLine($"# {DateTimeOffset.UtcNow:u}");
+        file.AppendLine("#");
+        file.AppendLine("# Keep this somewhere safe. Values marked below exist only in DeployAI:");
+        file.AppendLine("# the provider stores them write-only and will not return them, so if");
+        file.AppendLine("# DeployAI's database is lost this file is the only copy.");
+
+        if (unreadable.Count > 0)
+        {
+            // An export that quietly omits an app's settings is worse than no export: it looks like
+            // a complete backup and restores an incomplete one.
+            file.AppendLine("#");
+            file.AppendLine($"# INCOMPLETE: {unreadable.Count} app(s) could not be read, so their");
+            file.AppendLine("# settings are missing from this file. Do not treat it as a full backup.");
+        }
+
+        foreach (var group in variables.GroupBy(v => v.TargetRole ?? "not on any app"))
+        {
+            file.AppendLine();
+            file.AppendLine($"# --- {group.Key} ---");
+
+            // Deduplicated by key. A provider can hold several records for one name -- one app was
+            // seen with 32 records for 16 keys -- and a .env file with the same key twice restores
+            // whichever line is read last. Collapsing is reported rather than done quietly, because
+            // duplicates on the provider are a real problem worth noticing.
+            var byKey = group
+                .GroupBy(v => v.Key, StringComparer.Ordinal)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var collapsed = byKey.Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            if (collapsed.Count > 0)
+            {
+                file.AppendLine(
+                    $"# NOTE: {string.Join(", ", collapsed)} had duplicate records on this app; "
+                    + "one copy of each is written below.");
+            }
+
+            foreach (var variable in byKey.Select(g => g.First()))
+            {
+                if (string.IsNullOrEmpty(variable.Value))
+                {
+                    // Held write-only by the provider, with no copy in this project's store: it
+                    // cannot be exported, and saying so beats writing an empty value someone later
+                    // restores over a working one. It may still be recoverable elsewhere — storage
+                    // keys, for instance, live on the connection in Settings — so this does not
+                    // claim the value is lost, only that it is not in this file.
+                    file.AppendLine($"# {variable.Key}=(not in this export — the provider stores it write-only)");
+                    continue;
+                }
+
+                if (variable is { IsSecret: true, Managed: true })
+                {
+                    file.AppendLine("# only in DeployAI:");
+                }
+
+                file.AppendLine($"{variable.Key}={Quote(variable.Value)}");
+            }
+        }
+
+        var name = new string(project.Name.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray());
+
+        // charset matters: without it the em-dashes and quotes in the header render as mojibake in
+        // an editor that guesses the encoding, which makes a recovery file look corrupted.
+        return File(Encoding.UTF8.GetBytes(file.ToString()), "text/plain; charset=utf-8", $"{name}.env");
+    }
+
+    /// <summary>Quotes a value that would otherwise not survive a round trip through a .env file.</summary>
+    private static string Quote(string value) =>
+        value.Any(c => c is ' ' or '"' or '\'' or '\n' or '#' or '$')
+            ? "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n") + "\""
+            : value;
+
+    private async Task<(List<EnvVariableView> Variables, List<object> Unreadable)> ReadEnvironmentAsync(
+        Data.Entities.Project project,
+        CancellationToken cancellationToken)
+    {
         var stored = LoadStoredEnvVars(project);
 
         var variables = new List<EnvVariableView>();
@@ -249,14 +361,7 @@ public sealed class ProjectEnvironmentController : ControllerBase
             variables.Add(new EnvVariableView(key, value.Value, value.IsSecret, null, null, Managed: true));
         }
 
-        return Ok(new
-        {
-            variables = variables
-                .OrderBy(v => v.TargetRole ?? "￿", StringComparer.OrdinalIgnoreCase)
-                .ThenBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
-                .ToList(),
-            unreadable
-        });
+        return (variables, unreadable);
     }
 
     /// <summary>
