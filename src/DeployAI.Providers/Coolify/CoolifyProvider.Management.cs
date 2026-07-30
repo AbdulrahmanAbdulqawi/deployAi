@@ -72,6 +72,25 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
         }
 
+        if (!string.IsNullOrWhiteSpace(request.ComposeFileLocation))
+        {
+            // Everything below describes a build Coolify is not running: compose builds its own
+            // images from the Dockerfiles its services name. The create path has always known this
+            // and omits the same set; this path sent the website half's output directory, build
+            // command and install command to an application that has no single build at all.
+            //
+            // Audited as a group rather than fixed one at a time. build_pack, ports_exposes and
+            // base_directory were each found by a separate failed deploy, and every one of them was
+            // the same mistake: reading one half's fields off a target that stands for two.
+            body["docker_compose_location"] = NormalizeComposeLocation(request.ComposeFileLocation);
+
+            using var composeRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}");
+            composeRequest.Content = JsonContent.Create(body);
+            var composeResponse = await _httpClient.SendAsync(composeRequest, cancellationToken);
+            await EnsureSuccessAsync(composeResponse, cancellationToken, "Could not update Coolify application config.");
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
         {
             body["publish_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.OutputDirectory);

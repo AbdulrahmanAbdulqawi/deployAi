@@ -72,6 +72,14 @@ public class CoolifyProviderComposeTests
         // is written at the repository root. Sending the website half's "client" made it look for
         // /client/docker-compose.coolify.yml and fail with "Docker Compose file not found".
         Assert.Equal("/", body.GetProperty("base_directory").GetString());
+        Assert.Equal("/docker-compose.coolify.yml", body.GetProperty("docker_compose_location").GetString());
+        // Compose builds its own images from the Dockerfiles its services name, so every field
+        // describing a single build describes one Coolify is not running. The create path has
+        // always omitted these; this path sent the website half's.
+        Assert.False(body.TryGetProperty("publish_directory", out _));
+        Assert.False(body.TryGetProperty("build_command", out _));
+        Assert.False(body.TryGetProperty("install_command", out _));
+        Assert.False(body.TryGetProperty("dockerfile_location", out _));
     }
 
     [Fact]
