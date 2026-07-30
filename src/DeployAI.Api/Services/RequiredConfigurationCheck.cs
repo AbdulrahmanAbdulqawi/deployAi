@@ -14,10 +14,13 @@ namespace DeployAI.Api.Services;
 /// <param name="Missing">Keys the code requires and the target does not have.</param>
 /// <param name="Inconclusive">The comparison could not be made — never the same as "nothing
 /// missing", because only one of those is safe to deploy on.</param>
+/// <param name="UnconfiguredSections">Configuration sections the code sets up for development and
+/// the target has no setting from at all.</param>
 public sealed record RequiredConfigurationResult(
     IReadOnlyList<string> Missing,
     bool Inconclusive,
-    string? Message);
+    string? Message,
+    IReadOnlyList<string>? UnconfiguredSections = null);
 
 public interface IRequiredConfigurationCheck
 {
@@ -118,9 +121,15 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
             return Unknown($"could not read {project.GitHubRepoFullName}@{branch}");
         }
 
+        var appsettings = (await _reader.FindAsync(
+            token, parts[0], parts[1], branch, layout, "appsettings.json", cancellationToken))?.Content;
+
+        // Read for its section names only -- see UnconfiguredSections below.
+        var developmentAppsettings = (await _reader.FindAsync(
+            token, parts[0], parts[1], branch, layout, "appsettings.Development.json", cancellationToken))?.Content;
+
         var scan = _detector.Detect(new EnvScanInputs(
-            AppsettingsContent: (await _reader.FindAsync(
-                token, parts[0], parts[1], branch, layout, "appsettings.json", cancellationToken))?.Content,
+            AppsettingsContent: appsettings,
             DotEnvExampleContent: (await _reader.FindAsync(
                 token, parts[0], parts[1], branch, layout, ".env.example", cancellationToken))?.Content,
             ComposeContent: (await _reader.FindAsync(
@@ -139,7 +148,9 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (required.Count == 0)
+        var developmentOnlySections = SectionsOnlyIn(developmentAppsettings, appsettings);
+
+        if (required.Count == 0 && developmentOnlySections.Count == 0)
         {
             return new RequiredConfigurationResult([], Inconclusive: false, null);
         }
@@ -162,10 +173,26 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
         var have = present.Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var missing = required.Where(key => !have.Contains(key)).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
 
-        if (missing.Count == 0)
+        // A whole section the app has nothing from. Deliberately section-level rather than key-level:
+        // an app with Jwt__SigningKey set clearly has its Jwt section configured, and naming the
+        // leaves it does not carry (Issuer, Audience) would be noise -- those usually have defaults
+        // in the options class, which DeployAI cannot see. Nothing at all from the section is the
+        // shape of the incident.
+        var unconfigured = developmentOnlySections
+            .Where(section => !have.Any(key => key.StartsWith($"{section}__", StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (missing.Count == 0 && unconfigured.Count == 0)
         {
             return new RequiredConfigurationResult([], Inconclusive: false,
                 $"Checked {required.Count} setting(s) this code needs: all present.");
+        }
+
+        if (missing.Count == 0)
+        {
+            return new RequiredConfigurationResult([], Inconclusive: false,
+                UnconfiguredSectionsMessage(unconfigured), unconfigured);
         }
 
         // "Declares", not "needs". The first real run reported Storage__PublicBaseUrl, which the app
@@ -178,7 +205,82 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
             Inconclusive: false,
             $"This code declares {missing.Count} {noun} with no value, and the app has none set: "
             + $"{string.Join(", ", missing)}. It will still deploy — but if the app reads any of "
-            + "them, it will fail once it starts. Add them on the app's settings screen.");
+            + "them, it will fail once it starts. Add them on the app's settings screen."
+            + (unconfigured.Count > 0 ? " " + UnconfiguredSectionsMessage(unconfigured) : string.Empty),
+            unconfigured);
+    }
+
+    /// <summary>
+    /// Configuration sections an environment-specific appsettings file sets up and the base file
+    /// does not mention at all.
+    /// </summary>
+    /// <remarks>
+    /// The gap this closes was found by reading the check's own blind spot on the repository it was
+    /// written for. yemenConnect's <c>appsettings.json</c> has no <c>Jwt</c> section — it lives only
+    /// in <c>appsettings.Development.json</c>, along with <c>Tickets</c> and <c>Bootstrap</c>. So the
+    /// check built to catch a crash-loop on "Jwt configuration missing" could not see that the app
+    /// had a Jwt section, and would have reported nothing about the exact incident that motivated it.
+    /// <para>
+    /// Only names are taken from the development file, never values. A development signing key is
+    /// not a production default — the file is not loaded when <c>ASPNETCORE_ENVIRONMENT</c> is
+    /// Production — so treating its value as "this key has an answer" is how a secret that must be
+    /// supplied looks like one that is already handled.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> SectionsOnlyIn(string? developmentJson, string? baseJson)
+    {
+        var development = TopLevelSections(developmentJson);
+        if (development.Count == 0)
+        {
+            return [];
+        }
+
+        var basic = TopLevelSections(baseJson);
+        return development
+            .Where(section => !basic.Contains(section))
+            .Where(section => !SectionsTheRuntimeOwns.Contains(section))
+            .ToList();
+    }
+
+    /// <summary>Sections that are framework plumbing, not application configuration.</summary>
+    private static readonly HashSet<string> SectionsTheRuntimeOwns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Logging", "AllowedHosts", "Kestrel", "ConnectionStrings"
+    };
+
+    private static IReadOnlyList<string> TopLevelSections(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return [];
+            }
+
+            return document.RootElement.EnumerateObject()
+                .Where(p => p.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+                .Select(p => p.Name)
+                .ToList();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string UnconfiguredSectionsMessage(IReadOnlyList<string> sections)
+    {
+        var noun = sections.Count == 1 ? "a section" : "sections";
+        var verb = sections.Count == 1 ? "is" : "are";
+        return $"This code also configures {noun} in appsettings.Development.json that the app has "
+            + $"nothing set from: {string.Join(", ", sections)}. Development values {verb} not "
+            + "defaults for production — that file is not loaded when the app runs.";
     }
 
     /// <summary>
