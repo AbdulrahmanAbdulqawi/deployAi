@@ -75,6 +75,23 @@ by the standard above, that makes it a design smell. CI (`.github/workflows/buil
 suite on every PR to `main`, but nothing yet requires a change to arrive with tests. Closing
 that is the real fix; until then, the rule is a promise we keep by hand.
 
+**A fix has to reach the resources that already exist.** An operation that runs only when a
+resource is created never runs again — so a fix lands on things made after it, and the person who
+reported the bug still has it. Prefer re-running the operation on every deploy, idempotently, over
+running it once at creation; "already set up" is not a reason to skip, it is the case that needs
+checking. Observed five times in a single day: the server Dockerfile generated when an application
+was created and never regenerated; duplicate env-var repair wired only to the database-linking
+path; `ProvisionAsync` requiring a storage link nothing ever created; a bucket's CORS rule applied
+only at bucket creation; and storage re-provisioning skipped whenever a link already existed. Two
+of those were introduced and found the same day, which is the point — the shape is easy to write
+and hard to see, so it wants a check that fails rather than a comment that informs.
+
+**An absence must say which absence it is.** "Found nothing" and "could not look" are different
+answers, and code that returns the same value for both turns a blind scan into a confident
+negative. Every scan reports what it managed to read: `EnvScanResult.IsInconclusive`,
+`RepositoryLayout.IsInconclusive`, and the storage verification's could-not-check line all exist
+for this. A deploy may proceed on the first; it must never proceed silently on the second.
+
 **Writes into a user's repository are a product surface.** Commits DeployAI authors live in
 someone's history permanently. Messages must say specifically what changed, and generated files
 must be idempotent — regenerating should produce no commit when nothing changed. Prefer opening
@@ -118,26 +135,29 @@ Recorded so they get closed rather than re-done by hand.
   that change was originally for is still open: Coolify caches the Traefik labels it generates at
   first deploy, so a later build-pack or port change does not reach the live proxy until someone
   presses "Reset Labels to Defaults" and redeploys.
-- **Nothing acts on an inconclusive env scan yet.** `env-schema` now reports which sources it read
-  and flags `inconclusive` when it read none, but the wizard still shows no environment step for an
-  empty result either way. Until it distinguishes them, a repo whose configuration lives somewhere
-  the scan does not look still deploys with nothing set — which is how an API reached production
-  and crash-looped on `Jwt configuration missing`.
-- **Seven scanners each guess where an app lives, and a wrong guess is silent.** `env-schema`,
-  `RepositoryClassifier` and `RailwayDatabaseProvisioningService` read the repo root;
-  `SsrWebsiteBuildProvisioner` reads one app directory; only `ServerDockerfileProvisioner` and
-  `ObjectStorageAutoProvisioner` look one level down, each via its own bespoke patch. A monorepo
-  that nests its API — `backend/src/YemenHub.Api` — is invisible to the rest, and an empty scan is
-  indistinguishable from "this repo has no such file", so the dependent capability quietly does not
-  run. Four separate instances of this were hit in one day; two were patched per-caller, which is
-  why it keeps recurring. `docs/12-repository-scanning.md` specifies the shared resolver that fixes
-  it once, and the pre-deploy configuration check it unlocks.
+- **The wizard still shows nothing for an inconclusive env scan.** `env-schema` now finds config
+  wherever the app actually lives, flags `inconclusive` for both "read no sources" and "could not
+  list the repository", and returns `projectDirectory` / `searchedIn` so a wrong answer is
+  recognisable. The wizard ignores all of it: an empty result and an unreadable repository still
+  render the same — no environment step — so a user can still deploy with nothing set and no
+  warning. This is the last piece of the `Jwt configuration missing` crash-loop still open, and it
+  is now a UI change rather than a detection problem. The screen has also **not been exercised**
+  against the new input: nested repos will start producing variables where they produced none.
+- **Four scanners still read only the repository root.** `RepositoryLayoutResolver` now answers
+  "where does this app live" for `env-schema`, `ServerDockerfileProvisioner` and
+  `ObjectStorageAutoProvisioner` (`docs/12-repository-scanning.md`, steps 1–3). Still on their own
+  assumptions: `RepositoryClassifier`, `RailwayDatabaseProvisioningService`,
+  `ServerBuildProfileDiscovery` and `SsrWebsiteBuildProvisioner`. None has an incident behind it,
+  which is why they were left — but each one is a place a nested app is still invisible, and moving
+  them is now mechanical rather than a design question.
 - **Nothing compares the deployed ref's required configuration against what the target has.**
   Merging a branch that introduced a Media module needing `Storage:*` took every route down:
   `AmazonS3Client` threw before `builder.Build()`, and Coolify gave up after eleven restarts. The
-  migration chain validated and the build was green; neither can catch this. DeployAI now has both
-  halves separately — reading an app's config files, and reading what a target actually has (the
-  environment listing) — so this is short work once the scanner above exists.
+  migration chain validated and the build was green; neither can catch this. **Both halves now
+  exist** — the resolver reads an app's real config files wherever they are, and the environment
+  listing reads what a target actually has — so this is the next thing to build, not a thing to
+  design. Three incidents in one day would have been caught by it: `Jwt`, `Storage` and `Tickets`
+  keys, each found only when something broke.
 - **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
   "Application is not running" for a stopped container, so the capability added for "an app that
   builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
@@ -150,8 +170,11 @@ Recorded so they get closed rather than re-done by hand.
   how that ref relates to the user's other branches.
 - **No migration-chain validation.** Nothing checks for colliding or misordered migrations
   before a deploy.
-- **Verification is shallow.** A deployment probing `/health` successfully can still have a
-  fully broken API surface. See `DeploymentVerificationService.cs` / `DeploymentEndpointProbes.cs`.
+- **Verification is shallow for everything except storage.** A deployment probing `/health`
+  successfully can still have a fully broken API surface. See `DeploymentVerificationService.cs` /
+  `DeploymentEndpointProbes.cs`. Object storage is now the exception and the template: it does a
+  signed write-read-delete and a real browser preflight on every deploy, and reports whether it
+  passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
 - **DeployAI's managed environment store is project-wide, but the apps it writes to are not.**
   `Project.EnvironmentVariablesEncrypted` is one blob per project, so a listed variable carries no
   record of which container it was pushed to. Adding one now asks (the add row has a target picker
@@ -169,7 +192,23 @@ Recorded so they get closed rather than re-done by hand.
   and the only symptom is the frontend's own "cannot reach the server" message. One `OPTIONS` from the
   website origin to the API, checking for `Access-Control-Allow-Origin`, would settle it in a single
   request at the end of a deploy — that is the fix; the key list is a stopgap. Better still: read the
-  key out of the repository (`GetSection("...")` in `Program.cs`) rather than guessing names at all.
+  key out of the repository (`GetSection("...")` in `Program.cs`) rather than guessing names at all,
+  which the resolver now makes possible. **The pattern to copy already exists**: `ObjectStorageVerifier`
+  sends exactly that preflight against the bucket and reports the result on every deploy. Doing the
+  same from the website origin to the API is the same shape of work.
+- **An app is handed credentials far wider than it needs.** `ObjectStorageEnvironmentWiring` writes
+  the storage connection's own access key and secret onto the app, so a container that needs one
+  bucket can list, create and delete every bucket in the user's Hetzner project. They are written as
+  secrets, so Coolify will not read them back, but the blast radius of an app compromise is the whole
+  account rather than its own data. Unknown whether Hetzner issues per-bucket credentials; if it
+  does, mint one per app at provision time, and if it does not, the mitigation is a project per app
+  and the residual risk should be stated rather than carried silently.
+- **Secrets DeployAI generates exist only in DeployAI.** `Jwt__SigningKey`, `Tickets__SigningKey` and
+  the storage keys are written to the provider as secrets, which Coolify will not return, and stored
+  encrypted in DeployAI's own database. If that database is lost or reset — which happened once
+  already this week — the values are unrecoverable, every issued token and ticket signature breaks,
+  and there is no export path. Generating secrets on a user's behalf implies keeping them
+  recoverable.
 - **Generated commit messages are generic.** Dockerfile generation has produced several commits
   sharing one message, obscuring what each changed.
 - **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR
