@@ -1,6 +1,11 @@
 # Repository scanning — one way to find an app inside a repo
 
-**Status:** proposed, not started. Written 2026-07-29 after the fourth instance in one day.
+**Status:** done, with one deliberate exception. Written 2026-07-29 after the fourth instance in
+one day; the resolver landed the same day and the last caller moved onto it on 2026-07-30.
+
+Every scanner in the table below now reads through `RepositoryLayoutResolver`. The exception is
+`ServerBuildProfileDiscovery`'s whole-repository case, which asks a different question and is
+explained under [What did not move](#what-did-not-move).
 
 ## The problem, stated once
 
@@ -23,25 +28,34 @@ This is not a hypothetical. In a single day of deploying one monorepo:
 | 4 | Nothing checked config the merged code needed | — | `backend/src/YemenHub.Api/appsettings.json` |
 
 Numbers 2 and 3 were each fixed by adding a bespoke "look one level down" to that one caller.
-That is the third and fourth patch to the same bug. The fifth is already implied: nothing has
-been done for number 1, and number 4 has not been built.
+That is the third and fourth patch to the same bug. The fifth was already implied: nothing had
+been done for number 1, and number 4 had not been built.
 
-## What exists today
+All four are closed now, by the shared resolver rather than by a fifth patch. Three more silent
+answers turned up while moving the remaining callers onto it, none of which had been noticed: a
+`docker-compose.yml` beside a backend was invisible to both the classifier and the deploy, a
+Prisma schema was read at classification and not at deploy, and a website target pointed one
+directory above its own app kept Nixpacks — the exact build pack the generated Dockerfile exists
+to replace.
 
-Six independent scanners, each with its own idea of where to look:
+## What existed before
 
-| Caller | Reads | Depth |
+Seven independent scanners, each with its own idea of where to look. The **was** column is what
+each one read before this work; every row now reads through the resolver instead.
+
+| Caller | Reads | Depth (was) |
 |---|---|---|
 | `EnvVarDetector` via `env-schema` | `docker-compose.yml`, `.env.example`, `README.md`, `appsettings.json` | repo root, plus `appsettings.json` under an explicitly supplied `serverPath` |
-| `RepositoryClassifier` | `docker-compose.y[a]ml`, `appsettings.json` | repo root |
-| `ServerBuildProfileDiscovery` | `package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml` | supplied directory |
+| `RepositoryClassifier` | `docker-compose.y[a]ml`, `appsettings.json`, `prisma/schema.prisma` | repo root |
+| `ServerBuildProfileDiscovery` | `package.json`, `requirements.txt`, `pyproject.toml`, `Cargo.toml` | supplied directory, read and nothing below it |
 | `ServerDockerfileProvisioner` | `*.csproj` | service dir **+ one level** (patched) |
 | `SsrWebsiteBuildProvisioner` | `package.json`, `package-lock.json` | app dir only |
 | `ObjectStorageAutoProvisioner` | `appsettings.json`, manifests, compose | service dir **+ one level** (patched) |
-| `RailwayDatabaseProvisioningService` | `docker-compose.y[a]ml`, `appsettings.json` | repo root |
+| `RailwayDatabaseProvisioningService` | `docker-compose.y[a]ml`, `appsettings.json` | repo root, plus a bespoke two-level walk for `appsettings.json` |
 
-Two of the seven know about nesting. Five do not. None of them share a line of code, so fixing
-one teaches the others nothing — which is exactly why this keeps recurring.
+Two of the seven knew about nesting, by two different hand-written descents. Five did not. None of
+them shared a line of code, so fixing one taught the others nothing — which is exactly why this
+kept recurring.
 
 ## Why patching each caller does not work
 
@@ -114,7 +128,35 @@ the seed of the resolver and should move into it.
 Steps 1–3 should not change behaviour for any repo that already works. Step 3 will change it for
 nested repos — that is the point — so it wants a deliberate look at what the wizard then shows.
 
-## What this unlocks
+5. **Move the remaining four**, each with a test watched fail against the old read first:
+   `RailwayDatabaseProvisioningService` (its bespoke walk deleted; compose and Prisma now read from
+   the app's directory too), `SsrWebsiteBuildProvisioner`, `RepositoryClassifier`, and
+   `ServerBuildProfileDiscovery`'s named-directory case.
+
+## What did not move
+
+`ServerBuildProfileDiscovery` has two callers asking two different questions, and only one of them
+is layout resolution.
+
+- **"Where inside `backend/src` is the app?"** — the wizard's folder picker, where the user has
+  already named a directory. This is the resolver's question and now uses it.
+- **"Which of `client/`, `server/`, `docs/` is the server?"** — whole-repository classification.
+  This is *not* the resolver's question. The resolver takes the first directory holding any
+  application manifest, so at a repository root it nominates `client/package.json` and would
+  classify an Angular app as the backend. `ServerProjectDiscoverer` answers it by scoring directory
+  names and excluding known frontend directories.
+
+The ranking cannot move into the resolver: the object-storage and required-configuration scans must
+read the frontend, and a resolver that skipped `client/` would be the same failure pointed the other
+way. `DiscoverAsync_AtTheRepositoryRoot_PicksTheBackendAndNotTheFrontend` asserts both answers side
+by side, so the divergence is a recorded decision rather than something to rediscover.
+
+**A descent needs evidence.** The website provisioner takes a package.json found outside the
+configured directory only when it declares the framework the target is configured for. Descending
+without that check would let a directory holding both halves build the API as the website — worse
+than the Nixpacks build it replaced, and the resolver alone cannot tell them apart.
+
+## What this unlocked
 
 The check that would have prevented the outage on 2026-07-28: **compare the configuration the
 deployed ref requires against what the target actually has.** Merging the feed branch brought a
@@ -122,10 +164,11 @@ Media module needing `Storage:*`; nothing was set; `AmazonS3Client` threw before
 every route died and Coolify gave up after eleven restarts. The migration chain was validated and
 the build was green — neither could have caught it.
 
-That check needs two things DeployAI now has separately: the ability to read an app's real
+That check needed two things DeployAI had separately: the ability to read an app's real
 configuration files (this document), and the ability to read what a target actually has (the
-environment listing, added 2026-07-29). It is a short piece of work once the first exists, and
-it turns a class of silent production failure into a line in the deploy log.
+environment listing, added 2026-07-29). `RequiredConfigurationCheck` is that check; it was a short
+piece of work once the resolver existed, and it turns a class of silent production failure into a
+line in the deploy log. It is advisory — see `CLAUDE.md` for what it still does not cover.
 
 ## Non-goals
 
@@ -135,3 +178,6 @@ it turns a class of silent production failure into a line in the deploy log.
   directory, that wins. The resolver fills in what they did not say.
 - **Not framework detection.** `RepositoryClassifier` and `ServerBuildProfileDiscovery` keep their
   jobs; they just stop guessing where to look.
+- **Not directory ranking.** Deciding which of several sibling directories is the server needs an
+  opinion about names that would be wrong for every other caller. See
+  [What did not move](#what-did-not-move).

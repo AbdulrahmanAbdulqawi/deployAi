@@ -149,13 +149,17 @@ Recorded so they get closed rather than re-done by hand.
   warning. This is the last piece of the `Jwt configuration missing` crash-loop still open, and it
   is now a UI change rather than a detection problem. The screen has also **not been exercised**
   against the new input: nested repos will start producing variables where they produced none.
-- **Four scanners still read only the repository root.** `RepositoryLayoutResolver` now answers
-  "where does this app live" for `env-schema`, `ServerDockerfileProvisioner` and
-  `ObjectStorageAutoProvisioner` (`docs/12-repository-scanning.md`, steps 1–3). Still on their own
-  assumptions: `RepositoryClassifier`, `RailwayDatabaseProvisioningService`,
-  `ServerBuildProfileDiscovery` and `SsrWebsiteBuildProvisioner`. None has an incident behind it,
-  which is why they were left — but each one is a place a nested app is still invisible, and moving
-  them is now mechanical rather than a design question.
+- **Ranking which sibling directory is the server is still a separate answer.** Every scanner now
+  reads through `RepositoryLayoutResolver` (`docs/12-repository-scanning.md`), which closes the
+  root-only class of silent failure — but one caller could not move wholesale.
+  `ServerBuildProfileDiscovery` asks a question the resolver does not answer: given a whole
+  repository, *which* of several sibling directories is the server. It answers by scoring names and
+  excluding known frontend directories, because the resolver takes the first directory holding any
+  application manifest and would nominate `client/package.json`. That ranking cannot move into the
+  resolver — the storage and configuration scans must read the frontend, and skipping it there is
+  the same bug pointed the other way. So two answers to "where is the app" still exist, and the
+  discovery half is exercised only when a repository is first classified. A test asserts the
+  divergence so it stays deliberate.
 - **The required-configuration check warns; it does not stop a deploy.** `RequiredConfigurationCheck`
   now compares what the deployed ref declares it needs against what the target actually has, and
   names the difference in the deploy log before the app starts — the three incidents it was built
