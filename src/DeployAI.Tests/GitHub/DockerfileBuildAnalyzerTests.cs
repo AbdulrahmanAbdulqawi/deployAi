@@ -66,4 +66,48 @@ public class DockerfileBuildAnalyzerTests
         Assert.Equal("src", layout.RootDirectory);
         Assert.Equal("Dockerfile", layout.DockerfilePath);
     }
+
+    [Fact]
+    public void ResolveEntryProjectDirectory_MatchesTheCsprojNamedByEntrypoint()
+    {
+        const string dockerfile = """
+            COPY src/Mirqab.Core/Mirqab.Core.csproj src/Mirqab.Core/
+            COPY src/Mirqab.Api/Mirqab.Api.csproj src/Mirqab.Api/
+            ENTRYPOINT ["dotnet", "Mirqab.Api.dll"]
+            """;
+
+        Assert.Equal("src/Mirqab.Api", DockerfileBuildAnalyzer.ResolveEntryProjectDirectory(dockerfile));
+    }
+
+    [Fact]
+    public void ResolveEntryProjectDirectory_MatchesTheShellFormEntrypointToo()
+    {
+        const string dockerfile = """
+            COPY src/Mirqab.Api/Mirqab.Api.csproj src/Mirqab.Api/
+            ENTRYPOINT dotnet Mirqab.Api.dll
+            """;
+
+        Assert.Equal("src/Mirqab.Api", DockerfileBuildAnalyzer.ResolveEntryProjectDirectory(dockerfile));
+    }
+
+    [Fact]
+    public void ResolveEntryProjectDirectory_ReturnsNull_WhenNoCsprojNameMatchesTheEntrypoint()
+    {
+        // An unmatched entry means "unknown", not "guess the nearest one" -- a wrong guess here
+        // sends every later config lookup to the wrong directory with no sign anything is off.
+        const string dockerfile = """
+            COPY src/Other.Api/Other.Api.csproj src/Other.Api/
+            ENTRYPOINT ["dotnet", "Mirqab.Api.dll"]
+            """;
+
+        Assert.Null(DockerfileBuildAnalyzer.ResolveEntryProjectDirectory(dockerfile));
+    }
+
+    [Fact]
+    public void ResolveEntryProjectDirectory_ReturnsNull_WithNoEntrypointAtAll()
+    {
+        const string dockerfile = "COPY src/Mirqab.Api/Mirqab.Api.csproj src/Mirqab.Api/";
+
+        Assert.Null(DockerfileBuildAnalyzer.ResolveEntryProjectDirectory(dockerfile));
+    }
 }
