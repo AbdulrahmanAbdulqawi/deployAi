@@ -66,9 +66,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
         if (!readiness.IsReady)
         {
-            throw new DeployAIException(
-                "deployment_not_ready",
-                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+            throw new DeployAIException("deployment_not_ready", BuildNotReadyMessage(readiness));
         }
 
         var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
@@ -171,9 +169,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
         if (!readiness.IsReady)
         {
-            throw new DeployAIException(
-                "deployment_not_ready",
-                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+            throw new DeployAIException("deployment_not_ready", BuildNotReadyMessage(readiness));
         }
 
         var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
@@ -218,6 +214,33 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             deployment.Id,
             deployment.Status,
             [new TriggerDeploymentTargetResult(deployTarget.ProviderName, DeploymentStatuses.Pending)]);
+    }
+
+    /// <summary>
+    /// Names what is missing and which setup produces it.
+    /// </summary>
+    /// <remarks>
+    /// This said "generate the split-origin setup" for every shape, including compose apps, whose
+    /// setup is a different one — so the one instruction offered was the wrong instruction. It also
+    /// named no file, leaving "deployment files are missing" to be resolved by guesswork against a
+    /// repository the reader may not have open.
+    /// </remarks>
+    internal static string BuildNotReadyMessage(DeploymentReadinessResult readiness)
+    {
+        var blocking = readiness.MissingFiles
+            .Where(file => file.Severity == DeploymentFileSeverity.Blocking)
+            .Select(file => file.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+
+        var setup = readiness.UsesSingleOriginCompose
+            ? "Run \"Set up deployment files\" to generate the compose setup before publishing."
+            : "Generate the split-origin setup before publishing.";
+
+        return blocking.Length == 0
+            ? $"Deployment files are missing or invalid. {setup}"
+            : $"This deployment needs {string.Join(", ", blocking)}. {setup}";
     }
 
     internal static IReadOnlyList<Guid> OrderDeploymentTargetIds(

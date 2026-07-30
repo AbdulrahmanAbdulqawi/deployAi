@@ -16,6 +16,52 @@ namespace DeployAI.Tests.Services;
 public class DeploymentOrchestratorReadinessTests
 {
     [Fact]
+    public void NotReadyMessage_NamesTheFileAndTheSetupThatProducesIt()
+    {
+        // "Deployment files are missing or invalid. Generate the split-origin setup" was the whole
+        // message for every shape. A compose app's setup is a different one, so the only instruction
+        // offered was the wrong instruction — and no file was named, so what to do about it had to be
+        // worked out against a repository the reader may not have open.
+        var message = DeploymentOrchestrator.BuildNotReadyMessage(new DeploymentReadinessResult(
+            IsReady: false,
+            CommitSha: "abc1234",
+            UsesSplitOrigin: false,
+            MissingFiles:
+            [
+                new MissingDeploymentFile(
+                    "docker-compose.coolify.yml",
+                    "A Docker Compose file is required.",
+                    DeploymentFileSeverity.Blocking),
+                new MissingDeploymentFile(
+                    "docs/DEPLOYMENT.md",
+                    "Document the compose env vars.",
+                    DeploymentFileSeverity.Recommended)
+            ],
+            Warnings: [],
+            UsesSingleOriginCompose: true));
+
+        Assert.Contains("docker-compose.coolify.yml", message);
+        Assert.Contains("compose setup", message);
+        // Only what blocks: listing the recommended file too would make an optional doc read as the
+        // reason the deploy stopped.
+        Assert.DoesNotContain("DEPLOYMENT.md", message);
+        Assert.DoesNotContain("split-origin", message);
+    }
+
+    [Fact]
+    public void NotReadyMessage_KeepsTheSplitOriginInstructionForASplitOriginApp()
+    {
+        var message = DeploymentOrchestrator.BuildNotReadyMessage(new DeploymentReadinessResult(
+            IsReady: false,
+            CommitSha: null,
+            UsesSplitOrigin: true,
+            MissingFiles: [],
+            Warnings: []));
+
+        Assert.Contains("split-origin", message);
+    }
+
+    [Fact]
     public async Task TriggerAsync_ThrowsWhenDeploymentNotReady()
     {
         var options = new DbContextOptionsBuilder<DeployAIDbContext>()

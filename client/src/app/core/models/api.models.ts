@@ -396,6 +396,12 @@ export interface DeploymentReadinessResult {
   isReady: boolean;
   commitSha?: string;
   usesSplitOrigin: boolean;
+  /**
+   * One Coolify application hosting every service from one compose file. Distinct from
+   * usesSplitOrigin, and the API has always returned it — the UI just never read it, so every
+   * readiness gate here silently treated a compose app as having no requirements at all.
+   */
+  usesSingleOriginCompose?: boolean;
   websiteProviderName?: string;
   serverProviderName?: string;
   missingFiles: MissingDeploymentFile[];

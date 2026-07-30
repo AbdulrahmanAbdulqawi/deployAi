@@ -29,7 +29,7 @@ export interface ReadinessScorecardSummary {
 export function buildReadinessScorecard(
   readiness: DeploymentReadinessResult | null | undefined
 ): ReadinessScorecardSummary {
-  if (!readiness?.usesSplitOrigin) {
+  if (!hasSetupRequirements(readiness)) {
     return emptyScorecard();
   }
 
@@ -37,7 +37,7 @@ export function buildReadinessScorecard(
     {
       id: 'split-origin-detected',
       label: 'Frontend and API detected',
-      detail: splitOriginDetail(readiness),
+      detail: shapeDetail(readiness),
       status: ReadinessCheckStatus.Passed,
       severity: 'info'
     }
@@ -60,9 +60,11 @@ export function buildReadinessScorecard(
     items.push({
       id: 'deployment-ready',
       label: 'Repository setup looks complete',
-      detail: isCoolifyFullStackReadiness(readiness)
-        ? 'Required Coolify full-stack files are in place.'
-        : 'Required split-origin files are in place.',
+      detail: readiness.usesSingleOriginCompose
+        ? 'The compose file and its per-service Dockerfiles are in place.'
+        : isCoolifyFullStackReadiness(readiness)
+          ? 'Required Coolify full-stack files are in place.'
+          : 'Required split-origin files are in place.',
       status: ReadinessCheckStatus.Passed,
       severity: 'info'
     });
@@ -116,10 +118,28 @@ function isCoolifyFullStackReadiness(readiness: DeploymentReadinessResult): bool
 }
 
 export function usesCoolifySetupScaffold(readiness: DeploymentReadinessResult | null | undefined): boolean {
-  return !!readiness?.usesSplitOrigin;
+  return hasSetupRequirements(readiness);
 }
 
-function splitOriginDetail(readiness: DeploymentReadinessResult): string {
+/**
+ * Whether this deployment shape needs files in the repository before it can be published.
+ *
+ * Both shapes do, and the API reports on both — but every check here read usesSplitOrigin alone, so
+ * a compose app scored as having nothing to satisfy. Its missing docker-compose.coolify.yml was
+ * fetched, evaluated, marked blocking and then never rendered, and the wizard let the deploy through
+ * to build the client directory by itself.
+ */
+export function hasSetupRequirements(
+  readiness: DeploymentReadinessResult | null | undefined
+): readiness is DeploymentReadinessResult {
+  return !!readiness && (readiness.usesSplitOrigin || !!readiness.usesSingleOriginCompose);
+}
+
+function shapeDetail(readiness: DeploymentReadinessResult): string {
+  if (readiness.usesSingleOriginCompose) {
+    return 'This project deploys as one Docker Compose app (site, API and database together).';
+  }
+
   if (isCoolifyFullStackReadiness(readiness)) {
     return 'This project uses a Coolify full-stack setup (website + API on your server).';
   }

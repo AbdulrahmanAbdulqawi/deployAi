@@ -155,6 +155,49 @@ public class SsrWebsiteBuildProvisionerTests
         Assert.Contains("\"22\"", harness.EnvVarBodies);
     }
 
+    [Fact]
+    public async Task EnsureAsync_LeavesAComposeTargetAlone()
+    {
+        // A single-origin compose deployment is one Coolify application running several services,
+        // and the target that represents it carries the website role because that is the half the
+        // browser reaches. This provisioner matched on that role, generated a Dockerfile for the
+        // client directory, and switched the application off Docker Compose onto a Dockerfile build
+        // of the SPA alone -- so the API and the database in the compose file were never built at
+        // all. The plan said three services; what deployed was one, and nothing reported the
+        // difference.
+        var (harness, project, target) = CreateSwitchable(ComposeTargetConfig);
+
+        await harness.Provisioner.EnsureAsync(project, target, "master", CancellationToken.None);
+
+        Assert.False(harness.Called, "A compose target must not have a Dockerfile generated for it.");
+        var config = DeployTargetConfig.Parse(target.ConfigJson);
+        Assert.Null(config.DockerfilePath);
+        Assert.Equal("docker-compose.coolify.yml", config.ComposeFileLocation);
+    }
+
+    [Fact]
+    public async Task EnsureAsync_DoesNotRewriteAComposeApplicationsBuildOnCoolify()
+    {
+        // The field above is only the record of the decision; this is the request that carried it.
+        // Asserting the config alone would still pass if the switch had already reached Coolify.
+        var (harness, project, target) = CreateSwitchable(ComposeTargetConfig);
+
+        await harness.Provisioner.EnsureAsync(project, target, "master", CancellationToken.None);
+
+        Assert.Equal(string.Empty, harness.LastConfigSyncBody);
+    }
+
+    /// <summary>
+    /// Mirqab as the wizard's compose plan describes it: the client is what the browser reaches, the
+    /// API is a sibling service inside the same compose file.
+    /// </summary>
+    private const string ComposeTargetConfig = """
+        {"role":"website","framework":"angular","rootDirectory":"client",
+         "outputDirectory":"dist/client/browser","buildCommand":"npm run build",
+         "composeFileLocation":"docker-compose.coolify.yml","domainServiceName":"web",
+         "composeServerDirectory":"src/Mirqab.Api","composeServerFramework":"dotnet"}
+        """;
+
     /// <summary>
     /// Runs the provisioner far enough to see what it hands the generator. The generator mock
     /// returns null, which makes <c>EnsureAsync</c> stop before it needs a provider token or an
@@ -251,7 +294,8 @@ public class SsrWebsiteBuildProvisionerTests
     /// so the write, and everything after it, has never been reachable from a test. That is why a
     /// missing in-memory assignment beside one of those writes survived to production.
     /// </remarks>
-    private static (SsrWebsiteBuildProvisionerHarness, Project, DeployTarget) CreateSwitchable()
+    private static (SsrWebsiteBuildProvisionerHarness, Project, DeployTarget) CreateSwitchable(
+        string? configJson = null)
     {
         var connection = new Microsoft.Data.Sqlite.SqliteConnection("DataSource=:memory:");
         connection.Open();
@@ -300,7 +344,7 @@ public class SsrWebsiteBuildProvisionerTests
             CredentialId = credential.Id,
             ProviderName = "coolify",
             ProviderProjectId = "app-uuid",
-            ConfigJson = """
+            ConfigJson = configJson ?? """
                 {"role":"website","framework":"angular","rootDirectory":"client",
                  "outputDirectory":"dist/client/browser","buildCommand":"npm run build"}
                 """,

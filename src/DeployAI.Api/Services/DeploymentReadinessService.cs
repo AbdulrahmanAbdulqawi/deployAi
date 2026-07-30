@@ -117,24 +117,7 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
         var user = await _db.Users.FirstAsync(u => u.Id == project.UserId, cancellationToken);
         var token = _encryption.Decrypt(user.GitHubTokenEncrypted);
         var branch = string.IsNullOrWhiteSpace(gitRef) ? project.DefaultBranch : gitRef;
-        var parts = project.DeployTargets
-            .Select(t =>
-            {
-                var config = DeployTargetConfig.Parse(t.ConfigJson);
-                return new DeploymentPlanPart(
-                    config.Role ?? t.ProviderName,
-                    t.ProviderName,
-                    config.RootDirectory,
-                    config.ServiceDirectory,
-                    config.BuildCommand,
-                    config.InstallCommand,
-                    config.StartCommand,
-                    config.OutputDirectory,
-                    config.Framework,
-                    config.DockerfilePath,
-                    null);
-            })
-            .ToArray();
+        var parts = DeployTargetPlanParts.FromTargets(project.DeployTargets);
 
         var commitSha = await ResolveGitRefAsync(token, repoParts[0], repoParts[1], branch, cancellationToken);
         var usesSplitOrigin = SplitOriginDetection.PlanUsesSplitOrigin(parts);

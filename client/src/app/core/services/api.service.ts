@@ -334,6 +334,14 @@ export class ApiService {
       outputDirectory?: string | null;
       framework?: string | null;
       dockerfilePath?: string | null;
+      /**
+       * Set on the website part of a single-origin compose plan, whose server half never becomes a
+       * target of its own — the one application hosts both, so the target has to carry both.
+       */
+      composeFileLocation?: string | null;
+      domainServiceName?: string | null;
+      composeServerDirectory?: string | null;
+      composeServerFramework?: string | null;
     }[];
   }) {
     return this.http.post<ProjectDetail>('/api/projects/from-plan', payload);

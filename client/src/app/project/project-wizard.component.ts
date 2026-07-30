@@ -26,7 +26,7 @@ import { RepoFolderPickerComponent } from '../shared/repo-folder-picker/repo-fol
 import { DeployPlanComponent } from '../shared/deploy-plan/deploy-plan.component';
 import { DeploymentSetupPanelComponent } from '../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { ReadinessScorecardComponent } from '../shared/readiness-scorecard/readiness-scorecard.component';
-import { usesCoolifySetupScaffold } from '../core/utils/readiness-scorecard';
+import { hasSetupRequirements, usesCoolifySetupScaffold } from '../core/utils/readiness-scorecard';
 import { ButtonComponent } from '../shared/ui/button/button.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
 import { AppLogoPickerComponent } from '../shared/app-logo-picker/app-logo-picker.component';
@@ -513,7 +513,9 @@ export class ProjectWizardComponent implements OnInit {
 
   canAcceptPlan(): boolean {
     const readiness = this.deploymentReadiness();
-    if (readiness?.usesSplitOrigin && !readiness.isReady) {
+    // Compose belongs here as much as split-origin: without its compose file Coolify has nothing to
+    // build, so letting the plan be accepted only moves the failure into the build log.
+    if (hasSetupRequirements(readiness) && !readiness.isReady) {
       return false;
     }
 
@@ -525,7 +527,7 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   showReadinessScorecard(readiness: DeploymentReadinessResult): boolean {
-    return readiness.usesSplitOrigin;
+    return hasSetupRequirements(readiness);
   }
 
   showDeploymentSetupPanel(readiness: DeploymentReadinessResult): boolean {
@@ -622,6 +624,14 @@ export class ProjectWizardComponent implements OnInit {
       return throwError(() => new Error('Choose an app and version first.'));
     }
 
+    // A compose plan deploys as one application, so only the website part becomes a target — but
+    // the server half is still real, and the target has to carry it. Without this the project reads
+    // back as a lone SPA: nothing knows a compose file is required, and the build gets rewritten to
+    // a Dockerfile of the client alone.
+    const composePart = this.isSingleOriginComposePlan()
+      ? this.activePlanParts().find(part => part.role === 'server')
+      : undefined;
+
     const parts = this.activePlanParts()
       .filter(part => part.role !== 'database')
       .map(part => {
@@ -649,7 +659,15 @@ export class ProjectWizardComponent implements OnInit {
           startCommand: part.startCommand,
           outputDirectory: part.outputDirectory,
           framework: part.framework,
-          dockerfilePath: part.dockerfilePath
+          dockerfilePath: part.dockerfilePath,
+          ...(isWebsite && composePart
+            ? {
+                composeFileLocation: this.composeFileLocation,
+                domainServiceName: 'web',
+                composeServerDirectory: composePart.serviceDirectory ?? composePart.rootDirectory,
+                composeServerFramework: composePart.framework
+              }
+            : {})
         };
       })
       .filter((part): part is NonNullable<typeof part> => part !== null);

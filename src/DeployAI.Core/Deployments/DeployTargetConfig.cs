@@ -45,6 +45,45 @@ public sealed class DeployTargetConfig
     [JsonPropertyName("serviceDirectory")]
     public string? ServiceDirectory { get; set; }
 
+    /// <summary>
+    /// The compose file this target deploys, set only when the whole app is one Docker Compose
+    /// resource rather than one application per role.
+    /// </summary>
+    /// <remarks>
+    /// A single-origin compose plan has a website part and a server part, but they become one
+    /// Coolify application — so only one deploy target is created, and it is given the website's
+    /// role because that is the half facing the browser. Nothing used to record that the target
+    /// was a compose deployment at all, and every later reader re-derived the shape from a lone
+    /// website target: readiness could not tell it needed a compose file, and the SSR provisioner
+    /// switched the application off compose onto a Dockerfile build of the client alone. The plan
+    /// was right, the persistence was lossy, and the last writer guessed.
+    /// </remarks>
+    [JsonPropertyName("composeFileLocation")]
+    public string? ComposeFileLocation { get; set; }
+
+    /// <summary>The compose service the domain attaches to; the rest stay on the internal network.</summary>
+    [JsonPropertyName("domainServiceName")]
+    public string? DomainServiceName { get; set; }
+
+    /// <summary>
+    /// Where the server half lives, carried on the website-role target because the compose plan's
+    /// server part never becomes a target of its own. Readiness needs it to know which directory
+    /// must hold the API's Dockerfile.
+    /// </summary>
+    [JsonPropertyName("composeServerDirectory")]
+    public string? ComposeServerDirectory { get; set; }
+
+    /// <summary>The server half's framework, carried for the same reason as <see cref="ComposeServerDirectory"/>.</summary>
+    [JsonPropertyName("composeServerFramework")]
+    public string? ComposeServerFramework { get; set; }
+
+    /// <summary>
+    /// Whether this target is one Docker Compose resource hosting several services, rather than a
+    /// single application built from a build pack.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsComposeTarget => !string.IsNullOrWhiteSpace(ComposeFileLocation);
+
     /// <summary>Whether a Docker build should use the repo root as build context even though <see cref="RootDirectory"/> points at a subfolder.</summary>
     [JsonPropertyName("dockerUsesRepositoryRoot")]
     public bool DockerUsesRepositoryRoot { get; set; }

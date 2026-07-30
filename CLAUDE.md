@@ -254,6 +254,34 @@ Recorded so they get closed rather than re-done by hand.
   applications have been deleted still shows as deployed and healthy, with links to domains that
   return 404. The status and URLs come from the last deployment record and are never rechecked, so
   the dashboard can advertise a dead app indefinitely.
+- **A compose deploy is announced, then quietly reduced to its frontend.** Closed for the silence;
+  open for the automation. A single-origin compose plan has a website part and a server part that
+  deploy as one Coolify application, so only one target is created — and nothing recorded that the
+  target *was* a compose deployment. Every later reader re-derived the shape from a lone Angular
+  website: `PlanUsesSingleOriginCompose` needs both halves so it answered false, readiness therefore
+  skipped the compose rules and reported a repository with no `docker-compose.coolify.yml` as ready,
+  and `SsrWebsiteBuildProvisioner` matched on the website role and switched the application off
+  Docker Compose onto a Dockerfile build of `client/`. The wizard said "site, API and database";
+  what deployed was an Angular bundle, and nothing named the difference. The target now carries
+  `composeFileLocation`, `composeServerDirectory` and `composeServerFramework`; the provisioner
+  refuses to touch a compose target; and `DeployTargetPlanParts` expands the one target back into
+  the two parts it stands for, so every existing compose check works unchanged. **The shape, again:
+  decided correctly, persisted incompletely, re-derived from worse information by the last writer** —
+  the same one behind the stale ConfigJson and the port that fell back to 8080. What remains: the
+  compose file is still produced only by the user pressing "Set up deployment files", which opens a
+  PR they must merge. That is now *reported* — the plan card lists the missing file and the deploy
+  refuses with its name — but a plan DeployAI proposed still cannot be published without a manual
+  step, which by the core rule is a gap and not a workflow.
+- **Two unfinished implementations of compose generation exist side by side.** The one that runs is
+  template-based (`DeploymentTemplates/single-origin-compose/angular-dotnet-coolify`, six `.tpl`
+  files) and is keyed to exactly one stack: `SingleOriginComposeShape` hardcodes Angular + .NET on
+  Coolify. The other is a capability graph — `DeploymentGraph`, `ServiceNode`, `SingleOriginTransform`,
+  `ResourceWiringTransform`, `ComposeGenerator`, `CoolifyComposePlanner`, ~750 lines — written
+  explicitly to replace that hardcoded gate ("this class contains no framework names") and referenced
+  by nothing outside its own tests. Neither is wrong; having both is. The graph is the better answer
+  and the missing link is small — nothing builds a `DeploymentGraph` from a classification — but until
+  one of them is chosen, a React + Express repo gets no compose plan at all while the code that would
+  have handled it sits complete and unreachable.
 - **No divergence warning.** DeployAI deploys whatever ref it is pointed at without reporting
   how that ref relates to the user's other branches.
 - **No migration-chain validation.** Nothing checks for colliding or misordered migrations

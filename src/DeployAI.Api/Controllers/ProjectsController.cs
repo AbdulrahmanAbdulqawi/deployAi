@@ -629,14 +629,23 @@ public sealed class ProjectsController : ControllerBase
     {
         if (string.Equals(part.Role, "website", StringComparison.OrdinalIgnoreCase))
         {
-            return DeployTargetConfig.FromProfile(
+            var website = DeployTargetConfig.FromProfile(
                 new FrontendBuildProfile(
                     part.RootDirectory ?? string.Empty,
                     part.BuildCommand ?? string.Empty,
                     part.InstallCommand ?? string.Empty,
                     part.OutputDirectory ?? string.Empty,
                     part.Framework),
-                "website").ToJson();
+                "website");
+
+            // A single-origin compose plan sends its server half here too, on the website part,
+            // because both deploy as one application and only one target is created. Dropping it
+            // left the project reading as a lone SPA — see DeployTargetPlanParts.
+            website.ComposeFileLocation = part.ComposeFileLocation;
+            website.DomainServiceName = part.DomainServiceName;
+            website.ComposeServerDirectory = part.ComposeServerDirectory;
+            website.ComposeServerFramework = part.ComposeServerFramework;
+            return website.ToJson();
         }
 
         return DeployTargetConfig.FromServerProfile(
@@ -692,7 +701,11 @@ public sealed class ProjectsController : ControllerBase
         string? StartCommand = null,
         string? OutputDirectory = null,
         string? Framework = null,
-        string? DockerfilePath = null);
+        string? DockerfilePath = null,
+        string? ComposeFileLocation = null,
+        string? DomainServiceName = null,
+        string? ComposeServerDirectory = null,
+        string? ComposeServerFramework = null);
 
     public sealed record UpdateProjectRequest(
         string? Name,
