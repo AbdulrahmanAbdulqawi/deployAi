@@ -175,4 +175,39 @@ public class DatabaseRequirementDetectorTests
         Assert.True(profile.RequiresPostgres);
         Assert.Equal("myapp", profile.PostgresDatabaseName);
     }
+
+    [Fact]
+    // Mirqab's appsettings.json has no ConnectionStrings section at all — Program.cs reads
+    // GetConnectionString("Postgres") directly in code. But its docker-compose.yml, read for the
+    // image check, already spells out the exact key it needs: ConnectionStrings__Postgres, the
+    // standard double-underscore env-var form of the same config path. Nothing read it for the key
+    // name, only for the postgres image — so provisioning succeeded and wired only the generic
+    // defaults (ConnectionStrings__Default, DATABASE_URL), never the one key the app actually reads,
+    // and the container kept crash-looping on "ConnectionStrings:Postgres is not configured".
+    public void Detect_ExtractsConnectionStringKey_FromComposeEnvironmentVariable_WhenAppsettingsDeclaresNone()
+    {
+        const string compose = """
+            services:
+              postgres:
+                image: postgres:17-alpine
+                environment:
+                  POSTGRES_DB: mirqab
+              api:
+                environment:
+                  ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=mirqab;Username=mirqab;Password=mirqab_dev"
+            """;
+
+        const string appsettings = """
+            {
+              "Logging": { "LogLevel": { "Default": "Information" } },
+              "AllowedHosts": "*"
+            }
+            """;
+
+        var profile = _detector.Detect(compose, appsettings);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.Equal("mirqab", profile.PostgresDatabaseName);
+        Assert.Contains("Postgres", profile.ConnectionStringKeys);
+    }
 }
