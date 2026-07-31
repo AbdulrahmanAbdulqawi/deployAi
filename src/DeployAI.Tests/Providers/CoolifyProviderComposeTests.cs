@@ -161,6 +161,52 @@ public class CoolifyProviderComposeTests
         Assert.False(patchBody.Value.TryGetProperty("fqdn", out _));
     }
 
+    // Mirqab's compose app never got a domain at creation (Coolify rejects one before the first
+    // deploy) and its top-level fqdn stayed empty forever after -- nothing DeployAI does ever
+    // reads a real domain back to pass here. domain: null lets the provider derive its own
+    // sslip.io default from the connection's own instance address instead of depending on that.
+    [Fact]
+    public async Task AssignComposeDomainAsync_DerivesAnSslipDomain_WhenNoneIsGiven()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, "https://46.225.80.188:8000/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            """{ "uuid": "app-compose" }""");
+
+        var credentials = new ProviderCredentials(
+            CoolifyCredentialStorage.Serialize("https://46.225.80.188:8000", "coolify-token"));
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+
+        var assigned = await provider.AssignComposeDomainAsync(
+            credentials, "app-compose", domain: null, "web", CancellationToken.None);
+
+        Assert.Equal("http://app-compose.46.225.80.188.sslip.io", assigned);
+        var web = patchBody.Value.GetProperty("docker_compose_domains").GetProperty("web");
+        Assert.Equal("http://app-compose.46.225.80.188.sslip.io", web.GetProperty("domain").GetString());
+    }
+
+    // The Coolify instance this account uses is IP-addressed, but a future one might not be.
+    // Guessing a domain for a hostname-addressed instance would be worse than doing nothing.
+    [Fact]
+    public async Task AssignComposeDomainAsync_AttemptsNothing_WhenNoDomainIsGivenAndNoneCanBeDerived()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patched = false;
+        handler.When(HttpMethod.Patch, "https://coolify.example.com/api/v1/applications/app-compose")
+            .Respond(_ => { patched = true; return new HttpResponseMessage(HttpStatusCode.OK); });
+
+        var credentials = new ProviderCredentials(
+            CoolifyCredentialStorage.Serialize("https://coolify.example.com", "coolify-token"));
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+
+        var assigned = await provider.AssignComposeDomainAsync(
+            credentials, "app-compose", domain: null, "web", CancellationToken.None);
+
+        Assert.Null(assigned);
+        Assert.False(patched);
+    }
+
     [Fact]
     public async Task AssignComposeDomainAsync_DefaultsToTheWebService()
     {

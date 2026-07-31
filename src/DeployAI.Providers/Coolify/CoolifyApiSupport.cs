@@ -21,6 +21,25 @@ internal static class CoolifyApiSupport
         return new CoolifySession(payload.InstanceUrl, payload.ApiToken);
     }
 
+    /// <summary>
+    /// Coolify's own convention for a domain-free app: <c>{uuid}.{server-ip}.sslip.io</c>, which
+    /// resolves to the IP encoded in the hostname with no DNS record needed. Only meaningful when
+    /// the instance itself is addressed by a raw IP (every Coolify instance DeployAI has deployed
+    /// through so far) — a hostname-addressed instance has no IP to encode, so this returns null
+    /// rather than guess.
+    /// </summary>
+    internal static string? TryBuildSslipDomain(string instanceUrl, string applicationUuid)
+    {
+        if (!Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri) ||
+            !System.Net.IPAddress.TryParse(uri.Host, out var address) ||
+            address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return null;
+        }
+
+        return $"http://{applicationUuid}.{address}.sslip.io";
+    }
+
     internal static string? ParseErrorMessage(string? responseBody)
     {
         if (string.IsNullOrWhiteSpace(responseBody))
