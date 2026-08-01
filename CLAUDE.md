@@ -148,216 +148,49 @@ rotate it.
 
 ## Known gaps
 
-Recorded so they get closed rather than re-done by hand.
+Recorded so they get closed rather than re-done by hand. One line each — full narrative for
+each lives in `docs/gaps/` (see `docs/gaps/README.md` for the index), following the same shape
+as `docs/12-repository-scanning.md`. When you close or open a gap, update both: the one-liner
+here, and the doc it links to.
 
-- **Duplicate repair only runs on the database-linking path.** The write race is fixed --
-  `CoolifyProvider.UpsertEnvVarAsync` now goes through Coolify's `PATCH /envs/bulk`, which
-  resolves by key server-side, instead of the old non-atomic list-then-create. Repair now exists
-  too: `ReconcileDuplicateEnvVarsAsync` deletes every record after the first for a key, which is
-  the only safe rule because Coolify's bulk handler resolves with `->where('key', $key)->first()`
-  and so writes to the first record and leaves later ones stale. But it is only wired into
-  `LinkDatabaseVariablesAsync`. An application that carries duplicates and never gets a database
-  link is still never repaired, and there is no way to ask for a repair without deploying. One app
-  was observed with 32 records for 16 keys, including two `DATABASE_URL`s pointing at *different*
-  Postgres instances -- and the stale copies pointed at a database that no longer existed at all.
-- **Callers still upsert one key at a time.** `UpsertEnvVarsAsync` can apply a whole set in a
-  single request, but `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still
-  loop key by key. Batching would cut N round trips to one and leave no window for a concurrent
-  sync to interleave mid-set.
-- **DeployAI cannot create a Coolify project, only deploy into an existing one.** A missing
-  environment is now created rather than dead-ending, but the project picker still only offers
-  projects that already exist. Coolify exposes `POST /projects`, so nothing prevents closing this
-  — until then, the first deploy into a new Coolify instance is a manual step.
-- **Only .NET apps get their schema created.** The generated .NET Dockerfile now bundles EF
-  migrations and applies them before the app starts. Nothing equivalent exists for the other
-  runtimes DeployAI deploys — a Node or Python service provisioned a database still meets an empty
-  one, and the failure looks like a healthy app returning 500s.
-- **The file-storage layer is still hand-written per app, and it is platform code.** The clearest
-  outstanding case of the second core rule. DeployAI provisions the bucket, wires the five keys,
-  and verifies the round trip — then every app writes its own client against them, and every app
-  rediscovers the same four Hetzner quirks: `ForcePathStyle`, `RequestChecksumCalculation` /
-  `ResponseChecksumValidation` set to `WHEN_REQUIRED`, SigV4 (Ceph rejects unsigned payloads), and
-  buffering a non-seekable upload stream before signing. All four failed silently in one app in one
-  session. Two apps in this account now have two different implementations, one of them weaker.
-  DeployAI already commits generated files into a repository, so it can generate this the way it
-  generates Dockerfiles: a storage service, an image pipeline, and a proxy endpoint so bytes go
-  through the API and the bucket stays private. Two rules constrain it — `UseS3` must require *all*
-  the settings so a blank value falls back to local disk rather than half-configured S3, and the
-  composition-root patch must refuse rather than guess when its anchor is missing. Rewriting an
-  app's own upload call sites is out of scope and must be stated in the PR, not assumed done.
-- **Coolify's proxy labels are managed by Coolify, and DeployAI must not write them.** Writing
-  `custom_labels` at all is what left two apps unroutable; the field is no longer sent. The stale-label
-  problem is still open and now has a worked example. Mirqab's app carried a *custom* label set
-  pinned to `loadbalancer.server.port=80` from the day it was created. Every later correction —
-  build pack, Node version, port — reached Coolify and none reached the proxy, so the container ran,
-  the deploy reported success and every request got 502 from Traefik while nginx logged no requests
-  at all. **An empty Labels box is the healthy state**: Coolify regenerates labels from
-  `ports_exposes` on each deploy, and the app that works has nothing in that box. A custom set is
-  what freezes the port. Recovery took Coolify's own "Reset Labels to Defaults" *and* a redeploy —
-  one deploy after the reset was not enough, and the labels stayed empty until the deploy after that.
-  What DeployAI could do without writing labels itself: notice that the port it just set differs from
-  the one the proxy is using and say so, rather than reporting a green deploy for an unreachable site.
-- **The wizard still shows nothing for an inconclusive env scan.** `env-schema` now finds config
-  wherever the app actually lives, flags `inconclusive` for both "read no sources" and "could not
-  list the repository", and returns `projectDirectory` / `searchedIn` so a wrong answer is
-  recognisable. The wizard ignores all of it: an empty result and an unreadable repository still
-  render the same — no environment step — so a user can still deploy with nothing set and no
-  warning. This is the last piece of the `Jwt configuration missing` crash-loop still open, and it
-  is now a UI change rather than a detection problem. The screen has also **not been exercised**
-  against the new input: nested repos will start producing variables where they produced none.
-- **Ranking which sibling directory is the server is still a separate answer.** Every scanner now
-  reads through `RepositoryLayoutResolver` (`docs/12-repository-scanning.md`), which closes the
-  root-only class of silent failure — but one caller could not move wholesale.
-  `ServerBuildProfileDiscovery` asks a question the resolver does not answer: given a whole
-  repository, *which* of several sibling directories is the server. It answers by scoring names and
-  excluding known frontend directories, because the resolver takes the first directory holding any
-  application manifest and would nominate `client/package.json`. That ranking cannot move into the
-  resolver — the storage and configuration scans must read the frontend, and skipping it there is
-  the same bug pointed the other way. So two answers to "where is the app" still exist, and the
-  discovery half is exercised only when a repository is first classified. A test asserts the
-  divergence so it stays deliberate.
-- **The required-configuration check warns; it does not stop a deploy.** `RequiredConfigurationCheck`
-  compares what the deployed ref declares it needs against what the target actually has, and names
-  the difference in the deploy log before the app starts. It also names whole sections that only
-  `appsettings.Development.json` declares and the app has nothing from — added after finding that on
-  yemenConnect, `Jwt`, `Tickets` and `Bootstrap` appear *only* in that file, so the check built for
-  the `Jwt configuration missing` crash-loop was blind to `Jwt` on the very repository that
-  crash-looped. It is deliberately advisory: "required" means a key the app declares with no value of
-  its own, which is a strong signal and not proof, since a value can arrive from somewhere DeployAI
-  cannot see. Two things remain — it reads only the server target (a website with required config is
-  unchecked), and nobody has to act on the warning, so a deploy can still proceed into a known
-  crash-loop.
+### Provisioning & environment variables — [docs/gaps/provisioning-and-env-vars.md](docs/gaps/provisioning-and-env-vars.md)
+- Duplicate env-var repair only runs on the database-linking path, not every target.
+- Env-var upserts still loop one key at a time in two callers instead of batching.
+- ~~The managed environment store was project-wide~~ — closed; a secret on a website-only project still has nowhere else to go.
+- CORS wiring is a guessed key-name list with nothing checking whether the guess was right.
+- Secrets DeployAI generates exist only in DeployAI's own database, with no export path.
 
-- **Nothing reports a setting the app has that no code reads.** The mirror of the check above.
-  yemenConnect carries `Jwt__Key` and `Jwt__Secret` on its API; `JwtOptions` binds only `Issuer`,
-  `Audience`, `SigningKey` and `AccessTokenMinutes`, so both are dead weight that reads as
-  configured. The obvious rule — "flag any key the repository never declares" — was tried and
-  discarded: on this app it produces zero true positives and flags DeployAI's own
-  `ConnectionStrings__Default` conventions, and noise is what teaches people to skip the line that
-  matters. A sound version needs to read the options classes, not the settings files.
-- **Runtime logs are unavailable exactly when they are needed.** `runtime-logs` returns
-  "Application is not running" for a stopped container, so the capability added for "an app that
-  builds fine but crash-loops" cannot read the crash. It took a `lifecycle/start` first, and a
-  container that has hit Coolify's restart limit stays stopped until something starts it. For a
-  *running* container it works well — it is what diagnosed the `/public/stats` 500 above, returning
-  the full EF translation error and the SQL around it in one call.
-- **DeployAI provisions a Coolify database it then cannot reach.** `IProviderDataServiceInspection`
-  is implemented by `RailwayProvider` only, so `data-info` answers `unsupported_provider` for every
-  Coolify database — which is the default. The connection string DeployAI writes onto the app uses
-  Coolify's internal Docker hostname, reachable only from inside that network, so nothing outside the
-  container can look at the data: not the tables panel, not a migration check, not the user. Found
-  while trying to remove three throwaway accounts a test had created; the only routes to them are SSH
-  onto the Hetzner host or an endpoint in the app itself, and the first is precisely what the core
-  rule says must not become routine. A provisioned database nobody can inspect is also why "did the
-  migrations apply" still has no answer for the provider DeployAI defaults to.
-- **Project status is never revalidated against the provider.** A project whose Coolify
-  applications have been deleted still shows as deployed and healthy, with links to domains that
-  return 404. The status and URLs come from the last deployment record and are never rechecked, so
-  the dashboard can advertise a dead app indefinitely.
-- **A compose deploy is announced, then quietly reduced to its frontend.** Closed for the silence;
-  open for the automation. A single-origin compose plan has a website part and a server part that
-  deploy as one Coolify application, so only one target is created — and nothing recorded that the
-  target *was* a compose deployment. Every later reader re-derived the shape from a lone Angular
-  website: `PlanUsesSingleOriginCompose` needs both halves so it answered false, readiness therefore
-  skipped the compose rules and reported a repository with no `docker-compose.coolify.yml` as ready,
-  and `SsrWebsiteBuildProvisioner` matched on the website role and switched the application off
-  Docker Compose onto a Dockerfile build of `client/`. The wizard said "site, API and database";
-  what deployed was an Angular bundle, and nothing named the difference. The target now carries
-  `composeFileLocation`, `composeServerDirectory` and `composeServerFramework`; the provisioner
-  refuses to touch a compose target; and `DeployTargetPlanParts` expands the one target back into
-  the two parts it stands for, so every existing compose check works unchanged. **The shape, again:
-  decided correctly, persisted incompletely, re-derived from worse information by the last writer** —
-  the same one behind the stale ConfigJson and the port that fell back to 8080. What remains: the
-  compose file is still produced only by the user pressing "Set up deployment files", which opens a
-  PR they must merge. That is now *reported* — the plan card lists the missing file and the deploy
-  refuses with its name — but a plan DeployAI proposed still cannot be published without a manual
-  step, which by the core rule is a gap and not a workflow.
-- **Two unfinished implementations of compose generation exist side by side.** The one that runs is
-  template-based (`DeploymentTemplates/single-origin-compose/angular-dotnet-coolify`, six `.tpl`
-  files) and is keyed to exactly one stack: `SingleOriginComposeShape` hardcodes Angular + .NET on
-  Coolify. The other is a capability graph — `DeploymentGraph`, `ServiceNode`, `SingleOriginTransform`,
-  `ResourceWiringTransform`, `ComposeGenerator`, `CoolifyComposePlanner`, ~750 lines — written
-  explicitly to replace that hardcoded gate ("this class contains no framework names") and referenced
-  by nothing outside its own tests. Neither is wrong; having both is. The graph is the better answer
-  and the missing link is small — nothing builds a `DeploymentGraph` from a classification — but until
-  one of them is chosen, a React + Express repo gets no compose plan at all while the code that would
-  have handled it sits complete and unreachable.
-- **No divergence warning.** DeployAI deploys whatever ref it is pointed at without reporting
-  how that ref relates to the user's other branches.
-- **No migration-chain validation.** Nothing checks for colliding or misordered migrations
-  before a deploy.
-- **Verification is shallow for everything except storage.** A deployment probing `/health`
-  successfully can still have a fully broken API surface. See `DeploymentVerificationService.cs` /
-  `DeploymentEndpointProbes.cs`. Object storage is now the exception and the template: it does a
-  signed write-read-delete and a real browser preflight on every deploy, and reports whether it
-  passed, failed, or could not run. Databases, the API's routes and CORS deserve the same treatment.
-  **The app's own output is now read on every deploy** (`RuntimeExceptionCheck`), which closes the
-  general case rather than one route: an application that is failing says so, in its own words,
-  whatever language it is written in. It found the second confirmed instance — yemenConnect's
-  `/public/stats`, the endpoint its landing page calls on every visit, 500ing on every request for
-  the life of the deployment while `/health` returned 200 and both targets went green. Route probing
-  could not have: the app's OpenAPI document sits behind the same fallback auth policy as everything
-  else (`401`), so there is nothing to enumerate from outside.
-  **It is scanned before the build as well as after, and the "before" is the half that matters most:**
-  the outgoing container has served real traffic, so its log holds the failures only real usage
-  produces. A route that 500s for every visitor logs nothing until a visitor arrives, so an
-  after-only check catches crashes at startup and misses everything request-shaped.
-  What remains: nothing acts on the finding — a deploy proceeds, and an app that logged a thousand
-  errors an hour deploys as quietly as one that logged none.
-- **~~DeployAI's managed environment store is project-wide.~~ Closed.** `ProjectEnvironmentStore`
-  keys by target as well as name, so a website and a server that both carry `API_URL` no longer share
-  one record — saving on one used to overwrite the other's value and deleting from one erased both.
-  The old flat blob still reads: those entries land in a bucket belonging to no app, are still
-  exported, and move to a real target the first time one is saved or deleted there, so an existing
-  project converges without a migration that would have to guess. What remains is upstream of the
-  store: a project whose only deployable target is a website has nowhere else for a server secret to
-  go, which is how four `MIRQAB_*` secrets ended up on a frontend and were then baked into its image
-  as build args by Coolify's Nixpacks builder. The store no longer confuses them; nothing yet warns
-  that a secret is on the wrong kind of app.
-- **CORS wiring is a guess, and nothing checks whether the guess was right.**
-  `ResolveServerCorsEnvKeys` writes a fixed list of key names per framework. It now includes ASP.NET's
-  own `Cors__Origins__0` / `Cors__AllowedOrigins__0` alongside DeployAI's `App__*` convention, but it
-  is still a list of names hoped to match. An app reading any other key gets its origins written
-  nowhere it looks, keeps whatever hardcoded fallback its source has, and nothing reports it: the API
-  logs nothing (the browser never sends the request), both deploy targets go green, `/health` passes,
-  and the only symptom is the frontend's own "cannot reach the server" message. One `OPTIONS` from the
-  website origin to the API, checking for `Access-Control-Allow-Origin`, would settle it in a single
-  request at the end of a deploy — that is the fix; the key list is a stopgap. Better still: read the
-  key out of the repository (`GetSection("...")` in `Program.cs`) rather than guessing names at all,
-  which the resolver now makes possible. **The pattern to copy already exists**: `ObjectStorageVerifier`
-  sends exactly that preflight against the bucket and reports the result on every deploy. Doing the
-  same from the website origin to the API is the same shape of work.
-- **An app is handed credentials far wider than it needs, and DeployAI cannot narrow them.**
-  `ObjectStorageEnvironmentWiring` writes the storage connection's own access key and secret onto the
-  app, so a container that needs one bucket can list, create and delete every bucket in the project.
-  They are written as secrets, so Coolify will not read them back, but an app compromise reaches the
-  whole storage account rather than its own data.
-  **Researched, so it does not need investigating again:** Hetzner issues S3 credentials per project
-  and [each key pair is valid for every bucket in it](https://docs.hetzner.com/storage/object-storage/faq/s3-credentials/);
-  scoping requires a second key pair plus a bucket policy allowlisting it, and key pairs
-  [can only be generated in Hetzner's console](https://docs.hetzner.com/storage/object-storage/getting-started/generating-s3-keys/) —
-  there is no API, so DeployAI cannot mint one. The mitigation is therefore user-side: a key pair (or
-  project) per app, then a bucket policy. DeployAI already supports it — several `ObjectStorage`
-  connections can exist and each storage target records which one it belongs to — but nothing guides
-  a user there. What it does now is refuse to hide the exposure: provisioning reports how many
-  buckets the credentials it just wired can reach. Applying the bucket policy automatically once a
-  second key exists is the remaining work.
-- **Secrets DeployAI generates exist only in DeployAI.** `Jwt__SigningKey`, `Tickets__SigningKey` and
-  the storage keys are written to the provider as secrets, which Coolify will not return, and stored
-  encrypted in DeployAI's own database. If that database is lost or reset — which happened once
-  already this week — the values are unrecoverable, every issued token and ticket signature breaks,
-  and there is no export path. Generating secrets on a user's behalf implies keeping them
-  recoverable.
-- **~~Generated commit messages are generic.~~ Closed, and the cause was worse than the symptom.**
-  Dockerfile generation produced several commits sharing one message because it produced several
-  commits *that changed nothing*. Both paths meant to skip an unchanged file; neither did.
-  `ContentMatches` base64-decoded its argument, but `GetFileMetadataAsync` already decodes — so it
-  decoded plain text, threw `FormatException`, swallowed it, and answered "different" every single
-  time. The server path did not call it at all. Four deploys of one app in one afternoon appended
-  four empty commits to a user's own history. Messages now distinguish Add from Update and name the
-  website build separately, but the real fix is that an unchanged file produces no commit.
-  **The shape to watch for:** a `catch` whose fallback is the unsafe answer is invisible. It cannot
-  fail loudly, it cannot be seen in a log, and the only evidence is junk arriving somewhere nobody
-  is looking — here, someone else's git history.
-- **Nothing requires a change to arrive with tests.** CI runs the suite but does not fail a PR
-  that adds behaviour without covering it, so the testing rule above rests on discipline alone.
+### Compose deployments — [docs/gaps/compose-deployments.md](docs/gaps/compose-deployments.md)
+- Coolify's proxy labels freeze a stale port if ever custom-written; DeployAI must never write them.
+- A compose deploy could silently collapse to just its frontend — closed for the silence, open for the manual "set up deployment files" step.
+- Two unfinished implementations of compose generation exist side by side; neither is chosen.
+- ~~Connection-string keys declared only in a compose environment block were invisible to detection~~ — closed (`e6e181e`).
+- ~~A compose app never received a domain, so its Traefik route never existed~~ — closed (`5967a81`).
+
+### Runtime diagnostics — [docs/gaps/runtime-diagnostics.md](docs/gaps/runtime-diagnostics.md)
+- `runtime-logs` can't read a stopped container's crash — the exact case it exists for.
+- Coolify's logs API only ever returns one container's output, with no way to pick another — a compose app's non-primary service is invisible to it.
+
+### Verification & required config — [docs/gaps/verification-and-config-checks.md](docs/gaps/verification-and-config-checks.md)
+- The wizard shows nothing different for an inconclusive env scan vs. a genuinely empty one.
+- The required-configuration check warns but never blocks a deploy into a known crash-loop.
+- Nothing flags a setting the app has that no code actually reads.
+- Project status is never revalidated against the provider — a deleted app can still show healthy.
+- No divergence warning, and no migration-chain validation, before a deploy.
+- Verification is shallow for everything except object storage.
+- Nothing requires a change to arrive with tests; CI runs the suite but doesn't gate on coverage.
+
+### Database provisioning — [docs/gaps/database-provisioning.md](docs/gaps/database-provisioning.md)
+- DeployAI can't create a Coolify project, only deploy into one that already exists.
+- Only .NET apps get their schema/migrations applied automatically.
+- A provisioned Coolify database is reachable from nothing outside its own container network.
+
+### Object storage — [docs/gaps/object-storage.md](docs/gaps/object-storage.md)
+- The file-storage layer is still hand-written per app, though it is platform code.
+- An app is handed account-wide storage credentials far wider than it needs.
+
+### Process — [docs/gaps/process.md](docs/gaps/process.md)
+- ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.
+
+### Repository scanning
+- Ranking which sibling directory is the server (`ServerBuildProfileDiscovery`'s whole-repository case) is still a separate answer from the shared resolver — see `docs/12-repository-scanning.md`'s "What did not move" section directly rather than a copy here.
