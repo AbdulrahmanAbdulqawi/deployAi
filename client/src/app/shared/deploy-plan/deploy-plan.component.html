@@ -155,6 +155,20 @@
       <p class="plan-card__notice">Connect {{ missingConnections.join(' and ') }} first to deploy.</p>
     }
 
+    @if (blockingFindings(); as blocking) {
+      @if (blocking.length > 0) {
+        <div class="plan-card__notice plan-card__notice--blocking">
+          <p><strong>Your repository is missing files this plan needs.</strong></p>
+          <ul>
+            @for (file of blocking; track file.path + file.reason) {
+              <li><code>{{ file.path }}</code> — {{ file.reason }}</li>
+            }
+          </ul>
+          <p>Use <strong>Manual override</strong> to set up these files, then come back.</p>
+        </div>
+      }
+    }
+
     <div class="plan-card__actions">
       <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>
       <div class="plan-card__actions-end">
@@ -165,7 +179,7 @@
           <app-ui-button
             variant="primary"
             icon="arrow-right"
-            [disabled]="deploying || activeParts.length === 0"
+            [disabled]="!canAccept()"
             [loading]="deploying"
             (click)="accept.emit()">
             Yes, deploy it

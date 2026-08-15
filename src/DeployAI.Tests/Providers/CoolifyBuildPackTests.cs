@@ -75,6 +75,42 @@ public class CoolifyBuildPackTests
         Assert.Null(CoolifyApiSupport.ResolveExposedPort(CoolifyBuildPackValues.DockerCompose, request));
     }
 
+    /// <summary>
+    /// The config sync runs before every deploy and re-describes the application from its stored
+    /// config. That overload had no compose parameter, so a compose app arrived as a framework and
+    /// a build command, resolved to Nixpacks, and overwrote the compose selection made when the
+    /// application was created — seconds before the build. Mirqab's deploy then ran
+    /// <c>npm run build</c> at the repo root and failed, with a correct docker-compose.coolify.yml
+    /// sitting in the repository unused.
+    /// </summary>
+    [Fact]
+    public void ConfigSync_KeepsAComposeAppOnCompose_DespiteHavingAFrameworkAndBuildCommand()
+    {
+        var buildPack = CoolifyApiSupport.ResolveBuildPack(
+            coolifyBuildPack: null,
+            dockerfilePath: null,
+            framework: "angular",
+            outputDirectory: "dist/client/browser",
+            buildCommand: "npm run build",
+            composeFileLocation: "docker-compose.coolify.yml");
+
+        Assert.Equal(CoolifyBuildPackValues.DockerCompose, buildPack);
+    }
+
+    [Fact]
+    public void ConfigSync_StillResolvesNormallyWhenThereIsNoComposeFile()
+    {
+        var buildPack = CoolifyApiSupport.ResolveBuildPack(
+            coolifyBuildPack: null,
+            dockerfilePath: null,
+            framework: "angular",
+            outputDirectory: "dist/client/browser",
+            buildCommand: "npm run build",
+            composeFileLocation: null);
+
+        Assert.Equal(CoolifyBuildPackValues.Nixpacks, buildPack);
+    }
+
     // A blanket "3000" pointed Coolify's proxy at a port nothing was listening on.
     [Theory]
     [InlineData("dotnet", "8080")]

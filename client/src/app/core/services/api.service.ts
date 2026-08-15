@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { timeout, Observable } from 'rxjs';
 import {
+  AccountSecret,
   CredentialSummary,
   DatabaseRequirementProfile,
   DeploymentDetail,
@@ -314,6 +315,16 @@ export class ApiService {
     return this.http.post<ProjectDetail>('/api/projects', payload);
   }
 
+  /** Credentials saved once on the account, reused by every app that asks for them. */
+  getAccountSecrets() {
+    return this.http.get<{ secrets: AccountSecret[] }>('/api/account/secrets');
+  }
+
+  /** Omit a field to leave it unchanged; send an empty string to clear it. */
+  saveAccountSecrets(payload: { gitHubAppId?: string; gitHubAppPrivateKey?: string }) {
+    return this.http.put<{ secrets: AccountSecret[] }>('/api/account/secrets', payload);
+  }
+
   createProjectFromPlan(payload: {
     name: string;
     githubRepoFullName: string;
@@ -334,6 +345,16 @@ export class ApiService {
       outputDirectory?: string | null;
       framework?: string | null;
       dockerfilePath?: string | null;
+      /**
+       * Set on the website part of a single-origin compose plan, whose server half never becomes a
+       * target of its own — the one application hosts both, so the target has to carry both.
+       */
+      composeFileLocation?: string | null;
+      domainServiceName?: string | null;
+      composeServerDirectory?: string | null;
+      /** Where the api's Docker build actually runs from, when that differs from its own source directory. */
+      composeServerRootDirectory?: string | null;
+      composeServerFramework?: string | null;
     }[];
   }) {
     return this.http.post<ProjectDetail>('/api/projects/from-plan', payload);

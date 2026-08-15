@@ -52,6 +52,55 @@ public class ServerBuildDetectorTests
     }
 
     [Fact]
+    public void Detect_ResolvesServiceDirectoryFromTheEntrypoint_ForARepositoryRootMonorepoBuild()
+    {
+        // Mirqab's actual shape: root-context multi-stage build, several sibling .csproj files
+        // COPY'd for restore caching, and one published. RootDirectory correctly answers "the
+        // repository root" -- that is where `docker build` has to run -- but ServiceDirectory used
+        // to answer the same question and was therefore always "", so a caller going looking for
+        // appsettings.json afterward searched the repository root, found nothing, and reported no
+        // database requirement for an app that fails on line one of Program.cs without one.
+        const string dockerfile = """
+            FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS api
+            COPY src/Mirqab.Core/Mirqab.Core.csproj src/Mirqab.Core/
+            COPY src/Mirqab.Data/Mirqab.Data.csproj src/Mirqab.Data/
+            COPY src/Mirqab.Application/Mirqab.Application.csproj src/Mirqab.Application/
+            COPY src/Mirqab.Api/Mirqab.Api.csproj src/Mirqab.Api/
+            RUN dotnet restore src/Mirqab.Api/Mirqab.Api.csproj
+            COPY src/ src/
+            RUN dotnet publish src/Mirqab.Api/Mirqab.Api.csproj -c Release -o /app
+
+            FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
+            COPY --from=api /app ./
+            ENTRYPOINT ["dotnet", "Mirqab.Api.dll"]
+            """;
+
+        var profile = _detector.Detect(string.Empty, true, dockerfile, null, null);
+
+        // The build layout is unaffected -- Docker still has to build from the repository root.
+        Assert.Equal(string.Empty, profile.RootDirectory);
+        Assert.True(profile.DockerUsesRepositoryRoot);
+        // What was wrong: the app's own source is at src/Mirqab.Api, not the repository root.
+        Assert.Equal("src/Mirqab.Api", profile.ServiceDirectory);
+    }
+
+    [Fact]
+    public void Detect_FallsBackToTheBuildRoot_WhenNoEntrypointCanBeMatched()
+    {
+        // Not every Dockerfile publishes with `dotnet X.dll`, and guessing which sibling .csproj is
+        // the right one without that anchor is exactly the wrong move -- an unmatched entry answers
+        // "unknown", not "probably this one".
+        const string dockerfile = """
+            COPY iDaara.Server/iDaara.Server.csproj iDaara.Server/
+            COPY idaara.client/idaara.client.esproj idaara.client/
+            """;
+
+        var profile = _detector.Detect("iDaara.Server", true, dockerfile, null, null);
+
+        Assert.Equal("iDaara.Server", profile.ServiceDirectory);
+    }
+
+    [Fact]
     public void Detect_UsesDotnet_WhenCsprojPresent()
     {
         var profile = _detector.Detect("src/api", false, null, null, "<Project Sdk=\"Microsoft.NET.Sdk.Web\"></Project>");

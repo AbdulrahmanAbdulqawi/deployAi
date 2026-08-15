@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
+public sealed partial class CoolifyProvider : IProviderApplicationConfigSync, IComposeDomainAssignment
 {
     public async Task UpdateApplicationConfigAsync(
         ProviderCredentials credentials,
@@ -22,12 +22,12 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             request.DockerfilePath,
             request.Framework,
             request.OutputDirectory,
-            request.BuildCommand);
+            request.BuildCommand,
+            request.ComposeFileLocation);
 
         var body = new Dictionary<string, object?>
         {
-            ["build_pack"] = buildPack,
-            ["ports_exposes"] = CoolifyApiSupport.ResolveExposedPort(buildPack, request.ExposedPort, request.Framework)
+            ["build_pack"] = buildPack
 
             // custom_labels is deliberately not sent. It used to be set to a base64 empty array to
             // force Coolify to regenerate the Traefik labels it caches at first deploy, because a
@@ -45,9 +45,50 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
             // meant to solve is recorded in CLAUDE.md rather than traded for an unroutable app.
         };
 
-        if (!string.IsNullOrWhiteSpace(request.RootDirectory))
+        // Omitted rather than sent as null. A compose deployment has no single port to expose —
+        // ResolveExposedPort says so by answering null — but the key was still written into the
+        // body, and Coolify validates the field whenever it is present: "ports_exposes: The
+        // ports_exposes should be a comma separated list of numbers." That rejected the whole
+        // config sync, so the deploy failed before it started. Absent and null are different
+        // requests, and only one of them means "leave this alone".
+        var exposedPort = CoolifyApiSupport.ResolveExposedPort(buildPack, request.ExposedPort, request.Framework);
+        if (!string.IsNullOrWhiteSpace(exposedPort))
+        {
+            body["ports_exposes"] = exposedPort;
+        }
+
+        // A compose app's base directory is the repository root, whatever the website half's root
+        // directory says. Coolify resolves docker_compose_location relative to base_directory, and
+        // DeployAI writes docker-compose.coolify.yml at the root — so sending the website's "client"
+        // here made Coolify look for /client/docker-compose.coolify.yml and fail with "Docker
+        // Compose file not found". Sent explicitly rather than omitted, because omitting leaves
+        // whatever the application already had, which is exactly the wrong value.
+        if (!string.IsNullOrWhiteSpace(request.ComposeFileLocation))
+        {
+            body["base_directory"] = "/";
+        }
+        else if (!string.IsNullOrWhiteSpace(request.RootDirectory))
         {
             body["base_directory"] = CoolifyApiSupport.NormalizeDirectoryPath(request.RootDirectory);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ComposeFileLocation))
+        {
+            // Everything below describes a build Coolify is not running: compose builds its own
+            // images from the Dockerfiles its services name. The create path has always known this
+            // and omits the same set; this path sent the website half's output directory, build
+            // command and install command to an application that has no single build at all.
+            //
+            // Audited as a group rather than fixed one at a time. build_pack, ports_exposes and
+            // base_directory were each found by a separate failed deploy, and every one of them was
+            // the same mistake: reading one half's fields off a target that stands for two.
+            body["docker_compose_location"] = NormalizeComposeLocation(request.ComposeFileLocation);
+
+            using var composeRequest = CreateRequest(HttpMethod.Patch, session, $"applications/{providerProjectId}");
+            composeRequest.Content = JsonContent.Create(body);
+            var composeResponse = await _httpClient.SendAsync(composeRequest, cancellationToken);
+            await EnsureSuccessAsync(composeResponse, cancellationToken, "Could not update Coolify application config.");
+            return;
         }
 
         if (!string.IsNullOrWhiteSpace(request.OutputDirectory))
@@ -326,15 +367,29 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync
     /// effect. Attaching it earlier fails — Coolify won't accept per-service domains until the
     /// compose file has been parsed, and there is no API to set the raw compose directly.
     /// </summary>
-    public async Task AssignComposeDomainAsync(
+    /// <param name="domain">An explicit domain, or null to derive Coolify's own sslip.io
+    /// convention from the application uuid and this connection's instance address. A compose
+    /// app never gets a domain at creation (Coolify rejects it before the first deploy), so its
+    /// top-level <c>fqdn</c> stays empty forever unless something assigns one — reading it back
+    /// to decide what to assign here would be reading a field nothing ever writes.</param>
+    /// <returns>The domain actually assigned, or null when none could be determined (no explicit
+    /// domain and the instance isn't addressed by a raw IP) — nothing was attempted.</returns>
+    public async Task<string?> AssignComposeDomainAsync(
         ProviderCredentials credentials,
         string applicationUuid,
-        string domain,
+        string? domain,
         string? serviceName,
         CancellationToken cancellationToken)
     {
         var session = CoolifyApiSupport.ParseSession(credentials);
-        await AssignDomainAsync(session, applicationUuid, domain, serviceName, isCompose: true, cancellationToken);
+        var resolvedDomain = domain ?? CoolifyApiSupport.TryBuildSslipDomain(session.InstanceUrl, applicationUuid);
+        if (string.IsNullOrWhiteSpace(resolvedDomain))
+        {
+            return null;
+        }
+
+        await AssignDomainAsync(session, applicationUuid, resolvedDomain, serviceName, isCompose: true, cancellationToken);
+        return resolvedDomain;
     }
 
     /// <summary>

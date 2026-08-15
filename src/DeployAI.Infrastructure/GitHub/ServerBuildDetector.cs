@@ -42,6 +42,17 @@ public sealed class ServerBuildDetector : IServerBuildDetector
                 ? layout.DockerfilePath
                 : null;
 
+            // ServiceDirectory answers a different question than the build layout above: not where
+            // Docker builds from, but where the application's own source sits, for callers that go
+            // looking for its config afterward (appsettings.json, database requirements). Those are
+            // the same directory for a single-project build, and different whenever the build
+            // context is wider than the project it publishes — a multi-stage Dockerfile that COPYs
+            // the whole repository and builds a nested project reports normalizedRoot ("", the
+            // repository root) here unless the entry project can be resolved from the Dockerfile
+            // itself, which is exactly the case this exists for.
+            var serviceDirectory = DockerfileBuildAnalyzer.ResolveEntryProjectDirectory(dockerfileContent)
+                ?? normalizedRoot;
+
             return new ServerBuildProfile(
                 profileRootDirectory,
                 null,
@@ -49,7 +60,7 @@ public sealed class ServerBuildDetector : IServerBuildDetector
                 null,
                 "docker",
                 dockerfilePath,
-                normalizedRoot,
+                serviceDirectory,
                 string.Equals(layout.RootDirectory, ".", StringComparison.Ordinal));
         }
 

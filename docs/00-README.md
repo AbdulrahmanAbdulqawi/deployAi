@@ -20,7 +20,20 @@ The core design goal is **extensibility**: adding a new hosting provider should 
 | `03-data-model.md` | Database schema, entities, relationships, migrations |
 | `04-api-spec.md` | REST/WebSocket API endpoints, request/response contracts |
 | `05-implementation-plan.md` | Phased roadmap, timeline, milestones, testing strategy |
-| `12-repository-scanning.md` | **Proposed.** One resolver for "where does this app live in the repo", replacing seven independent guesses |
+| `06-ui-ux-plan.md` | Design philosophy for a non-technical audience |
+| `07-non-technical-standardization.md` | Standards keeping every screen feeling like a consumer app, not a dev tool |
+| `10-redesign-intelligent-entry-point.md` | Reframes the product from a provider picker into a system that decides where code runs |
+| `11-frontend-design-plan.md` | Angular 18 frontend blueprint: architecture, components, state, styling, routing |
+| `12-repository-scanning.md` | **Done.** One resolver for "where does this app live in the repo", replacing seven independent guesses |
+| `gaps/README.md` | Index of `CLAUDE.md`'s Known Gaps — full narrative per gap, one doc per theme |
+| `DEPLOYMENT.md` | Split-origin (Vercel + Railway) frontend/backend env-var wiring |
+| `coolify-smoke-test.md` | Manual smoke-test checklist for validating against a real Coolify instance |
+| `deploy-failure-fix.md` | The automated Claude-generated fix flow for a failed publish |
+| `railway-graphql-schema.md` | Maintaining the generated typed Railway GraphQL client |
+| `split-origin-playbook.md` | Split-origin deployment playbook (Angular + Vercel + Railway) |
+| `url-alignment-audit.md` | Dated URL/proxy alignment audit; superseded in part by the split-origin playbook |
+| `mcp/README.md` | Architecture and tool reference for the DeployAI MCP server |
+| `stitch/README.md` | Stitch (Google) design-screen-to-Angular-route mapping and regeneration instructions |
 
 ## Tech stack at a glance
 

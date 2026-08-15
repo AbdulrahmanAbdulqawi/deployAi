@@ -21,6 +21,25 @@ internal static class CoolifyApiSupport
         return new CoolifySession(payload.InstanceUrl, payload.ApiToken);
     }
 
+    /// <summary>
+    /// Coolify's own convention for a domain-free app: <c>{uuid}.{server-ip}.sslip.io</c>, which
+    /// resolves to the IP encoded in the hostname with no DNS record needed. Only meaningful when
+    /// the instance itself is addressed by a raw IP (every Coolify instance DeployAI has deployed
+    /// through so far) — a hostname-addressed instance has no IP to encode, so this returns null
+    /// rather than guess.
+    /// </summary>
+    internal static string? TryBuildSslipDomain(string instanceUrl, string applicationUuid)
+    {
+        if (!Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri) ||
+            !System.Net.IPAddress.TryParse(uri.Host, out var address) ||
+            address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return null;
+        }
+
+        return $"http://{applicationUuid}.{address}.sslip.io";
+    }
+
     internal static string? ParseErrorMessage(string? responseBody)
     {
         if (string.IsNullOrWhiteSpace(responseBody))
@@ -165,12 +184,24 @@ internal static class CoolifyApiSupport
         string? dockerfilePath,
         string? framework,
         string? outputDirectory,
-        string? buildCommand)
+        string? buildCommand,
+        string? composeFileLocation = null)
     {
         if (!string.IsNullOrWhiteSpace(coolifyBuildPack) &&
             CoolifyBuildPackValues.TryParse(coolifyBuildPack, out var explicitPack))
         {
             return CoolifyBuildPackValues.ToApiValue(explicitPack);
+        }
+
+        // Same precedence as the create path above, and for the same reason: a compose app's
+        // services have their own Dockerfiles and its website half has a framework and a build
+        // command, so every rule below would answer confidently and wrongly. This overload had no
+        // compose parameter at all, which is why a compose application was re-described as a plain
+        // Angular site on the config sync before every deploy — Nixpacks, `npm run build` at the
+        // repo root, and the API and database in the compose file never built.
+        if (!string.IsNullOrWhiteSpace(composeFileLocation))
+        {
+            return CoolifyBuildPackValues.DockerCompose;
         }
 
         if (!string.IsNullOrWhiteSpace(dockerfilePath) ||

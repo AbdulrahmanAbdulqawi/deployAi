@@ -45,6 +45,64 @@ public sealed class DeployTargetConfig
     [JsonPropertyName("serviceDirectory")]
     public string? ServiceDirectory { get; set; }
 
+    /// <summary>
+    /// The compose file this target deploys, set only when the whole app is one Docker Compose
+    /// resource rather than one application per role.
+    /// </summary>
+    /// <remarks>
+    /// A single-origin compose plan has a website part and a server part, but they become one
+    /// Coolify application — so only one deploy target is created, and it is given the website's
+    /// role because that is the half facing the browser. Nothing used to record that the target
+    /// was a compose deployment at all, and every later reader re-derived the shape from a lone
+    /// website target: readiness could not tell it needed a compose file, and the SSR provisioner
+    /// switched the application off compose onto a Dockerfile build of the client alone. The plan
+    /// was right, the persistence was lossy, and the last writer guessed.
+    /// </remarks>
+    [JsonPropertyName("composeFileLocation")]
+    public string? ComposeFileLocation { get; set; }
+
+    /// <summary>The compose service the domain attaches to; the rest stay on the internal network.</summary>
+    [JsonPropertyName("domainServiceName")]
+    public string? DomainServiceName { get; set; }
+
+    /// <summary>
+    /// Where the server's own source lives — Program.cs, Controllers, appsettings.json — carried on
+    /// the website-role target because the compose plan's server part never becomes a target of its
+    /// own.
+    /// </summary>
+    /// <remarks>
+    /// Not necessarily where the server's Dockerfile is: <see cref="ComposeServerRootDirectory"/>
+    /// answers that. A root-context multi-stage build — Mirqab's shape — COPYs the whole repository
+    /// and publishes a nested project, so the build runs from the repository root while the source
+    /// this field points at sits three directories down. The two were stored as one value until a
+    /// database-provisioning fix made source-directory detection correct, which immediately turned
+    /// every reader that (reasonably, at the time) treated this as "the server's directory" into a
+    /// reader of the wrong one for the Dockerfile-path question specifically.
+    /// </remarks>
+    [JsonPropertyName("composeServerDirectory")]
+    public string? ComposeServerDirectory { get; set; }
+
+    /// <summary>
+    /// Where the server's Docker build actually runs from — what compose's own <c>build:</c>
+    /// context points at, and where its Dockerfile has to sit. Null falls back to
+    /// <see cref="ComposeServerDirectory"/>, which is correct whenever a build's context is its own
+    /// project directory and only wrong for the root-context-with-a-nested-project shape this field
+    /// exists to record separately.
+    /// </summary>
+    [JsonPropertyName("composeServerRootDirectory")]
+    public string? ComposeServerRootDirectory { get; set; }
+
+    /// <summary>The server half's framework, carried for the same reason as <see cref="ComposeServerDirectory"/>.</summary>
+    [JsonPropertyName("composeServerFramework")]
+    public string? ComposeServerFramework { get; set; }
+
+    /// <summary>
+    /// Whether this target is one Docker Compose resource hosting several services, rather than a
+    /// single application built from a build pack.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsComposeTarget => !string.IsNullOrWhiteSpace(ComposeFileLocation);
+
     /// <summary>Whether a Docker build should use the repo root as build context even though <see cref="RootDirectory"/> points at a subfolder.</summary>
     [JsonPropertyName("dockerUsesRepositoryRoot")]
     public bool DockerUsesRepositoryRoot { get; set; }

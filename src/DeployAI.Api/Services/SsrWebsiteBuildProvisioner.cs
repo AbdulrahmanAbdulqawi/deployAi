@@ -61,6 +61,22 @@ public sealed class SsrWebsiteBuildProvisioner : ISsrWebsiteBuildProvisioner
         CancellationToken cancellationToken)
     {
         var config = DeployTargetConfig.Parse(websiteTarget.ConfigJson);
+
+        // A compose target is one application running several services, and the compose file — not
+        // this generator — decides how each of them builds. Switching it to a Dockerfile build
+        // replaces the whole deployment with an image of the client directory: the API and the
+        // database named in the compose file are never built, and the plan the user accepted is
+        // silently reduced to its frontend. The role says "website" because that is the half facing
+        // the browser, which is exactly why matching on the role alone was not enough.
+        if (config.IsComposeTarget)
+        {
+            _logger.LogInformation(
+                "Website target {TargetId} deploys {ComposeFile}; leaving its build to the compose file.",
+                websiteTarget.Id,
+                config.ComposeFileLocation);
+            return;
+        }
+
         if (!SsrFrontendFrameworks.Inlines(config.Framework))
         {
             return;

@@ -48,9 +48,16 @@ public sealed class DeploymentFileScaffolder
             return [];
         }
 
+        // One file can fail several rules at once — a compose file that both publishes host ports
+        // and omits a service is two findings about one path — and each resolves to the same
+        // template. ToDictionary threw on the second, which took down the whole setup run: the
+        // request died mid-stream, so the UI kept counting up with no error and no PR. It never
+        // fired before only because those findings named a path no template matched, so both were
+        // skipped; the silent drop was hiding the crash rather than avoiding it.
         var resolvedTemplates = _templateResolver
             .ResolveForGaps(parts, missingFiles, existingFilesByPath)
-            .ToDictionary(template => template.TargetPath, StringComparer.OrdinalIgnoreCase);
+            .GroupBy(template => template.TargetPath, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var generated = new List<GeneratedDeploymentFile>();
         foreach (var missing in missingFiles)
@@ -77,7 +84,12 @@ public sealed class DeploymentFileScaffolder
             }
         }
 
-        return generated;
+        // Same reason as the grouping above: several findings about one file must still produce one
+        // file, or it is committed twice in a single tree.
+        return generated
+            .GroupBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
     }
 
     private static string? TryGenerateFileContent(

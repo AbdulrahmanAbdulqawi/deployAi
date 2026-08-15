@@ -261,11 +261,19 @@ public sealed class DeploymentSetupController : ControllerBase
         return Ok(new { branch = request.Branch });
     }
 
-    private static object MapReadiness(DeploymentReadinessResult result) => new
+    /// <summary>
+    /// The readiness scan as the wizard receives it. Hand-written, so a field the scan computes is
+    /// only delivered if it is also listed here — see <c>usesSingleOriginCompose</c> below.
+    /// </summary>
+    internal static object MapReadiness(DeploymentReadinessResult result) => new
     {
         isReady = result.IsReady,
         commitSha = result.CommitSha,
         usesSplitOrigin = result.UsesSplitOrigin,
+        // Computed on every scan and dropped here, which is why the wizard could evaluate a compose
+        // repository, mark its missing compose file blocking, and then render nothing: the one field
+        // that says which shape the findings belong to never left the API.
+        usesSingleOriginCompose = result.UsesSingleOriginCompose,
         websiteProviderName = result.WebsiteProviderName,
         serverProviderName = result.ServerProviderName,
         missingFiles = result.MissingFiles.Select(file => new

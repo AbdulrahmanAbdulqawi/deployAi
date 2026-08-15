@@ -406,6 +406,30 @@ public class DeploymentOrchestratorTests
         Assert.Equal(websiteDeploymentTargetId, ordered[1]);
     }
 
+    [Theory]
+    // Mirqab's compose app never got a domain at creation -- Coolify rejects one before the
+    // first deploy -- and its top-level fqdn stayed empty forever after, because nothing ever
+    // assigned one. Traefik routes a compose app off docker_compose_domains, never fqdn, so the
+    // site 404'd at the proxy despite both containers starting cleanly. This is the gate deciding
+    // when the post-deploy call that fixes that should attempt to run; it does not wait for a URL
+    // to already exist; the provider derives its own default.
+    [InlineData("coolify", true, true)]
+    // Not compose: a single-app Coolify deploy's fqdn already routes correctly on its own.
+    [InlineData("coolify", false, false)]
+    // Not Coolify: no other provider needs this per-service domain call.
+    [InlineData("vercel", true, false)]
+    public void ShouldAssignComposeDomain_OnlyForACoolifyComposeTarget(
+        string providerName, bool isCompose, bool expected)
+    {
+        var config = DeployTargetConfig.Parse(isCompose
+            ? """{"role":"website","composeFileLocation":"docker-compose.coolify.yml"}"""
+            : """{"role":"website"}""");
+
+        var result = DeploymentJobRunner.ShouldAssignComposeDomain(providerName, config);
+
+        Assert.Equal(expected, result);
+    }
+
     [Fact]
     public async Task TriggerTargetAsync_CreatesSingleTargetDeployment()
     {

@@ -105,6 +105,20 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             throw new DeployAIException("setup_generation_failed", "Could not generate deployment files.");
         }
 
+        // "Found 5 targets" then committing 3 is a report of success that is missing two files, and
+        // both places that drop one do it with a bare `continue`. Mirqab's run lost exactly the file
+        // the deployment could not proceed without, and the only trace was a count nobody compared.
+        var unsatisfied = missing
+            .Select(file => file.Path)
+            .Except(generated.Select(file => file.Path), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (unsatisfied.Length > 0)
+        {
+            await ReportActivityAsync(
+                reportActivity,
+                $"No template could produce {string.Join(", ", unsatisfied)} — not included.");
+        }
+
         var baseSha = readiness.CommitSha ??
             await _gitHubService.GetBranchHeadShaAsync(token, owner, repo, request.GitRef, cancellationToken);
         if (string.IsNullOrWhiteSpace(baseSha))

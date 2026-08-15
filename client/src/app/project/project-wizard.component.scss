@@ -277,6 +277,23 @@
   margin-bottom: var(--space-3);
 }
 
+.wizard__env-source {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Says what accepting a prefilled credential grants. Muted would hide it; danger would read as
+   an error when it is a choice the user is allowed to make. */
+.wizard__env-exposure {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--status-warning);
+}
+
 .wizard__env-name {
   display: flex;
   align-items: center;

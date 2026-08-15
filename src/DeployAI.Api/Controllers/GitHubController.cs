@@ -309,7 +309,12 @@ public sealed class GitHubController : ControllerBase
                 defaultValue = env.DefaultValue,
                 category = env.Category.ToString().ToLowerInvariant(),
                 sources = env.SeenIn,
-                suggestedValue = suggestions.GetValueOrDefault(env.Name)
+                suggestedValue = suggestions.Values.GetValueOrDefault(env.Name),
+                // Only set when the value came from something the user linked, so the form can say
+                // "from your Coolify connection" instead of showing an unexplained prefilled box —
+                // and can say what accepting it grants, where it grants anything.
+                suggestedFrom = suggestions.Sources.GetValueOrDefault(env.Name)?.Source,
+                suggestionExposure = suggestions.Sources.GetValueOrDefault(env.Name)?.Exposure
             }),
             // An empty vars list is ambiguous on its own, so the coverage travels with it: callers
             // can tell "this repo declares nothing" from "none of the files I read exist here", and
@@ -324,14 +329,23 @@ public sealed class GitHubController : ControllerBase
         });
     }
 
-    private async Task<Dictionary<string, string>> BuildEnvSuggestionsAsync(
+    /// <summary>
+    /// What to prefill, and — for anything that came from a linked connection rather than a random
+    /// generator — where it came from, so a prefilled box is never an unexplained value.
+    /// </summary>
+    private sealed record EnvSuggestions(
+        Dictionary<string, string> Values,
+        Dictionary<string, EnvSuggestion> Sources);
+
+    private async Task<EnvSuggestions> BuildEnvSuggestionsAsync(
         Guid userId,
         IReadOnlyList<Core.Deployments.Graph.DetectedEnvVar> detected,
         CancellationToken cancellationToken)
     {
         var suggestions = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var sources = new Dictionary<string, EnvSuggestion>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var env in detected.Where(e => e.IsSecret && !e.HasDefault))
+        foreach (var env in detected.Where(e => e.IsSecret && !e.HasDefault && !IsUnguessableCredential(e.Name)))
         {
             // Long enough for JWT signing keys; users shouldn't have to invent secrets.
             // Passwords get every character class — ASP.NET Identity's default policy
@@ -359,7 +373,67 @@ public sealed class GitHubController : ControllerBase
             await FillStorageSuggestionsAsync(userId, storageVars, suggestions, cancellationToken);
         }
 
-        return suggestions;
+        // Settings the user already answered by linking a connection. These run last so a real value
+        // wins over a generated one: without that ordering, a *_COOLIFY_TOKEN is "secret with no
+        // default", so the generator above invents a random string for it, and a random Coolify
+        // token produces a container that starts, passes /health, and fails every real call.
+        foreach (var (name, suggestion) in await BuildConnectionSuggestionsAsync(userId, detected, cancellationToken))
+        {
+            suggestions[name] = suggestion.Value;
+            sources[name] = suggestion;
+        }
+
+        return new EnvSuggestions(suggestions, sources);
+    }
+
+    /// <summary>
+    /// Values DeployAI is already holding, from connections this user has linked.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, EnvSuggestion>> BuildConnectionSuggestionsAsync(
+        Guid userId,
+        IReadOnlyList<Core.Deployments.Graph.DetectedEnvVar> detected,
+        CancellationToken cancellationToken)
+    {
+        var names = detected.Select(env => env.Name).ToList();
+        var resolved = new Dictionary<string, EnvSuggestion>(StringComparer.OrdinalIgnoreCase);
+
+        // Saved on the account, because DeployAI can never obtain them: GitHub shows an App's
+        // private key once and will not reissue it. Without this, every app that needs one asks the
+        // user to paste it again — which the standing rule calls a gap, not a workflow.
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+        if (user?.SavedSecretsEncrypted is { Length: > 0 })
+        {
+            var saved = AccountSecretsStore.Parse(_encryption.Decrypt(user.SavedSecretsEncrypted));
+            foreach (var (name, suggestion) in saved.SuggestFor(names))
+            {
+                resolved[name] = suggestion;
+            }
+        }
+
+        var coolify = await _db.ProviderCredentials
+            .Where(c => c.UserId == userId &&
+                        c.ProviderName == Core.Providers.ProviderNameValues.Coolify &&
+                        c.Kind == Data.Entities.CredentialKind.Deployment)
+            .ToListAsync(cancellationToken);
+
+        // Only when unambiguous, for the same reason the storage suggestions are: picking between
+        // two Coolify servers is how an app is handed a token for the wrong one.
+        if (coolify.Count != 1)
+        {
+            return resolved;
+        }
+
+        var payload = Core.Providers.CoolifyCredentialStorage.TryParse(_encryption.Decrypt(coolify[0].TokenEncrypted));
+        if (payload is not null)
+        {
+            foreach (var (name, suggestion) in ConnectionEnvSuggestions.ForCoolify(
+                         payload.InstanceUrl, payload.ApiToken, names))
+            {
+                resolved[name] = suggestion;
+            }
+        }
+
+        return resolved;
     }
 
     /// <summary>
@@ -424,6 +498,25 @@ public sealed class GitHubController : ControllerBase
                 suggestions[env.Name] = value;
             }
         }
+    }
+
+    /// <summary>
+    /// A credential that has to match something outside this app, so inventing one is never right.
+    /// </summary>
+    /// <remarks>
+    /// Generating is correct for a value the app only ever signs with — a JWT key, a ticket
+    /// signature — because nothing else has to agree with it. It is actively harmful for a
+    /// credential that authenticates somewhere else: a private key has a public half held by whoever
+    /// issued it, and a random 48 characters cannot be that half. Observed on Mirqab, whose
+    /// MIRQAB_GITHUB_PRIVATE_KEY arrived at the form prefilled with a generated string. That deploys
+    /// a container that starts, answers /health, and fails every GitHub call it makes — the failure
+    /// shape this codebase has spent a long time removing. An empty box is the honest answer.
+    /// </remarks>
+    private static bool IsUnguessableCredential(string name)
+    {
+        var upper = name.ToUpperInvariant();
+        return upper.EndsWith("PRIVATE_KEY", StringComparison.Ordinal) ||
+               upper.EndsWith("PRIVATEKEY", StringComparison.Ordinal);
     }
 
     private static string GenerateSecret(int length) => GeneratedSecrets.Secret(length);

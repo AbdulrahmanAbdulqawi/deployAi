@@ -14,7 +14,15 @@ public sealed record UpdateProviderApplicationConfigRequest(
     string? StartCommand = null,
     string? DockerfilePath = null,
     string? CoolifyBuildPack = null,
-    string? ExposedPort = null);
+    string? ExposedPort = null,
+    /// <summary>
+    /// Set when the application is one Docker Compose resource. Without it this request describes a
+    /// compose deployment as a plain website — a framework and a build command — and the build pack
+    /// is resolved from those, which answers Nixpacks. That overwrites the compose selection made
+    /// when the application was created, so the deploy builds the client directory on its own and
+    /// the API and database in the compose file are never built at all.
+    /// </summary>
+    string? ComposeFileLocation = null);
 
 /// <summary>
 /// Optional capability for providers (currently only Coolify) whose application settings must be

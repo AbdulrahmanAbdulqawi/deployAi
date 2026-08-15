@@ -18,6 +18,43 @@ describe('buildReadinessScorecard', () => {
     expect(result.items).toEqual([]);
   });
 
+  it('shows a compose app what it is missing', () => {
+    // A compose plan is not split-origin, so every check here scored it as having no requirements
+    // at all. Its missing compose file was fetched, evaluated and marked blocking by the API, then
+    // dropped on the floor — the plan card showed nothing and the deploy went ahead to build the
+    // client directory on its own.
+    const result = buildReadinessScorecard({
+      isReady: false,
+      usesSplitOrigin: false,
+      usesSingleOriginCompose: true,
+      missingFiles: [
+        {
+          path: 'docker-compose.coolify.yml',
+          reason: 'A Docker Compose file is required.',
+          severity: 'blocking'
+        }
+      ],
+      warnings: []
+    });
+
+    expect(result.visible).toBe(true);
+    expect(result.blockingCount).toBe(1);
+    expect(result.items.some(item =>
+      item.label === 'docker-compose.coolify.yml' &&
+      item.status === ReadinessCheckStatus.Failed
+    )).toBe(true);
+  });
+
+  it('offers the setup panel to a compose app', () => {
+    expect(usesCoolifySetupScaffold({
+      isReady: false,
+      usesSplitOrigin: false,
+      usesSingleOriginCompose: true,
+      missingFiles: [],
+      warnings: []
+    })).toBe(true);
+  });
+
   it('marks blocking missing files as failed checks', () => {
     const readiness: DeploymentReadinessResult = {
       isReady: false,

@@ -36,6 +36,75 @@ public class CoolifyProviderComposeTests
         Assert.Equal("dockercompose", createBody.Value.GetProperty("build_pack").GetString());
     }
 
+    /// <summary>
+    /// The same rule on the config sync, which runs before every deploy. It resolved the port to
+    /// null for a compose app — correctly — and then wrote the key into the body anyway. Coolify
+    /// validates the field whenever it is present, so the whole sync was rejected with
+    /// "ports_exposes: The ports_exposes should be a comma separated list of numbers." and the
+    /// deploy failed before it started. Absent and null are different requests.
+    /// </summary>
+    [Fact]
+    public async Task UpdateApplicationConfigAsync_ForCompose_OmitsTheExposedPortRatherThanSendingNull()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            "{}");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-compose",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "angular",
+                RootDirectory: "client",
+                OutputDirectory: "dist/client/browser",
+                BuildCommand: "npm run build",
+                ComposeFileLocation: "docker-compose.coolify.yml"),
+            CancellationToken.None);
+
+        var body = patchBody.Value;
+        Assert.False(body.TryGetProperty("ports_exposes", out _));
+        // And the reason it resolved to null in the first place still has to hold.
+        Assert.Equal("dockercompose", body.GetProperty("build_pack").GetString());
+        // Coolify resolves docker_compose_location relative to base_directory, and the compose file
+        // is written at the repository root. Sending the website half's "client" made it look for
+        // /client/docker-compose.coolify.yml and fail with "Docker Compose file not found".
+        Assert.Equal("/", body.GetProperty("base_directory").GetString());
+        Assert.Equal("/docker-compose.coolify.yml", body.GetProperty("docker_compose_location").GetString());
+        // Compose builds its own images from the Dockerfiles its services name, so every field
+        // describing a single build describes one Coolify is not running. The create path has
+        // always omitted these; this path sent the website half's.
+        Assert.False(body.TryGetProperty("publish_directory", out _));
+        Assert.False(body.TryGetProperty("build_command", out _));
+        Assert.False(body.TryGetProperty("install_command", out _));
+        Assert.False(body.TryGetProperty("dockerfile_location", out _));
+    }
+
+    [Fact]
+    public async Task UpdateApplicationConfigAsync_ForASingleApp_StillSendsThePort()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, $"{InstanceUrl}/api/v1/applications/app-single"),
+            HttpStatusCode.OK,
+            "{}");
+
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+        await provider.UpdateApplicationConfigAsync(
+            Credentials,
+            "app-single",
+            new UpdateProviderApplicationConfigRequest(
+                Framework: "angular",
+                RootDirectory: "client",
+                DockerfilePath: "/Dockerfile",
+                ExposedPort: "3000"),
+            CancellationToken.None);
+
+        Assert.Equal("3000", patchBody.Value.GetProperty("ports_exposes").GetString());
+    }
+
     [Fact]
     public async Task CreateProjectAsync_ForCompose_OmitsExposedPortAndSingleAppBuildFields()
     {
@@ -90,6 +159,52 @@ public class CoolifyProviderComposeTests
         // A compose app must not carry a top-level domains/fqdn field.
         Assert.False(patchBody.Value.TryGetProperty("domains", out _));
         Assert.False(patchBody.Value.TryGetProperty("fqdn", out _));
+    }
+
+    // Mirqab's compose app never got a domain at creation (Coolify rejects one before the first
+    // deploy) and its top-level fqdn stayed empty forever after -- nothing DeployAI does ever
+    // reads a real domain back to pass here. domain: null lets the provider derive its own
+    // sslip.io default from the connection's own instance address instead of depending on that.
+    [Fact]
+    public async Task AssignComposeDomainAsync_DerivesAnSslipDomain_WhenNoneIsGiven()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patchBody = CaptureJson(
+            handler.When(HttpMethod.Patch, "https://46.225.80.188:8000/api/v1/applications/app-compose"),
+            HttpStatusCode.OK,
+            """{ "uuid": "app-compose" }""");
+
+        var credentials = new ProviderCredentials(
+            CoolifyCredentialStorage.Serialize("https://46.225.80.188:8000", "coolify-token"));
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+
+        var assigned = await provider.AssignComposeDomainAsync(
+            credentials, "app-compose", domain: null, "web", CancellationToken.None);
+
+        Assert.Equal("http://app-compose.46.225.80.188.sslip.io", assigned);
+        var web = patchBody.Value.GetProperty("docker_compose_domains").GetProperty("web");
+        Assert.Equal("http://app-compose.46.225.80.188.sslip.io", web.GetProperty("domain").GetString());
+    }
+
+    // The Coolify instance this account uses is IP-addressed, but a future one might not be.
+    // Guessing a domain for a hostname-addressed instance would be worse than doing nothing.
+    [Fact]
+    public async Task AssignComposeDomainAsync_AttemptsNothing_WhenNoDomainIsGivenAndNoneCanBeDerived()
+    {
+        var handler = new MockHttpMessageHandler();
+        var patched = false;
+        handler.When(HttpMethod.Patch, "https://coolify.example.com/api/v1/applications/app-compose")
+            .Respond(_ => { patched = true; return new HttpResponseMessage(HttpStatusCode.OK); });
+
+        var credentials = new ProviderCredentials(
+            CoolifyCredentialStorage.Serialize("https://coolify.example.com", "coolify-token"));
+        var provider = new CoolifyProvider(handler.ToHttpClient());
+
+        var assigned = await provider.AssignComposeDomainAsync(
+            credentials, "app-compose", domain: null, "web", CancellationToken.None);
+
+        Assert.Null(assigned);
+        Assert.False(patched);
     }
 
     [Fact]

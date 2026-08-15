@@ -373,6 +373,9 @@ namespace DeployAI.Data.Migrations
                         .IsRequired()
                         .HasColumnType("bytea");
 
+                    b.Property<byte[]>("SavedSecretsEncrypted")
+                        .HasColumnType("bytea");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 

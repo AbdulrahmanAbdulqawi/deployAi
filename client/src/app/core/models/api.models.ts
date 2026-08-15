@@ -396,6 +396,12 @@ export interface DeploymentReadinessResult {
   isReady: boolean;
   commitSha?: string;
   usesSplitOrigin: boolean;
+  /**
+   * One Coolify application hosting every service from one compose file. Distinct from
+   * usesSplitOrigin, and the API has always returned it — the UI just never read it, so every
+   * readiness gate here silently treated a compose app as having no requirements at all.
+   */
+  usesSingleOriginCompose?: boolean;
   websiteProviderName?: string;
   serverProviderName?: string;
   missingFiles: MissingDeploymentFile[];
@@ -483,6 +489,17 @@ export interface MissingConfigurationItem {
 }
 
 /** One env var the repo was detected to need, with an optional server-suggested value. */
+/**
+ * A credential saved once on the account. `value` comes back only for things that are not secret —
+ * the private key is write-only once stored, so the form shows "saved" rather than the key.
+ */
+export interface AccountSecret {
+  name: string;
+  isSet: boolean;
+  isSecret: boolean;
+  value?: string | null;
+}
+
 export interface EnvSchemaVar {
   name: string;
   isSecret: boolean;
@@ -491,4 +508,11 @@ export interface EnvSchemaVar {
   category: 'generic' | 'domain' | 'storage' | 'database' | 'adminemail';
   sources: string[];
   suggestedValue?: string | null;
+  /**
+   * Where a prefilled value came from, when it came from a connection the user linked rather than
+   * a random generator ("your Coolify connection"). Absent for generated secrets.
+   */
+  suggestedFrom?: string | null;
+  /** What accepting the suggestion grants the app, when it grants more than the app needs. */
+  suggestionExposure?: string | null;
 }

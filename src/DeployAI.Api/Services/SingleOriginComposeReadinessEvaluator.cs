@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using DeployAI.Core.Deployments;
 
 namespace DeployAI.Api.Services;
@@ -33,15 +34,14 @@ internal static class SingleOriginComposeReadinessEvaluator
         DeploymentPlanPart serverPart)
     {
         var clientPrefix = Prefix(websitePart.RootDirectory);
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
 
         return
         [
             ..ComposeFileCandidates,
             $"{clientPrefix}Dockerfile",
             $"{clientPrefix}nginx.conf",
-            $"{serverPrefix}Dockerfile",
-            $"{serverPrefix}Controllers/HealthController.cs"
+            $"{ServerBuildPrefix(serverPart)}Dockerfile",
+            $"{ServerSourcePrefix(serverPart)}Controllers/HealthController.cs"
         ];
     }
 
@@ -49,15 +49,32 @@ internal static class SingleOriginComposeReadinessEvaluator
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart)
     {
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
-
         return
         [
             ..BuildReadinessFilePaths(websitePart, serverPart),
-            $"{serverPrefix}Program.cs",
+            $"{ServerSourcePrefix(serverPart)}Program.cs",
             "docs/DEPLOYMENT.md"
         ];
     }
+
+    /// <summary>
+    /// Where <c>docker build</c> actually runs for the api service — what compose's own
+    /// <c>build:</c> context points at, and where its Dockerfile must sit.
+    /// </summary>
+    /// <remarks>
+    /// Not the same directory as <see cref="ServerSourcePrefix"/> whenever the api's Dockerfile
+    /// builds a nested project from a wider context — Mirqab's does: root-context multi-stage
+    /// build, source three levels down at <c>src/Mirqab.Api</c>. Before <c>ServiceDirectory</c>
+    /// could point somewhere other than the build root, using it here and for Program.cs/
+    /// Controllers both happened to agree. Making ServiceDirectory answer "where is the source"
+    /// correctly is what split them: the Dockerfile has to be looked for at the build root, or a
+    /// deploy whose Dockerfile has always lived at the repository root gets told it is missing one.
+    /// </remarks>
+    private static string ServerBuildPrefix(DeploymentPlanPart serverPart) => Prefix(serverPart.RootDirectory);
+
+    /// <summary>Where the server's own source lives — Program.cs, Controllers, appsettings.json.</summary>
+    private static string ServerSourcePrefix(DeploymentPlanPart serverPart) =>
+        Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
 
     internal static IReadOnlyList<MissingDeploymentFile> BuildRegenerationTargets(
         IReadOnlyList<DeploymentPlanPart> parts)
@@ -85,12 +102,11 @@ internal static class SingleOriginComposeReadinessEvaluator
     {
         var missing = new List<MissingDeploymentFile>();
         var clientPrefix = Prefix(websitePart.RootDirectory);
-        var serverPrefix = Prefix(serverPart.ServiceDirectory ?? serverPart.RootDirectory);
         var webDockerfilePath = $"{clientPrefix}Dockerfile";
         var nginxPath = $"{clientPrefix}nginx.conf";
-        var apiDockerfilePath = $"{serverPrefix}Dockerfile";
-        var healthControllerPath = $"{serverPrefix}Controllers/HealthController.cs";
-        var programPath = $"{serverPrefix}Program.cs";
+        var apiDockerfilePath = $"{ServerBuildPrefix(serverPart)}Dockerfile";
+        var healthControllerPath = $"{ServerSourcePrefix(serverPart)}Controllers/HealthController.cs";
+        var programPath = $"{ServerSourcePrefix(serverPart)}Program.cs";
 
         var composePath = ComposeFileCandidates.FirstOrDefault(
             candidate => !IsMissing(fileContentsByPath, candidate));
@@ -113,6 +129,10 @@ internal static class SingleOriginComposeReadinessEvaluator
                 webDockerfilePath,
                 "The web service builds from this directory, so it needs its own Dockerfile.",
                 DeploymentFileSeverity.Blocking));
+        }
+        else
+        {
+            missing.AddRange(EvaluateWebDockerfile(webDockerfilePath, fileContentsByPath[webDockerfilePath]!));
         }
 
         if (IsMissing(fileContentsByPath, apiDockerfilePath))
@@ -168,29 +188,86 @@ internal static class SingleOriginComposeReadinessEvaluator
 
     private static IEnumerable<MissingDeploymentFile> EvaluateComposeFile(string path, string content)
     {
+        // Findings are reported against the file DeployAI can write, which is not always the file it
+        // inspected. A repo's own docker-compose.yml is usually its local dev stack, so the remedy
+        // for a rejected one is to *add* docker-compose.coolify.yml beside it — never to rewrite the
+        // developer's environment. Naming the inspected path instead produced a required file no
+        // generator could satisfy: nothing has a template called docker-compose.yml, the lookup
+        // missed, and the one file the whole deployment depends on was dropped without a word.
+        var reportedPath = ComposeFileName;
+        var about = string.Equals(path, ComposeFileName, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : $"`{path}` cannot be used as-is: ";
+
         if (!DeclaresService(content, "api") || !DeclaresService(content, "web"))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Compose file must declare both an `api` and a `web` service — nginx proxies to the api service by name.",
+                reportedPath,
+                $"{about}the compose file must declare both an `api` and a `web` service — nginx proxies to the api service by name.",
                 DeploymentFileSeverity.Blocking);
         }
 
         if (PublishesHostPorts(content))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Compose file publishes host ports. Coolify's Traefik terminates TLS and routes the domain itself; use `expose` on web instead.",
+                reportedPath,
+                $"{about}it publishes host ports. Coolify's Traefik terminates TLS and routes the domain itself; use `expose` on web instead.",
                 DeploymentFileSeverity.Blocking);
         }
 
         if (!content.Contains("restart:", StringComparison.OrdinalIgnoreCase))
         {
             yield return new MissingDeploymentFile(
-                path,
-                "Services should set `restart: unless-stopped` so they survive a host reboot.",
+                reportedPath,
+                $"{about}services should set `restart: unless-stopped` so they survive a host reboot.",
                 DeploymentFileSeverity.Recommended);
         }
+    }
+
+    /// <summary>
+    /// A web Dockerfile that exists is not necessarily this deployment's web Dockerfile.
+    /// </summary>
+    /// <remarks>
+    /// Presence used to be the whole check, and presence is exactly what a Dockerfile written for a
+    /// different shape has. Mirqab carried one generated by <c>SsrFrontendDockerfile</c> for a
+    /// standalone website: nginx on 3000, its own config written inline with <c>printf</c>, and no
+    /// <c>/api/</c> proxy — correct for a site deployed alone, wrong for a compose service. The
+    /// compose run then emitted an nginx.conf that nothing copied, and the compose file exposed 80
+    /// while the image listened on 3000. Every file individually passed; the deployment could not
+    /// have served a request. Both symptoms had already been seen live on this app: 502 from the
+    /// port mismatch, 405 on login from the absent proxy.
+    /// </remarks>
+    private static IEnumerable<MissingDeploymentFile> EvaluateWebDockerfile(string path, string content)
+    {
+        if (!content.Contains("nginx.conf", StringComparison.OrdinalIgnoreCase))
+        {
+            yield return new MissingDeploymentFile(
+                path,
+                "This Dockerfile never copies nginx.conf, so the /api proxy config never reaches the image. It was most likely generated for a standalone website, where there is no API to proxy to.",
+                DeploymentFileSeverity.Blocking);
+        }
+
+        if (ExposesPortOtherThan80(content))
+        {
+            yield return new MissingDeploymentFile(
+                path,
+                "The compose file routes the domain to port 80 on the web service, and this image listens on a different port. The container runs, the deploy reports success, and every request gets a 502 from the proxy.",
+                DeploymentFileSeverity.Blocking);
+        }
+    }
+
+    /// <summary>
+    /// Whether the image declares a port, and none of the ports it declares is 80. A Dockerfile
+    /// with no EXPOSE at all is left alone — that is a different judgement, and guessing it wrong
+    /// blocks a deploy that would have worked.
+    /// </summary>
+    private static bool ExposesPortOtherThan80(string content)
+    {
+        var exposed = Regex.Matches(content, @"^\s*EXPOSE\s+(\d+)", RegexOptions.Multiline | RegexOptions.IgnoreCase)
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+
+        return exposed.Length > 0 && !exposed.Contains("80");
     }
 
     private static IEnumerable<MissingDeploymentFile> EvaluateNginxConf(string path, string content)

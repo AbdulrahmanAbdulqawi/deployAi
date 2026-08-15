@@ -66,9 +66,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
         if (!readiness.IsReady)
         {
-            throw new DeployAIException(
-                "deployment_not_ready",
-                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+            throw new DeployAIException("deployment_not_ready", BuildNotReadyMessage(readiness));
         }
 
         var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
@@ -171,9 +169,7 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
         var readiness = await _readinessService.ScanProjectAsync(projectId, branch, cancellationToken);
         if (!readiness.IsReady)
         {
-            throw new DeployAIException(
-                "deployment_not_ready",
-                "Deployment files are missing or invalid. Generate the split-origin setup before publishing.");
+            throw new DeployAIException("deployment_not_ready", BuildNotReadyMessage(readiness));
         }
 
         var gitHubToken = _encryption.Decrypt(project.User.GitHubTokenEncrypted);
@@ -218,6 +214,33 @@ public sealed class DeploymentOrchestrator : IDeploymentOrchestrator
             deployment.Id,
             deployment.Status,
             [new TriggerDeploymentTargetResult(deployTarget.ProviderName, DeploymentStatuses.Pending)]);
+    }
+
+    /// <summary>
+    /// Names what is missing and which setup produces it.
+    /// </summary>
+    /// <remarks>
+    /// This said "generate the split-origin setup" for every shape, including compose apps, whose
+    /// setup is a different one — so the one instruction offered was the wrong instruction. It also
+    /// named no file, leaving "deployment files are missing" to be resolved by guesswork against a
+    /// repository the reader may not have open.
+    /// </remarks>
+    internal static string BuildNotReadyMessage(DeploymentReadinessResult readiness)
+    {
+        var blocking = readiness.MissingFiles
+            .Where(file => file.Severity == DeploymentFileSeverity.Blocking)
+            .Select(file => file.Path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+
+        var setup = readiness.UsesSingleOriginCompose
+            ? "Run \"Set up deployment files\" to generate the compose setup before publishing."
+            : "Generate the split-origin setup before publishing.";
+
+        return blocking.Length == 0
+            ? $"Deployment files are missing or invalid. {setup}"
+            : $"This deployment needs {string.Join(", ", blocking)}. {setup}";
     }
 
     internal static IReadOnlyList<Guid> OrderDeploymentTargetIds(
@@ -698,7 +721,14 @@ public sealed class DeploymentJobRunner
                         targetConfig.StartCommand,
                         targetConfig.DockerfilePath,
                         CoolifyBuildPack: null,
-                        ExposedPort: targetConfig.ExposedPort),
+                        ExposedPort: targetConfig.ExposedPort,
+                        // The target records that it is a compose deployment; this request is what
+                        // tells Coolify so before every deploy. Omitting it described the app by its
+                        // framework and build command alone, the build pack resolved to Nixpacks,
+                        // and the compose selection made at creation was overwritten seconds before
+                        // the build — so the deploy ran `npm run build` at the repo root instead of
+                        // the compose file, and failed.
+                        ComposeFileLocation: targetConfig.ComposeFileLocation),
                     cancellationToken);
             }
 
@@ -793,6 +823,46 @@ public sealed class DeploymentJobRunner
                         sequence,
                         $"Post-deploy check could not complete: {wiringEx.Message}",
                         cancellationToken);
+                }
+
+                // A compose app's domain can only be attached once Coolify has parsed the compose
+                // file, which only happens after a deploy -- so this cannot run at creation time
+                // and has to live here instead. A compose app never gets a domain at creation
+                // (Coolify rejects it before the first deploy), so its top-level fqdn stays empty
+                // forever unless something assigns one -- which is what made Mirqab look deployed
+                // while Traefik had no route for it at all: docker_compose_domains, not fqdn, is
+                // what the proxy reads for a compose app's routing. Passing domain: null lets the
+                // provider derive its own default rather than reading back a field nothing writes.
+                // Idempotent, so it runs on every deploy rather than once -- a domain lost to a
+                // labels reset heals on the next redeploy instead of staying broken until noticed.
+                var currentConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
+                if (ShouldAssignComposeDomain(target.ProviderName, currentConfig) &&
+                    provider is IComposeDomainAssignment composeDomainAssignment)
+                {
+                    try
+                    {
+                        var assignedDomain = await composeDomainAssignment.AssignComposeDomainAsync(
+                            credentials,
+                            deployTarget.ProviderProjectId!,
+                            domain: null,
+                            currentConfig.DomainServiceName,
+                            cancellationToken);
+
+                        if (!string.IsNullOrWhiteSpace(assignedDomain))
+                        {
+                            target.DeployUrl = assignedDomain;
+                        }
+                    }
+                    catch (Exception domainEx) when (domainEx is not OperationCanceledException)
+                    {
+                        sequence++;
+                        await PersistAndBroadcastLogAsync(
+                            target,
+                            deployment.Id,
+                            sequence,
+                            $"Could not attach this app's domain to its web service: {domainEx.Message}",
+                            cancellationToken);
+                    }
                 }
             }
 
@@ -1162,6 +1232,16 @@ public sealed class DeploymentJobRunner
         DeploymentStatusKind.Pending => DeploymentStatuses.Pending,
         _ => DeploymentStatuses.InProgress
     };
+
+    /// <summary>
+    /// Whether this successful deploy should attach a compose app's domain to its web service.
+    /// Coolify only, and only a compose target — unlike a single-app deploy, a compose app's
+    /// domain is never set anywhere by anything else, so this doesn't wait for one to already
+    /// exist; the provider derives its own default when none is given.
+    /// </summary>
+    internal static bool ShouldAssignComposeDomain(string providerName, DeployTargetConfig config) =>
+        string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
+        config.IsComposeTarget;
 
     private async Task<string?> ResolveGitHubCommitShaAsync(
         Project project,

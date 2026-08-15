@@ -28,4 +28,65 @@
       <app-ui-button variant="secondary" icon="x" (click)="signOut()">Sign out</app-ui-button>
     </div>
   </article>
+
+  <!--
+    Saved here rather than per app because DeployAI can never obtain these on its own: GitHub shows
+    an App's private key once and will not reissue it. Stored once, every app that declares a
+    *_GITHUB_PRIVATE_KEY or *_GITHUB_APP_ID setting is filled in instead of asking again.
+  -->
+  <article class="settings-panel u-glass-panel">
+    <header class="settings-panel__header">
+      <div>
+        <h2>GitHub App</h2>
+        <p class="settings-panel__desc">
+          Used by apps you deploy that act on GitHub themselves. Saved once and filled in for every
+          app that asks.
+        </p>
+      </div>
+      <app-status-badge
+        [status]="privateKeyStored() ? 'success' : 'idle'"
+        [labelOverride]="privateKeyStored() ? 'Key saved' : 'No key saved'"
+      />
+    </header>
+
+    <label class="account-field">
+      <span class="account-field__label">App ID</span>
+      <input type="text" [(ngModel)]="appId" name="appId" placeholder="1234567" autocomplete="off" />
+      <small>From your GitHub App's settings page. Not a secret.</small>
+    </label>
+
+    <label class="account-field">
+      <span class="account-field__label">Private key (PEM)</span>
+      <textarea
+        [(ngModel)]="privateKey"
+        name="privateKey"
+        rows="4"
+        autocomplete="off"
+        [placeholder]="privateKeyStored()
+          ? 'A key is saved. Paste a new one only to replace it.'
+          : '-----BEGIN RSA PRIVATE KEY-----'"></textarea>
+      <small>
+        GitHub shows this once when you generate it and cannot show it again. Stored encrypted;
+        it is never displayed back.
+      </small>
+    </label>
+
+    @if (error()) {
+      <p class="account-error">{{ error() }}</p>
+    }
+    @if (saved()) {
+      <p class="account-saved">Saved.</p>
+    }
+
+    <div class="settings-panel__actions">
+      <app-ui-button variant="primary" icon="check" [disabled]="saving()" (click)="save()">
+        Save
+      </app-ui-button>
+      @if (privateKeyStored()) {
+        <app-ui-button variant="secondary" icon="trash" [disabled]="saving()" (click)="forgetPrivateKey()">
+          Forget key
+        </app-ui-button>
+      }
+    </div>
+  </article>
 </section>
