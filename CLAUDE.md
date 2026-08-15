@@ -1,8 +1,204 @@
 # DeployAI — working guidance
 
 DeployAI is a non-technical deployment platform: connect GitHub once, link a provider, and
-publish website + server in one flow. See `README.md` for the stack and `docs/00-README.md`
-for the document index.
+publish website + server in one flow. `docs/00-README.md` indexes the planning docs;
+`docs/gaps/README.md` indexes what is known to be missing.
+
+The rules in the second half of this file are not style preferences — they are the product
+promise, and they decide what a change *should be*, not just how it should look. Read them
+before proposing one.
+
+## Where things are
+
+| Path | What lives there |
+|---|---|
+| `src/DeployAI.Api` | Controllers, the bulk of the behaviour (`Services/`, ~18k lines), the SignalR hub, Hangfire jobs, and the deployment file templates |
+| `src/DeployAI.Core` | Contracts and domain types only — provider interfaces, the deployment graph, plan and target config. No I/O, no provider SDKs |
+| `src/DeployAI.Infrastructure` | GitHub reading and repository scanning, framework adapters (Dockerfile generation), OAuth, JWT, AES encryption, typed options |
+| `src/DeployAI.Providers` | Provider implementations: Coolify, Railway, Vercel, and Hetzner object storage |
+| `src/DeployAI.Providers.Railway.GraphQL` | Strawberry Shake typed Railway client, generated at build time from committed `Operations/**/*.graphql` + `schema.graphql` |
+| `src/DeployAI.Data` | EF Core entities, `DeployAIDbContext`, migrations |
+| `src/DeployAI.Tests` | xUnit — 103 test classes, just over 750 facts |
+| `client/` | Angular 18 SPA |
+| `docs/` | Planning docs (`00-README.md` is the index), `gaps/` narratives, the Coolify smoke test, the split-origin playbook |
+| `.claude/skills/` | `diagnose-coolify-deploy`, `verify-deploy`, `curate-project-knowledge` — invoke these rather than re-deriving what they encode |
+| `.cursor/rules/` | Four always-on conventions, summarised under "Code conventions" below |
+
+Two structural details that surprise people:
+
+- **`DeployAI.Providers.Railway.GraphQL` is not in `src/DeployAI.slnx`.** CI builds it as its own
+  step, and that build *is* the check that every committed GraphQL operation still matches
+  `schema.graphql`. Building or testing the solution will not catch a broken operation — see
+  `docs/railway-graphql-schema.md`.
+- **`src/Program.cs` and `src/Controllers/HealthController.cs` are orphans.** Namespace
+  `DeployAI.Generated`, sitting under no project directory, compiled by nothing. They are
+  template output that got committed; editing them has no effect on anything.
+
+### Layering
+
+`Api → Infrastructure + Providers → Core`, with `Data` referenced by `Api` and `Infrastructure`.
+Core holds no I/O: a provider SDK, an `HttpClient`, or a `DbContext` appearing there is the
+mistake to catch in review. Provider-specific behaviour lives behind an interface in
+`Core/Providers` and is implemented in `Providers/` — per `docs/00-README.md`'s first guiding
+principle, adding a provider should be one class plus a registration and nothing else.
+
+### Vocabulary that keeps tripping people up
+
+| Term | Meaning |
+|---|---|
+| `DeployTarget` | **Persistent.** One configured destination of a project (this app's server, on this Coolify instance). Carries `ConfigJson`. |
+| `DeploymentTarget` | **Per-run.** One target's participation in one deployment. Carries status, logs, failure analysis. |
+| `DeployTargetConfig` | The parsed `ConfigJson`: role, root/build/output directories, Dockerfile path, compose fields, and the `IsDatabaseTarget` / `IsStorageTarget` / `IsDeployableTarget` predicates. |
+| Role | `website`, `server`, `database`, `storage` (`DeploymentPartRoles`). **Dispatch keys off role, never provider name** — two parts can share one Coolify instance and still be different things, and matching on provider collapses them into one. |
+| Plan kind | `default`, `coolify-fullstack` (two apps, two domains, wired cross-origin), `coolify-compose` (one compose resource, single origin), `coolify-single` (`DeploymentPlanKind`). |
+| Split vs single origin | Split origin needs cross-origin API URL injection and CORS wiring; `DeploymentPlanKindValues.IsSingleOrigin` is what says those checks must *not* run for a compose app. |
+
+Storage is a role, not a deploy target: it is provisioned like a database and wired in as env
+vars, so it must never appear in provider pickers or progress bars.
+
+## How a deploy actually flows
+
+1. **Scan** — `GET /api/github/repos/{owner}/{repo}/deployment-plan`. `RepositoryLayoutResolver`
+   establishes where in the repo the app actually lives (see `docs/12-repository-scanning.md`);
+   `FrontendBuildDetector`, `ServerBuildDetector`, `EnvVarDetector`, `DatabaseRequirementDetector`
+   and `ObjectStorageNeedDetector` fill in what it needs. Every scan reports what it managed to
+   read — `IsInconclusive` exists so "found nothing" and "could not look" stay distinguishable.
+2. **Readiness and setup** — `DeploymentReadinessService` scores the repo against the chosen
+   shape (`SplitOriginReadinessEvaluator` or `SingleOriginComposeReadinessEvaluator`).
+   `DeploymentSetupService` generates the missing deployment files and opens a PR on the user's
+   repo. `DeploymentFileGeneratorSelector` picks between `TemplateDeploymentFileGenerator`
+   (files under `src/DeployAI.Api/DeploymentTemplates/`, catalogued in `catalog.json`) and
+   `HybridDeploymentFileGenerator` (Claude, via `AnthropicMessageClient`), falling back to
+   templates when no Anthropic key is configured rather than failing the flow.
+3. **Project creation** — `POST /api/projects/from-plan` writes a `Project` and its
+   `DeployTarget`s.
+4. **Trigger** — `POST /api/projects/{id}/deployments` → `DeploymentOrchestrator.TriggerAsync`
+   creates the `Deployment` plus one `DeploymentTarget` per deployable target, and enqueues one
+   Hangfire job per target (`DeploymentJobRunner.RunAsync`).
+5. **Pre-provider work, per target** — website targets get frontend env wiring and, where the
+   framework inlines env at build time, a generated Dockerfile (Nixpacks builds see none of the
+   app's environment). Server targets get their Dockerfile **regenerated on every deploy**, a
+   required-configuration check, and object-storage auto-provisioning. All of this is
+   *advisory*: each step is wrapped so a failure logs and continues rather than failing a deploy
+   that would otherwise succeed — but every outcome that matters is written to the deploy log
+   the user reads.
+6. **Deploy** — `IProviderFactory.GetProvider(name)` → `TriggerDeploymentAsync`, then
+   `GetStatusAsync` polling and `StreamLogsAsync`, each line persisted as a `DeploymentLog` and
+   broadcast over SignalR (`/hubs/deployments`, JWT accepted via `access_token` query param).
+7. **Finalize** — status aggregated across targets (`partial` when only some succeed),
+   `RuntimeExceptionCheck` reads the running container for unhandled exceptions,
+   `DeploymentVerificationService` exercises the deployed thing, and `DeploymentFailureAnalyzer`
+   classifies any failure. A `code_build` classification is what makes the Claude fix flow
+   available — `docs/deploy-failure-fix.md`.
+
+Two recurring Hangfire jobs run alongside this, registered in `Program.cs`:
+`EnvironmentDriftCheckJob` every six hours and `ProjectHealthMonitorJob` hourly.
+
+## Development workflows
+
+### Backend
+
+```bash
+dotnet build src/DeployAI.slnx
+dotnet test  src/DeployAI.Tests/DeployAI.Tests.csproj
+dotnet test  src/DeployAI.Tests/DeployAI.Tests.csproj --filter "FullyQualifiedName~RequiredConfigurationCheckTests"
+
+# Separate step — validates every committed GraphQL operation against schema.graphql.
+# Not part of the solution, so the commands above will not catch a broken operation.
+dotnet build src/DeployAI.Providers.Railway.GraphQL/DeployAI.Providers.Railway.GraphQL.csproj
+```
+
+Run it locally:
+
+```bash
+docker compose up -d          # PostgreSQL 16 on :5432
+cd src/DeployAI.Api && dotnet run   # :5000, Swagger in Development
+```
+
+The API creates the database if it is absent and applies EF migrations at startup — both are
+skipped in the `Testing` environment, which also swaps Hangfire to memory storage. Add a
+migration with:
+
+```bash
+dotnet ef migrations add <Name> --project src/DeployAI.Data --startup-project src/DeployAI.Api
+```
+
+Migrations are few and long-lived (9 as of writing). Before adding one, check the standing rule
+on validating the chain — a migration that duplicates a table or lands out of order applies to
+no database at all.
+
+### Frontend
+
+```bash
+cd client
+npm install
+npm start                                                     # :4200, proxies /api + /hubs → :5000
+npm test -- --browsers=ChromeHeadless --watch=false
+npm test -- --include="**/your-file.spec.ts" --browsers=ChromeHeadless --watch=false
+npm run build
+npm run e2e                                                   # Playwright, client/e2e/
+```
+
+OAuth callbacks must hit the same origin as the SPA, so develop against `:4200` and let the
+proxy forward — not against `:5000` directly.
+
+In production the SPA and API are split-origin. `client/scripts/write-api-env.mjs` bakes
+`NG_APP_API_URL` into `client/src/app/core/api-base.ts` at build time, and `apiBaseInterceptor`
+prefixes `/api` and `/hubs` requests with it; `client/vercel.json` rewrites are the fallback.
+`API_BASE_URL` is a **build-time** input — changing the variable requires a redeploy.
+
+### CI
+
+`.github/workflows/build.yml` runs on every push and PR to `main`/`master`: backend restore →
+GraphQL schema validation → build → test, and frontend `npm ci` → unit tests → build. Both jobs
+must be green. Per the standing rule below, a red build is fixed or deleted, never left running.
+
+### Configuration and secrets
+
+Settings come from `appsettings.json` with a gitignored `appsettings.Development.json` override,
+or from environment variables using the `Section__Key` convention (`ConnectionStrings__Default`,
+`GitHub__ClientSecret`, `Anthropic__ApiKey`). `README.md` lists the full set. Never ask a human
+to paste a credential — that is a standing rule, not a preference.
+
+## Code conventions
+
+**Enums over strings** for any fixed value set — status, role, provider, category. Shared enums
+live in `DeployAI.Core`; API-only sets can be `internal`. In TypeScript use string enums whose
+values match the JSON, not union types. String *constants* alongside an enum
+(`ProviderNameValues`, `DeploymentPlanKindValues`) are the established pattern for values that
+are persisted or sent over the wire — extend those rather than introducing a bare literal.
+
+**Tests ship with behaviour.** xUnit + Moq + `RichardSzalay.MockHttp`, mirroring the area under
+test (`Services/`, `Providers/`, `GitHub/`, `Integration/`). Most names are underscore-separated
+(`Apply_RefusesAmbiguousGraphs`, `StorageKeys_FollowTheConsumersConvention`); some newer ones
+are full sentences describing the behaviour. Match the file you are in. Provider tests assert at
+the boundary — request built, response parsed, against recorded or faked payloads — because CI
+cannot call a real provider. Angular specs sit next to their source as `*.spec.ts`.
+
+**Angular components are three files** — `.ts`, `.html`, `.scss` — never inline `template:` or
+`styles:`. Components are standalone, routes are lazy-loaded, state lives in signal-based stores
+under `core/stores/`. Use design tokens from `client/src/styles/_tokens.scss` rather than
+hardcoded colours or `[data-theme='dark']` branches; no shadows or `backdrop-filter` on cards
+and panels (overlays excepted).
+
+**Providers are partial classes split by concern** — `CoolifyProvider.Management.cs`,
+`.Database.cs`, `.ServiceOperations.cs`. A new capability is usually a new interface in
+`Core/Providers` plus a new partial, not a wider `IDeploymentProvider`.
+
+**Comments carry the incident, not the mechanics.** The distinctive habit in this codebase is
+that a non-obvious guard explains which real failure produced it — see the Dockerfile
+regeneration block in `DeploymentOrchestrator.RunAsync`, or the class summary on
+`RequiredConfigurationCheckTests`. Public contracts in `Core` carry XML doc comments. When you
+fix something subtle, write down what it cost.
+
+**Files DeployAI writes into a user's repository are product surface.** Generated files must be
+idempotent — regenerating with no change must produce no commit — and commit messages must name
+what actually changed. `GeneratedDeploymentFileValidator` and `GeneratedDeploymentFilePathRules`
+exist to enforce this; extend them rather than trusting a caller to be careful.
+
+**Do not trust `README.md` on scope.** It describes only Vercel and Railway and never mentions
+Coolify or Hetzner object storage, which are now central; `docs/00-README.md` still says
+"Planning phase". Read the code, and treat the drift as recorded under Known gaps below.
 
 ## Core rule: if we do it by hand, DeployAI should do it
 
@@ -86,11 +282,11 @@ chain that applies to no database at all is a schema reconciliation project.
 running — usually not even the same commit. Establish, in order: which commit is deployed, what
 routes it actually serves (an OpenAPI or route listing beats guessing), and what the container
 logs say. Read source last, and only from the deployed ref. Probing invented paths produces
-confident wrong answers.
+confident wrong answers. The `diagnose-coolify-deploy` skill encodes the order that works.
 
 **Verification must exercise real usage.** A `/health` 200 proves a process is listening, not
 that the app works. Treat a deployment as verified only when something a user would actually do
-has been exercised.
+has been exercised. The `verify-deploy` skill is this rule as a checklist.
 
 **New behaviour ships with tests — unit and integration.** Unit tests for logic that can be
 exercised in isolation; integration tests for anything that crosses a boundary (HTTP endpoint,
@@ -151,7 +347,7 @@ rotate it.
 Recorded so they get closed rather than re-done by hand. One line each — full narrative for
 each lives in `docs/gaps/` (see `docs/gaps/README.md` for the index), following the same shape
 as `docs/12-repository-scanning.md`. When you close or open a gap, update both: the one-liner
-here, and the doc it links to.
+here, and the doc it links to. The `curate-project-knowledge` skill is this loop as a checklist.
 
 ### Provisioning & environment variables — [docs/gaps/provisioning-and-env-vars.md](docs/gaps/provisioning-and-env-vars.md)
 - Duplicate env-var repair only runs on the database-linking path, not every target.
@@ -191,6 +387,7 @@ here, and the doc it links to.
 
 ### Process — [docs/gaps/process.md](docs/gaps/process.md)
 - ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.
+- `README.md` and `docs/00-README.md` describe a Vercel+Railway product still in "planning phase"; nothing keeps them honest as the code moves.
 
 ### Repository scanning
 - Ranking which sibling directory is the server (`ServerBuildProfileDiscovery`'s whole-repository case) is still a separate answer from the shared resolver — see `docs/12-repository-scanning.md`'s "What did not move" section directly rather than a copy here.

@@ -14,7 +14,7 @@ given gap can follow it standalone.
 | [verification-and-config-checks.md](verification-and-config-checks.md) | Env-scan/required-config checks that warn but don't block, shallow verification outside storage, no divergence/migration-chain checks, no test-coverage gate |
 | [database-provisioning.md](database-provisioning.md) | Can't create a Coolify project, only .NET gets schema applied, a provisioned Coolify database nothing outside it can reach |
 | [object-storage.md](object-storage.md) | The file-storage layer hand-written per app, and the account-wide credentials handed to every app |
-| [process.md](process.md) | Generated commit messages (closed) and the untested-change gap |
+| [process.md](process.md) | Generated commit messages (closed), the untested-change gap, and top-level docs that drifted from the shipped product |
 
 For the repository-scanning class of gap specifically (which directory in a repo is the app),
 see `docs/12-repository-scanning.md` directly — it already carries its own "What did not move"
