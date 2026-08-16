@@ -189,6 +189,16 @@ here, and the doc it links to.
 - The file-storage layer is still hand-written per app, though it is platform code.
 - An app is handed account-wide storage credentials far wider than it needs.
 
+### Domains & certificates — [docs/gaps/domains-and-certificates.md](docs/gaps/domains-and-certificates.md)
+- ~~A user-typed domain was discarded, and every app came up on plain-HTTP sslip.io~~ — closed; an
+  `https://` FQDN is now written only after DNS is proven to reach the server.
+- Buying a domain is not implemented: `DomainSource.Registrar` is a note, not a capability.
+- Nothing re-checks a domain once it is live — a failed renewal or a deleted record goes unnoticed.
+- The platform wildcard subdomain serves one server; a second needs per-app records.
+- A TLS handshake failure still reports as "redeploy the server", which cannot fix a missing cert.
+- Nothing configures enum-as-string, so any enum on a response DTO silently ships as an integer
+  and every TypeScript comparison misses — needs a convention, not a per-enum attribute.
+
 ### Process — [docs/gaps/process.md](docs/gaps/process.md)
 - ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.
 
