@@ -35,9 +35,14 @@
   letter-spacing: -0.02em;
 }
 
+/*
+ * Shown at every width. This was hidden below 768px with no replacement — no menu, no drawer — so
+ * on a phone there was no way to reach Settings or sign out at all; the only route in was typing
+ * the URL. Two links fit comfortably at 375px, they just need to be tighter than on desktop.
+ */
 nav {
-  display: none;
-  gap: var(--space-4);
+  display: flex;
+  gap: var(--space-3);
 }
 
 nav a {
@@ -113,11 +118,11 @@ nav a.active {
 }
 
 .sign-out-btn {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 2.5rem;
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-3);
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
@@ -142,11 +147,7 @@ main {
 
 @media (min-width: 768px) {
   nav {
-    display: flex;
-  }
-
-  .sign-out-btn {
-    display: inline-flex;
+    gap: var(--space-4);
   }
 
   .appearance-link {
@@ -161,6 +162,21 @@ main {
 
   main {
     padding: 5.5rem var(--space-4) var(--space-6);
+  }
+
+  // Everything in the bar has to fit beside the brand on a 375px screen, so the type steps down
+  // rather than anything being dropped — losing a control is what caused this in the first place.
+  nav a,
+  .sign-out-btn {
+    font-size: var(--font-size-sm);
+  }
+
+  .topbar__actions {
+    gap: var(--space-2);
+  }
+
+  .sign-out-btn {
+    padding: 0 var(--space-2);
   }
 }
 
