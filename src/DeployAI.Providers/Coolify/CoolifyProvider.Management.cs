@@ -8,7 +8,11 @@ using Microsoft.Extensions.Logging;
 
 namespace DeployAI.Providers.Coolify;
 
-public sealed partial class CoolifyProvider : IProviderApplicationConfigSync, IComposeDomainAssignment
+public sealed partial class CoolifyProvider
+    : IProviderApplicationConfigSync,
+        IComposeDomainAssignment,
+        IServerAddressProvider,
+        IApplicationDomainAssignment
 {
     public async Task UpdateApplicationConfigAsync(
         ProviderCredentials credentials,
@@ -390,6 +394,176 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync, IC
 
         await AssignDomainAsync(session, applicationUuid, resolvedDomain, serviceName, isCompose: true, cancellationToken);
         return resolvedDomain;
+    }
+
+    /// <summary>
+    /// Attaches a domain to an application that already exists, with the scheme the caller chose.
+    /// </summary>
+    /// <remarks>
+    /// The scheme is the caller's decision because the scheme is the request for a certificate:
+    /// <c>https://</c> makes Traefik start an ACME challenge immediately, and against a domain
+    /// whose DNS does not point here yet that challenge fails and leaves a self-signed certificate
+    /// serving. Nothing in this method may add or upgrade a scheme.
+    /// </remarks>
+    public Task AssignApplicationDomainAsync(
+        ProviderCredentials credentials,
+        string applicationUuid,
+        string domain,
+        string? serviceName,
+        bool isCompose,
+        CancellationToken cancellationToken) =>
+        AssignDomainAsync(
+            CoolifyApiSupport.ParseSession(credentials),
+            applicationUuid,
+            domain,
+            serviceName,
+            isCompose,
+            cancellationToken);
+
+    /// <summary>
+    /// Reads back the domains an application holds, so an assignment that reported success without
+    /// persisting is caught rather than believed.
+    /// </summary>
+    /// <remarks>
+    /// Parses the response loosely on purpose. A compose app's domains live under a field whose
+    /// exact shape has changed across Coolify versions, and a parser that guessed wrong would
+    /// report a perfectly good assignment as missing — a worse failure than not checking. Anything
+    /// it cannot read comes back as <see cref="AssignedDomainRead.Unavailable"/>, and the caller
+    /// falls through to the certificate check, which is the real proof either way.
+    /// </remarks>
+    public async Task<AssignedDomainRead> ReadAssignedDomainsAsync(
+        ProviderCredentials credentials,
+        string applicationUuid,
+        bool isCompose,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, session, $"applications/{applicationUuid}");
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return AssignedDomainRead.Unavailable;
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+
+            if (!isCompose)
+            {
+                var fqdn = root.TryGetProperty("fqdn", out var value) ? value.GetString() : null;
+                return string.IsNullOrWhiteSpace(fqdn)
+                    ? new AssignedDomainRead(true, [])
+                    : new AssignedDomainRead(true, [fqdn]);
+            }
+
+            foreach (var field in new[] { "docker_compose_domains", "parsedServiceDomains" })
+            {
+                if (root.TryGetProperty(field, out var element) &&
+                    TryReadComposeDomains(element, out var domains))
+                {
+                    return new AssignedDomainRead(true, domains);
+                }
+            }
+
+            return AssignedDomainRead.Unavailable;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(
+                ex, "Could not read back the domains on Coolify application {Uuid}.", applicationUuid);
+            return AssignedDomainRead.Unavailable;
+        }
+    }
+
+    /// <summary>
+    /// Pulls every <c>domain</c> out of a per-service domain map, which Coolify has returned both as
+    /// an object and as a JSON string containing one.
+    /// </summary>
+    private static bool TryReadComposeDomains(JsonElement element, out IReadOnlyList<string> domains)
+    {
+        domains = [];
+
+        try
+        {
+            var parsed = element;
+            using var nested = element.ValueKind == JsonValueKind.String
+                ? JsonDocument.Parse(element.GetString() ?? "{}")
+                : null;
+            if (nested is not null)
+            {
+                parsed = nested.RootElement;
+            }
+
+            if (parsed.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var found = new List<string>();
+            foreach (var service in parsed.EnumerateObject())
+            {
+                if (service.Value.ValueKind == JsonValueKind.Object &&
+                    service.Value.TryGetProperty("domain", out var domain) &&
+                    domain.GetString() is { Length: > 0 } value)
+                {
+                    found.Add(value);
+                }
+            }
+
+            domains = found;
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The IPv4 address apps on this Coolify connection are reachable at — what an A record for a
+    /// custom domain has to point at.
+    /// </summary>
+    /// <remarks>
+    /// Prefers the server's own <c>ip</c>, and falls back to the instance URL's host only when the
+    /// servers API cannot answer. The fallback is weaker on purpose: it is the address of the
+    /// control plane, which is the address of the workload only because every instance DeployAI has
+    /// deployed through runs both on one box. Returns null rather than picking one of several
+    /// servers — sending a user to point DNS at the wrong host is worse than telling them we do not
+    /// know which host to use.
+    /// </remarks>
+    public async Task<string?> TryGetServerAddressAsync(
+        ProviderCredentials credentials,
+        string? serverUuid,
+        CancellationToken cancellationToken)
+    {
+        var session = CoolifyApiSupport.ParseSession(credentials);
+
+        try
+        {
+            var servers = await ListCoolifyServersAsync(session, cancellationToken);
+            var server = string.IsNullOrWhiteSpace(serverUuid)
+                ? servers.Count == 1 ? servers[0] : null
+                : servers.FirstOrDefault(candidate =>
+                    string.Equals(candidate.Uuid, serverUuid, StringComparison.OrdinalIgnoreCase));
+
+            // Only if it is an address someone else's DNS could actually point at — Coolify's
+            // localhost server reports host.docker.internal here.
+            if (CoolifyApiSupport.TryReadPublicAddress(server?.Ip) is { } publicAddress)
+            {
+                return publicAddress;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex, "Could not read the Coolify server address; falling back to the instance address.");
+        }
+
+        return CoolifyApiSupport.TryReadInstanceAddress(session.InstanceUrl);
     }
 
     /// <summary>
@@ -1143,6 +1317,14 @@ public sealed partial class CoolifyProvider : IProviderApplicationConfigSync, IC
 
         [JsonPropertyName("name")]
         public string? Name { get; set; }
+
+        /// <summary>
+        /// Set on servers only. Coolify has always returned it and DeployAI has always dropped it,
+        /// which is why the address a domain has to point at had to be inferred from the instance
+        /// URL instead of read.
+        /// </summary>
+        [JsonPropertyName("ip")]
+        public string? Ip { get; set; }
     }
 
     private sealed class CoolifyApplicationSummary

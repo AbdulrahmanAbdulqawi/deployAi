@@ -95,6 +95,110 @@ export interface DeploymentPlan {
   clarifyingQuestion?: ClarifyingQuestion;
 }
 
+/** Where a domain came from, which decides who is responsible for its DNS. */
+export enum DomainSource {
+  UserProvided = 'UserProvided',
+  PlatformSubdomain = 'PlatformSubdomain',
+  ManagedZone = 'ManagedZone',
+  Registrar = 'Registrar',
+}
+
+/**
+ * How far a domain has got towards serving HTTPS. The two `Unverifiable` states are deliberately
+ * not failures: they mean nothing could be checked, which is ours to retry rather than the user's
+ * to fix, and rendering them as errors would tell someone their DNS is broken on no evidence.
+ */
+export enum DomainStatus {
+  Pending = 'Pending',
+  DnsPending = 'DnsPending',
+  DnsVerified = 'DnsVerified',
+  Assigned = 'Assigned',
+  CertificatePending = 'CertificatePending',
+  Active = 'Active',
+  DnsFailed = 'DnsFailed',
+  DnsUnverifiable = 'DnsUnverifiable',
+  CertificateFailed = 'CertificateFailed',
+  CertificateUnverifiable = 'CertificateUnverifiable',
+  Conflicted = 'Conflicted',
+  Retired = 'Retired',
+}
+
+/** The record to create when DeployAI cannot write it. Always an A record. */
+export interface DnsRecordInstruction {
+  type: string;
+  name: string;
+  value: string;
+  hint: string;
+}
+
+export interface ProjectDomain {
+  id: string;
+  deployTargetId: string;
+  hostname: string;
+  displayHostname: string;
+  source: DomainSource;
+  status: DomainStatus;
+  isPrimary: boolean;
+  statusMessage: string;
+  expectedAddress: string | null;
+  instruction: DnsRecordInstruction | null;
+  certificateIssuer: string | null;
+  certificateNotAfter: string | null;
+  lastCheckedAt: string | null;
+}
+
+/**
+ * Whether records written into a zone would actually take effect. `NotAuthoritative` is the one
+ * that looks healthiest and is not — a partial or secondary zone reports itself active while
+ * Cloudflare is not the authority for the names in it.
+ */
+export enum DnsZoneUsability {
+  Unknown = 'Unknown',
+  Ready = 'Ready',
+  NotDelegated = 'NotDelegated',
+  NotAuthoritative = 'NotAuthoritative',
+  ReadOnly = 'ReadOnly',
+}
+
+export interface DnsZone {
+  id: string;
+  name: string;
+  /** Null when unknown, which is the honest answer before anything has tried to write. */
+  canWrite: boolean | null;
+  usability: DnsZoneUsability;
+  /** Always populated: what is wrong and what to do about it, for someone who has never set up DNS. */
+  usabilityMessage: string;
+  accountName: string | null;
+}
+
+export interface DnsConnectionSummary {
+  id: string;
+  providerName: string;
+  displayName: string;
+  label: string;
+  isValid: boolean;
+  lastValidatedAt: string | null;
+  /** Null means no expiry is known — not that it never expires. */
+  expiresAt: string | null;
+}
+
+export interface DnsConnectionDetail {
+  connection: DnsConnectionSummary;
+  zones: DnsZone[];
+}
+
+export interface DnsDisconnectImpact {
+  dependentCount: number;
+  keepWorking: string[];
+  willBeReleased: string[];
+  summary: string;
+}
+
+export interface DomainOptions {
+  suggestedSubdomain: string | null;
+  zones: DnsZone[];
+}
+
 export enum DeploymentPlanKind {
   Default = 'default',
   CoolifyFullStack = 'coolify-fullstack',

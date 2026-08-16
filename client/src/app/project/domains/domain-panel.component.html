@@ -1,0 +1,121 @@
+<section class="domains">
+  <header class="domains__header">
+    <h3 class="domains__title">Your address</h3>
+    <p class="domains__subtitle">
+      Use a domain you own. We'll point it at your app and set up the padlock — you don't need to
+      touch anything else.
+    </p>
+  </header>
+
+  @if (error()) {
+    <p class="domains__error" role="alert">{{ error() }}</p>
+  }
+
+  <div class="domains__add">
+    <label class="domains__field">
+      <span class="u-visually-hidden">Domain</span>
+      <input
+        type="text"
+        [(ngModel)]="typedDomain"
+        (keyup.enter)="add()"
+        placeholder="shop.example.com"
+        [disabled]="busy()" />
+    </label>
+    <button type="button" class="domains__primary" (click)="add()" [disabled]="busy()">
+      {{ busy() ? 'Adding…' : 'Add domain' }}
+    </button>
+  </div>
+
+  @if (options()?.suggestedSubdomain; as suggested) {
+    <p class="domains__suggestion">
+      Don't have one yet? Use
+      <button type="button" class="domains__link" (click)="useSuggested()">{{ suggested }}</button>
+      — it works straight away, with nothing to set up.
+    </p>
+  }
+
+  @if (canWriteRecords()) {
+    <p class="domains__note">
+      Your DNS account is connected, so we'll point the domain for you.
+    </p>
+  } @else {
+    <!--
+      The offer belongs here rather than only in Settings: this is the moment it pays off, next to
+      the record the user would otherwise copy into someone else's dashboard by hand.
+    -->
+    <details class="domains__connect">
+      <summary>Rather not touch DNS yourself?</summary>
+      <p class="domains__connect-lead">
+        Connect Cloudflare and DeployAI will point your domain for you — no records to copy.
+      </p>
+      <app-dns-connect [compact]="false" (connected)="onDnsConnected()" />
+    </details>
+  }
+
+  <ul class="domains__list">
+    @for (domain of domains(); track trackById($index, domain)) {
+      <li class="domain" [attr.data-tone]="presentation(domain.status).tone">
+        <div class="domain__row">
+          <div class="domain__identity">
+            <span class="domain__name">{{ domain.hostname }}</span>
+            @if (domain.isPrimary) {
+              <span class="domain__badge">Main</span>
+            }
+          </div>
+          <span class="domain__status">{{ presentation(domain.status).label }}</span>
+        </div>
+
+        <p class="domain__message">{{ domain.statusMessage }}</p>
+
+        <!--
+          Only shown while the user still has something to do about it. A name under our own zone,
+          or one we wrote the record for, never needs these.
+        -->
+        @if (showsInstruction(domain)) {
+          <div class="domain__instruction">
+            <p class="domain__instruction-lead">Add this at your domain provider:</p>
+            <dl class="domain__record">
+              <div><dt>Type</dt><dd>{{ domain.instruction!.type }}</dd></div>
+              <div><dt>Name</dt><dd>{{ domain.instruction!.name }}</dd></div>
+              <div>
+                <dt>Points to</dt>
+                <dd>
+                  <code>{{ domain.instruction!.value }}</code>
+                  <button
+                    type="button"
+                    class="domain__copy"
+                    (click)="copy(domain.instruction!.value)">
+                    {{ copied() === domain.instruction!.value ? 'Copied' : 'Copy' }}
+                  </button>
+                </dd>
+              </div>
+            </dl>
+            <p class="domain__hint">{{ domain.instruction!.hint }}</p>
+          </div>
+        }
+
+        @if (domain.certificateNotAfter) {
+          <p class="domain__certificate">
+            Certificate from {{ domain.certificateIssuer }}, valid until
+            {{ domain.certificateNotAfter | date: 'mediumDate' }}
+          </p>
+        }
+
+        <div class="domain__actions">
+          @if (isSettled(domain)) {
+            <button type="button" class="domain__action" (click)="recheck(domain)">
+              Check again
+            </button>
+          }
+          <button type="button" class="domain__action domain__action--quiet" (click)="remove(domain)">
+            Remove
+          </button>
+        </div>
+      </li>
+    } @empty {
+      <li class="domains__empty">
+        No domain yet — your app is on the temporary address your server generated.
+      </li>
+    }
+  </ul>
+</section>

@@ -1,0 +1,253 @@
+.domains {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.domains__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.domains__subtitle,
+.domains__note,
+.domains__suggestion {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.domains__error {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--status-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+  font-size: 0.875rem;
+}
+
+.domains__add {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.domains__field {
+  flex: 1 1 16rem;
+
+  input {
+    width: 100%;
+    padding: var(--space-3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    color: var(--text-primary);
+    font: inherit;
+  }
+}
+
+.domains__primary {
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--status-accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+.domains__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.domains__connect {
+  padding: var(--space-3);
+  border: 1px dashed var(--border-dashed);
+  border-radius: var(--radius-md);
+
+  summary {
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-link);
+  }
+}
+
+.domains__connect-lead {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.domains__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.domains__empty {
+  padding: var(--space-4);
+  border: 1px dashed var(--border-dashed);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.domain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+}
+
+.domain__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.domain__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.domain__name {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.domain__badge {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-chip);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.domain__status {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/*
+ * Four tones, not three. "We could not check" is neither success nor failure, and colouring it as
+ * a failure would tell someone their domain is broken on no evidence at all.
+ */
+.domain[data-tone='live'] .domain__status {
+  color: var(--status-success);
+}
+
+.domain[data-tone='working'] .domain__status {
+  color: var(--status-accent);
+}
+
+.domain[data-tone='attention'] .domain__status {
+  color: var(--status-danger);
+}
+
+.domain[data-tone='unknown'] .domain__status {
+  color: var(--text-muted);
+}
+
+.domain__message,
+.domain__hint,
+.domain__certificate {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.domain__instruction {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.domain__instruction-lead {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.domain__record {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  dt {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+
+  dd {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.875rem;
+    color: var(--text-primary);
+  }
+
+  code {
+    font-family: var(--font-mono, monospace);
+  }
+}
+
+.domain__copy,
+.domain__action {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.domain__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.domain__action--quiet {
+  color: var(--text-muted);
+}

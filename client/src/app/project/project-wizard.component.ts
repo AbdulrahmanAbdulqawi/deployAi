@@ -664,6 +664,10 @@ export class ProjectWizardComponent implements OnInit {
             ? {
                 composeFileLocation: this.composeFileLocation,
                 domainServiceName: 'web',
+                // Sent here as well as on the create options: create cannot use it for a compose
+                // app (Coolify rejects a domain before the first deploy), so the only way it
+                // reaches the post-deploy assignment is by being stored on the target.
+                customDomain: this.customDomain.trim() || undefined,
                 // Two different directories: where the api's source lives (for config lookups) and
                 // where its Docker build actually runs (the build context, where its Dockerfile has
                 // to sit). They agree for a project that builds itself, and diverge for a

@@ -1,3 +1,4 @@
+using DeployAI.Core.Domains;
 using DeployAI.Core.Providers;
 using DeployAI.Providers.Railway.GraphQL;
 using Microsoft.Extensions.DependencyInjection;
@@ -135,6 +136,47 @@ public sealed class ProviderRuntimeLogsFactory : IProviderRuntimeLogsFactory
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ServerAddressProviderFactory : IServerAddressProviderFactory
+{
+    private readonly IReadOnlyDictionary<string, IServerAddressProvider> _providers;
+
+    public ServerAddressProviderFactory(IEnumerable<IServerAddressProvider> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IServerAddressProvider? GetServerAddressProvider(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
+public sealed class DnsZoneProviderFactory : IDnsZoneProviderFactory
+{
+    private readonly IReadOnlyDictionary<string, IDnsZoneProvider> _providers;
+
+    public DnsZoneProviderFactory(IEnumerable<IDnsZoneProvider> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IDnsZoneProvider? GetZoneProvider(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+
+    public IReadOnlyList<IDnsZoneProvider> All => _providers.Values.ToList();
+}
+
+public sealed class ApplicationDomainAssignmentFactory : IApplicationDomainAssignmentFactory
+{
+    private readonly IReadOnlyDictionary<string, IApplicationDomainAssignment> _providers;
+
+    public ApplicationDomainAssignmentFactory(IEnumerable<IApplicationDomainAssignment> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IApplicationDomainAssignment? GetDomainAssignment(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceInspectionFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDataServiceInspection> _providers;
@@ -198,6 +240,8 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderLifecycleOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderRuntimeLogs>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IServerAddressProvider>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IApplicationDomainAssignment>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         // Object storage is a separate capability: registered only as IObjectStorageProvider,
         // never as IDeploymentProvider, so it stays out of deploy-target pickers.
         // No AddHttpClient — the AWS SDK manages its own transport.
@@ -211,6 +255,14 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderRuntimeLogsFactory, ProviderRuntimeLogsFactory>();
         services.AddSingleton<IProviderLifecycleOperationsFactory, ProviderLifecycleOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();
+        services.AddSingleton<IServerAddressProviderFactory, ServerAddressProviderFactory>();
+        services.AddSingleton<IApplicationDomainAssignmentFactory, ApplicationDomainAssignmentFactory>();
+        // DNS is its own capability, registered only as IDnsZoneProvider so a DNS account never
+        // appears in a deploy-target picker — the same separation object storage already has.
+        services.AddHttpClient<Cloudflare.CloudflareDnsProvider>();
+        services.AddSingleton<Cloudflare.CloudflareDnsProvider>();
+        services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Cloudflare.CloudflareDnsProvider>());
+        services.AddSingleton<IDnsZoneProviderFactory, DnsZoneProviderFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
         return services;

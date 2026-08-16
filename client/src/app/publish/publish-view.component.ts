@@ -5,7 +5,8 @@ import { DeploymentStore } from '../core/stores/deployment.store';
 import { ApiService } from '../core/services/api.service';
 import { roleLabelForProvider } from '../core/utils/target-config';
 import { ActivityLine } from '../shared/live-log-panel/live-log-panel.component';
-import { EnvironmentSyncState } from '../core/models/api.models';
+import { EnvironmentSyncState, ProjectTarget } from '../core/models/api.models';
+import { DomainPanelComponent } from '../project/domains/domain-panel.component';
 import { StatusBadgeComponent } from '../shared/status-badge/status-badge.component';
 import { ProviderStatusCardComponent } from '../shared/provider-status-card/provider-status-card.component';
 import { IconComponent } from '../shared/ui/icon/icon.component';
@@ -19,6 +20,23 @@ import { durationMsFromTimestamps, formatDurationMs, formatDurationSeconds } fro
 import { canSyncEnvironmentUrls } from '../core/utils/environment-sync-eligibility';
 import type { OperationProgressMode } from '../shared/operation-progress/operation-progress.component';
 
+/**
+ * The browser-facing part is where a domain belongs. A compose app deploys as one website-role
+ * target; a split-origin plan has the site and the API as separate targets and only the site gets
+ * the domain here. The role lives inside the target's config blob rather than on the target.
+ */
+function pickDomainTargetId(targets: ProjectTarget[]): string | null {
+  const website = targets.find((target) => {
+    try {
+      return target.config ? JSON.parse(target.config)?.role === 'website' : false;
+    } catch {
+      return false;
+    }
+  });
+
+  return website?.id ?? targets[0]?.id ?? null;
+}
+
 @Component({
   selector: 'app-publish-view',
   standalone: true,
@@ -30,7 +48,8 @@ import type { OperationProgressMode } from '../shared/operation-progress/operati
     ButtonComponent,
     LiveLogPanelComponent,
     DeploymentFixPanelComponent,
-    OperationProgressComponent
+    OperationProgressComponent,
+    DomainPanelComponent
   ],  templateUrl: './publish-view.component.html',
   styleUrl: './publish-view.component.scss'
 })
@@ -43,6 +62,8 @@ export class PublishViewComponent implements OnInit, OnDestroy {
   readonly githubRepoFullName = signal<string | null>(null);
   readonly projectName = signal<string | null>(null);
   readonly copiedUrl = signal<string | null>(null);
+  /** The part of the project a domain attaches to — the one facing the browser. */
+  readonly domainTargetId = signal<string | null>(null);
 
   private projectLoadedFor: string | null = null;
   private copiedTimer?: ReturnType<typeof setTimeout>;
@@ -381,6 +402,7 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       next: (project) => {
         this.githubRepoFullName.set(project.githubRepoFullName);
         this.projectName.set(project.name);
+        this.domainTargetId.set(pickDomainTargetId(project.targets ?? []));
       },
       error: () => {
         this.projectLoadedFor = null;

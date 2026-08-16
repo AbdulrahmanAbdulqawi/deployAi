@@ -66,6 +66,20 @@ public sealed class DeployTargetConfig
     public string? DomainServiceName { get; set; }
 
     /// <summary>
+    /// The domain the user asked this target to be reachable at, without a scheme.
+    /// </summary>
+    /// <remarks>
+    /// The service name above was persisted and the domain itself was not, which made the pair
+    /// useless: a compose app cannot be given a domain at creation — Coolify rejects
+    /// docker_compose_domains before the first deploy parses the compose file — so the only chance
+    /// to use it comes later, from the post-deploy hook, by which point the typed value was gone.
+    /// The wizard offers the field only on compose plans, so the one place the product asked for a
+    /// domain was the one place it could not keep it, and the app silently fell back to sslip.io.
+    /// </remarks>
+    [JsonPropertyName("customDomain")]
+    public string? CustomDomain { get; set; }
+
+    /// <summary>
     /// Where the server's own source lives — Program.cs, Controllers, appsettings.json — carried on
     /// the website-role target because the compose plan's server part never becomes a target of its
     /// own.

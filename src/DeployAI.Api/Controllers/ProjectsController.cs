@@ -651,13 +651,16 @@ public sealed class ProjectsController : ControllerBase
             // left the project reading as a lone SPA — see DeployTargetPlanParts.
             website.ComposeFileLocation = part.ComposeFileLocation;
             website.DomainServiceName = part.DomainServiceName;
+            // Kept for the same reason as the service name beside it: a compose app's domain can
+            // only be attached after its first deploy, so the value has to outlive this request.
+            website.CustomDomain = part.CustomDomain;
             website.ComposeServerDirectory = part.ComposeServerDirectory;
             website.ComposeServerRootDirectory = part.ComposeServerRootDirectory;
             website.ComposeServerFramework = part.ComposeServerFramework;
             return website.ToJson();
         }
 
-        return DeployTargetConfig.FromServerProfile(
+        var server = DeployTargetConfig.FromServerProfile(
             new ServerBuildProfile(
                 part.RootDirectory ?? string.Empty,
                 part.BuildCommand,
@@ -666,7 +669,9 @@ public sealed class ProjectsController : ControllerBase
                 part.Framework,
                 part.DockerfilePath,
                 part.ServiceDirectory ?? part.RootDirectory),
-            "server").ToJson();
+            "server");
+        server.CustomDomain = part.CustomDomain;
+        return server.ToJson();
     }
 
     private static string? NormalizeLogoKey(string? logoKey)
@@ -713,6 +718,7 @@ public sealed class ProjectsController : ControllerBase
         string? DockerfilePath = null,
         string? ComposeFileLocation = null,
         string? DomainServiceName = null,
+        string? CustomDomain = null,
         string? ComposeServerDirectory = null,
         string? ComposeServerRootDirectory = null,
         string? ComposeServerFramework = null);

@@ -233,6 +233,71 @@
         </div>
       }
     </article>
+
+    <article class="provider-card u-glass-panel">
+      <header class="provider-card__header">
+        <div class="provider-card__brand">
+          <div class="provider-card__icon" aria-hidden="true">☁</div>
+          <div>
+            <h2>DNS</h2>
+            <p class="provider-card__desc">
+              Lets DeployAI point your domains at your server, so there are no records to add by hand.
+            </p>
+          </div>
+        </div>
+      </header>
+
+      @for (connection of dnsConnections(); track connection.id) {
+        <dl class="provider-card__meta">
+          <div>
+            <dt>Account</dt>
+            <dd>{{ connection.displayName }} · {{ connection.label }}</dd>
+          </div>
+          @if (formatValidated(connection.lastValidatedAt ?? undefined); as validated) {
+            <div>
+              <dt>Last checked</dt>
+              <dd>{{ validated }}</dd>
+            </div>
+          }
+          <!-- A missing expiry means unknown, not "never" — so it is left unsaid rather than guessed. -->
+          @if (connection.expiresAt) {
+            <div>
+              <dt>Token expires</dt>
+              <dd>{{ connection.expiresAt | date: 'mediumDate' }}</dd>
+            </div>
+          }
+        </dl>
+        @if (!connection.isValid) {
+          <p class="provider-card__notice">
+            This token stopped working, so DeployAI can't update your DNS. Paste a new one below.
+          </p>
+        }
+      }
+
+      <div class="provider-card__actions">
+        <app-ui-button
+          class="provider-card__oauth"
+          variant="primary"
+          icon="link"
+          (click)="toggleDnsForm()">
+          {{ dnsConnections().length > 0 ? 'Replace token' : 'Connect Cloudflare' }}
+        </app-ui-button>
+
+        <div class="provider-card__links">
+          @for (connection of dnsConnections(); track connection.id) {
+            <app-ui-button variant="quiet" icon="trash" (click)="removeDns(connection)">
+              Remove {{ connection.label }}
+            </app-ui-button>
+          }
+        </div>
+      </div>
+
+      @if (showDnsForm()) {
+        <div class="token-panel">
+          <app-dns-connect (connected)="onDnsConnected()" />
+        </div>
+      }
+    </article>
   </div>
 
   <!-- Kept and working, but no longer the path we lead with. -->

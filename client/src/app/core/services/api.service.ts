@@ -26,6 +26,12 @@ import {
   EnvironmentSyncResult,
   EnvironmentSyncState,
   ProjectDetail,
+  ProjectDomain,
+  DomainOptions,
+  DnsConnectionSummary,
+  DnsConnectionDetail,
+  DnsDisconnectImpact,
+  DnsZone,
   NotificationPreferencesResponse,
   ProjectServicesResponse,
   ProjectServiceStatus,
@@ -351,6 +357,11 @@ export class ApiService {
        */
       composeFileLocation?: string | null;
       domainServiceName?: string | null;
+      /**
+       * The domain the user asked for. Persisted with the target rather than only sent at create,
+       * because a compose app cannot be given a domain until its first deploy has happened.
+       */
+      customDomain?: string | null;
       composeServerDirectory?: string | null;
       /** Where the api's Docker build actually runs from, when that differs from its own source directory. */
       composeServerRootDirectory?: string | null;
@@ -383,6 +394,59 @@ export class ApiService {
 
   deleteProject(id: string) {
     return this.http.delete(`/api/projects/${id}`);
+  }
+
+  listDnsConnections() {
+    return this.http.get<{ connections: DnsConnectionSummary[] }>('/api/dns/connections');
+  }
+
+  /** Validates the token against the provider and only stores it if it works. */
+  createDnsConnection(payload: { token: string; providerName?: string; label?: string }) {
+    return this.http.post<DnsConnectionDetail>('/api/dns/connections', payload);
+  }
+
+  /** Re-read from the provider every time — a zone waiting on its registrar becomes usable later. */
+  listDnsZones(connectionId: string) {
+    return this.http.get<{ zones: DnsZone[]; connection: DnsConnectionSummary; message: string }>(
+      `/api/dns/connections/${connectionId}/zones`
+    );
+  }
+
+  /** What disconnecting would do, in plain words, before anything is done. */
+  getDnsDisconnectImpact(connectionId: string) {
+    return this.http.get<DnsDisconnectImpact>(`/api/dns/connections/${connectionId}/impact`);
+  }
+
+  deleteDnsConnection(connectionId: string) {
+    return this.http.delete(`/api/dns/connections/${connectionId}`);
+  }
+
+  getDomains(projectId: string) {
+    return this.http.get<ProjectDomain[]>(`/api/projects/${projectId}/domains`);
+  }
+
+  /**
+   * Names the project could use without the user configuring anything: one under DeployAI's own
+   * zone, plus any zones their connected DNS accounts can write to.
+   */
+  getDomainOptions(projectId: string) {
+    return this.http.get<DomainOptions>(`/api/projects/${projectId}/domains/options`);
+  }
+
+  attachDomain(projectId: string, payload: { deployTargetId: string; domain: string }) {
+    return this.http.post<ProjectDomain>(`/api/projects/${projectId}/domains`, payload);
+  }
+
+  /** Starts the checks over. The button a domain needs after ending up unverifiable. */
+  recheckDomain(projectId: string, domainId: string) {
+    return this.http.post<ProjectDomain>(
+      `/api/projects/${projectId}/domains/${domainId}/recheck`,
+      {}
+    );
+  }
+
+  removeDomain(projectId: string, domainId: string) {
+    return this.http.delete(`/api/projects/${projectId}/domains/${domainId}`);
   }
 
   provisionRailwayDatabases(projectId: string, payload: { postgres: boolean; redis: boolean }) {

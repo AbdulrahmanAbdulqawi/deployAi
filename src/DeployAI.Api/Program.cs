@@ -97,6 +97,12 @@ builder.Services.AddSingleton<IProviderHealthService, ProviderHealthService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IDeploymentOrchestrator, DeploymentOrchestrator>();
 builder.Services.AddScoped<DeploymentJobRunner>();
+// Domains advance on a schedule of their own rather than only during a deploy: DNS appears when
+// the user's provider gets round to it, and a certificate is issued a minute or two after that.
+builder.Services.AddScoped<IDomainService, DomainService>();
+builder.Services.AddScoped<IDomainReconciliationScheduler, DomainReconciliationScheduler>();
+builder.Services.AddScoped<DomainReconciliationJob>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
 builder.Services.AddScoped<IObjectStorageVerifier, ObjectStorageVerifier>();
 builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();

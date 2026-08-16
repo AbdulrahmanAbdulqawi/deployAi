@@ -229,6 +229,14 @@
       </section>
     }
 
+    @if (store.deployment(); as deployment) {
+      @if (domainTargetId(); as targetId) {
+        <section class="summary">
+          <app-domain-panel [projectId]="deployment.projectId" [deployTargetId]="targetId" />
+        </section>
+      }
+    }
+
     @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {
       <p class="notice notice--warning">Your site and app need to be reconnected so they can communicate.</p>
     }

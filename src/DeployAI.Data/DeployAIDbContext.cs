@@ -19,6 +19,7 @@ public class DeployAIDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<AgentMemoryFile> AgentMemoryFiles => Set<AgentMemoryFile>();
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+    public DbSet<ProjectDomain> ProjectDomains => Set<ProjectDomain>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -107,6 +108,26 @@ public class DeployAIDbContext : DbContext
             entity.ToTable("notification_preferences");
             entity.HasKey(e => e.UserId);
             entity.HasOne(e => e.User).WithOne().HasForeignKey<NotificationPreference>(e => e.UserId);
+        });
+
+        modelBuilder.Entity<ProjectDomain>(entity =>
+        {
+            entity.ToTable("project_domains");
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ProjectId);
+            // One hostname can front one application. Two rows for the same name on the same target
+            // would race each other through the state machine and fight over the provider's domain
+            // field.
+            entity.HasIndex(e => new { e.DeployTargetId, e.Hostname }).IsUnique();
+            // Stored as strings for the same reason as CredentialKind: the column stays readable,
+            // and a new state can be added without renumbering the ones already in the database.
+            entity.Property(e => e.Source).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.LastConclusiveStatus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.Hostname).IsRequired().HasMaxLength(253);
+            entity.Property(e => e.DisplayHostname).IsRequired().HasMaxLength(253);
+            entity.HasOne(e => e.Project).WithMany().HasForeignKey(e => e.ProjectId);
+            entity.HasOne(e => e.DeployTarget).WithMany().HasForeignKey(e => e.DeployTargetId);
         });
     }
 }

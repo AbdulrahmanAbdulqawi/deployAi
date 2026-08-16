@@ -277,6 +277,98 @@ namespace DeployAI.Data.Migrations
                     b.ToTable("projects", (string)null);
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectDomain", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CertificateIssuer")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("CertificateNotAfter")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeadlineAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DeployTargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayHostname")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<Guid?>("DnsCredentialId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExpectedAddress")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Hostname")
+                        .IsRequired()
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("LastCheckedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastConclusiveStatus")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ManagedRecordId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ObservationsJson")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("RoutingDeployTriggeredForAttempt")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("StatusMessage")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ZoneId")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("DeployTargetId", "Hostname")
+                        .IsUnique();
+
+                    b.ToTable("project_domains", (string)null);
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.ProviderCredential", b =>
                 {
                     b.Property<Guid>("Id")
@@ -284,6 +376,9 @@ namespace DeployAI.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("IsValid")
@@ -478,6 +573,25 @@ namespace DeployAI.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectDomain", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.DeployTarget", "DeployTarget")
+                        .WithMany()
+                        .HasForeignKey("DeployTargetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DeployAI.Data.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DeployTarget");
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("DeployAI.Data.Entities.ProviderCredential", b =>
