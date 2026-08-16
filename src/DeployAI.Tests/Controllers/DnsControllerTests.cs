@@ -77,6 +77,12 @@ public class DnsControllerTests
         var provider = new Mock<IDnsZoneProvider>();
         provider.SetupGet(p => p.ProviderName).Returns("cloudflare");
         provider.SetupGet(p => p.DisplayName).Returns("Cloudflare");
+        provider.SetupGet(p => p.CredentialFields)
+            .Returns([new DnsCredentialField("token", "API token", true)]);
+        provider
+            .Setup(p => p.PackCredential(It.IsAny<IReadOnlyDictionary<string, string>>()))
+            .Returns((IReadOnlyDictionary<string, string> f) =>
+                new ProviderCredentials(f.TryGetValue("token", out var v) ? v : string.Empty));
         provider
             .Setup(p => p.ValidateCredentialsAsync(It.IsAny<ProviderCredentials>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(check ?? new DnsCredentialCheck(
@@ -111,6 +117,8 @@ public class DnsControllerTests
                 new PassthroughEncryption(), NullLogger<DnsController>.Instance)
         };
     }
+
+    private static Dictionary<string, string> Fields(string token) => new() { ["token"] = token };
 
     private static ProviderCredential SeedConnection(Harness harness)
     {
@@ -158,7 +166,7 @@ public class DnsControllerTests
         var harness = CreateHarness();
 
         var result = await harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest(Token), CancellationToken.None);
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None);
 
         Assert.IsType<CreatedResult>(result);
         var stored = harness.Db.ProviderCredentials.Single(c => c.Kind == CredentialKind.Dns);
@@ -175,7 +183,7 @@ public class DnsControllerTests
             DnsCredentialVerdict.Ok, "Connected.", [ReadyZone()], TokenExpiresOn: expiry));
 
         await harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest(Token), CancellationToken.None);
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None);
 
         Assert.Equal(expiry, harness.Db.ProviderCredentials.Single(c => c.Kind == CredentialKind.Dns).ExpiresAt);
     }
@@ -192,7 +200,7 @@ public class DnsControllerTests
         var harness = CreateHarness(new DnsCredentialCheck(verdict, "no good", []));
 
         var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest(Token), CancellationToken.None));
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None));
 
         Assert.Equal(expectedCode, ex.ErrorCode);
         Assert.Empty(harness.Db.ProviderCredentials.Where(c => c.Kind == CredentialKind.Dns));
@@ -200,15 +208,15 @@ public class DnsControllerTests
 
     // "We could not check" is not "your token is bad", and must not be reported as one.
     [Theory]
-    [InlineData(DnsCredentialVerdict.RateLimited, "cloudflare_rate_limited")]
-    [InlineData(DnsCredentialVerdict.Unreachable, "cloudflare_unreachable")]
+    [InlineData(DnsCredentialVerdict.RateLimited, DnsErrorCodes.RateLimited)]
+    [InlineData(DnsCredentialVerdict.Unreachable, DnsErrorCodes.Unreachable)]
     public async Task CreateConnection_SavesNothingAndBlamesNobody_WhenTheCheckCouldNotRun(
         DnsCredentialVerdict verdict, string expectedCode)
     {
         var harness = CreateHarness(new DnsCredentialCheck(verdict, "could not check", []));
 
         var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest(Token), CancellationToken.None));
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None));
 
         Assert.Equal(expectedCode, ex.ErrorCode);
         Assert.Empty(harness.Db.ProviderCredentials.Where(c => c.Kind == CredentialKind.Dns));
@@ -221,7 +229,7 @@ public class DnsControllerTests
         SeedConnection(harness);
 
         var result = await harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest("cfut_a_replacement_token"), CancellationToken.None);
+            new DnsController.CreateDnsConnectionRequest(Fields("cfut_a_replacement_token")), CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result);
         var stored = Assert.Single(harness.Db.ProviderCredentials.Where(c => c.Kind == CredentialKind.Dns));
@@ -242,7 +250,7 @@ public class DnsControllerTests
         harness.Db.SaveChanges();
 
         var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Controller.CreateConnection(
-            new DnsController.CreateDnsConnectionRequest(Token), CancellationToken.None));
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None));
 
         Assert.Equal("dns_label_in_use", ex.ErrorCode);
     }

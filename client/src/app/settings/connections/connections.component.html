@@ -269,8 +269,15 @@
         </dl>
         @if (!connection.isValid) {
           <p class="provider-card__notice">
-            This token stopped working, so DeployAI can't update your DNS. Paste a new one below.
+            This connection stopped working, so DeployAI can't update your DNS. Reconnect it below.
           </p>
+        }
+
+        <!-- Per connection, so a second account's domains are not invisible. -->
+        @if (loadingDnsZones() && !zonesFor(connection.id).length) {
+          <p class="provider-card__desc">Checking which domains this can reach…</p>
+        } @else {
+          <app-dns-zone-list [zones]="zonesFor(connection.id)" />
         }
       }
 
@@ -280,7 +287,7 @@
           variant="primary"
           icon="link"
           (click)="toggleDnsForm()">
-          {{ dnsConnections().length > 0 ? 'Replace token' : 'Connect Cloudflare' }}
+          {{ dnsConnections().length > 0 ? 'Add or replace' : 'Connect a DNS account' }}
         </app-ui-button>
 
         <div class="provider-card__links">

@@ -31,6 +31,7 @@ import {
   DnsConnectionSummary,
   DnsConnectionDetail,
   DnsDisconnectImpact,
+  DnsProviderInfo,
   DnsZone,
   NotificationPreferencesResponse,
   ProjectServicesResponse,
@@ -396,12 +397,21 @@ export class ApiService {
     return this.http.delete(`/api/projects/${id}`);
   }
 
+  /** The DNS providers that can be connected, each describing the inputs it needs. */
+  listDnsProviders() {
+    return this.http.get<{ providers: DnsProviderInfo[] }>('/api/dns/providers');
+  }
+
   listDnsConnections() {
     return this.http.get<{ connections: DnsConnectionSummary[] }>('/api/dns/connections');
   }
 
-  /** Validates the token against the provider and only stores it if it works. */
-  createDnsConnection(payload: { token: string; providerName?: string; label?: string }) {
+  /** Validates the credentials against the provider and only stores them if they work. */
+  createDnsConnection(payload: {
+    fields: Record<string, string>;
+    providerName?: string;
+    label?: string;
+  }) {
     return this.http.post<DnsConnectionDetail>('/api/dns/connections', payload);
   }
 

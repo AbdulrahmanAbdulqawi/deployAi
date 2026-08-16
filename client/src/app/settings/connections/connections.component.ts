@@ -5,10 +5,12 @@ import { ApiService } from '../../core/services/api.service';
 import {
   CredentialSummary,
   DnsConnectionSummary,
+  DnsZone,
   ProviderName,
   StorageConnectionSummary
 } from '../../core/models/api.models';
 import { DnsConnectComponent } from '../../shared/dns-connect/dns-connect.component';
+import { DnsZoneListComponent } from '../../shared/dns-connect/dns-zone-list.component';
 import { DatePipe } from '@angular/common';
 import { ConnectionsStore } from '../../core/stores/connections.store';
 import { ButtonComponent } from '../../shared/ui/button/button.component';
@@ -28,6 +30,7 @@ type ProviderKey = ProviderName.Vercel | ProviderName.Railway | ProviderName.Coo
     InputComponent,
     StatusBadgeComponent,
     DnsConnectComponent,
+    DnsZoneListComponent,
     DatePipe
   ],
   templateUrl: './connections.component.html',
@@ -47,6 +50,8 @@ export class ConnectionsComponent implements OnInit {
   readonly savingStorage = signal(false);
   readonly storageConnections = signal<StorageConnectionSummary[]>([]);
   readonly dnsConnections = signal<DnsConnectionSummary[]>([]);
+  readonly dnsZones = signal<Record<string, DnsZone[]>>({});
+  readonly loadingDnsZones = signal(false);
   readonly showDnsForm = signal(false);
   readonly showImportPanel = signal(false);
   readonly importCandidates = signal<{ id: string; name: string }[]>([]);
@@ -128,9 +133,52 @@ export class ConnectionsComponent implements OnInit {
 
   loadDnsConnections(): void {
     this.api.listDnsConnections().subscribe({
-      next: (response) => this.dnsConnections.set(response.connections),
+      next: (response) => {
+        this.dnsConnections.set(response.connections);
+        this.loadDnsZones();
+      },
       error: () => this.dnsConnections.set([])
     });
+  }
+
+  /**
+   * Re-read from the provider rather than remembered from the moment of connecting. A domain whose
+   * registrar had not delegated yet becomes usable an hour later, and a remembered list would go
+   * on saying it is not ready long after it is.
+   *
+   * Keyed by connection: reading only the first one meant a second account's domains were simply
+   * invisible, with nothing saying so.
+   */
+  loadDnsZones(): void {
+    const connections = this.dnsConnections();
+    if (!connections.length) {
+      this.dnsZones.set({});
+      return;
+    }
+
+    this.loadingDnsZones.set(true);
+    let outstanding = connections.length;
+
+    for (const connection of connections) {
+      this.api.listDnsZones(connection.id).subscribe({
+        next: (response) => {
+          this.dnsZones.update(current => ({ ...current, [connection.id]: response.zones }));
+          // A stored connection's validity may have changed since it was last looked at.
+          this.dnsConnections.update(all =>
+            all.map(c => (c.id === response.connection.id ? response.connection : c))
+          );
+          if (--outstanding === 0) this.loadingDnsZones.set(false);
+        },
+        error: () => {
+          this.dnsZones.update(current => ({ ...current, [connection.id]: [] }));
+          if (--outstanding === 0) this.loadingDnsZones.set(false);
+        }
+      });
+    }
+  }
+
+  zonesFor(connectionId: string): DnsZone[] {
+    return this.dnsZones()[connectionId] ?? [];
   }
 
   toggleStorageForm(): void {
@@ -144,7 +192,7 @@ export class ConnectionsComponent implements OnInit {
   onDnsConnected(): void {
     this.showDnsForm.set(false);
     this.loadDnsConnections();
-    this.toast.success('Cloudflare connected.');
+    this.toast.success('DNS account connected.');
   }
 
   /**
@@ -173,7 +221,7 @@ export class ConnectionsComponent implements OnInit {
 
     this.api.deleteDnsConnection(connection.id).subscribe({
       next: () => {
-        this.toast.success('Cloudflare disconnected.');
+        this.toast.success(`${connection.displayName} disconnected.`);
         this.loadDnsConnections();
       },
       error: (err) =>

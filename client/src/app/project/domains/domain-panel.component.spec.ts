@@ -53,6 +53,12 @@ describe('DomainPanelComponent', () => {
       .expectOne('/api/projects/project-1/domains/options')
       .flush({ suggestedSubdomain: null, zones: [] });
     fixture.detectChanges();
+
+    // With no writable zone the panel offers the inline connect form, whose component asks the
+    // server which providers exist and what each one needs.
+    const providers = http.match('/api/dns/providers');
+    providers.forEach((r) => r.flush({ providers: [] }));
+    fixture.detectChanges();
   }
 
   // The distinction the whole feature rests on, carried all the way to the pixel: a check that

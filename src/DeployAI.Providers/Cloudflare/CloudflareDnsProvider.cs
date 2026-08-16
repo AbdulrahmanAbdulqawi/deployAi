@@ -44,6 +44,13 @@ public sealed class CloudflareDnsProvider : IDnsZoneProvider
 
     public string DisplayName => "Cloudflare";
 
+    public IReadOnlyList<DnsCredentialField> CredentialFields { get; } =
+        [new DnsCredentialField("token", "API token", Secret: true, "Paste your token")];
+
+    /// <summary>A single bearer token, stored as-is — there is nothing to pack.</summary>
+    public ProviderCredentials PackCredential(IReadOnlyDictionary<string, string> fields) =>
+        new(fields.TryGetValue("token", out var token) ? token.Trim() : string.Empty);
+
     /// <summary>
     /// Checks a token by listing the account's zones.
     /// </summary>
@@ -543,8 +550,8 @@ public sealed class CloudflareDnsProvider : IDnsZoneProvider
         /// </summary>
         public DeployAIException ToDeployAIException(string attempted) => Verdict switch
         {
-            DnsCredentialVerdict.RateLimited => new DeployAIException("cloudflare_rate_limited", Message),
-            DnsCredentialVerdict.Unreachable => new DeployAIException("cloudflare_unreachable", Message),
+            DnsCredentialVerdict.RateLimited => new DeployAIException(DnsErrorCodes.RateLimited, Message),
+            DnsCredentialVerdict.Unreachable => new DeployAIException(DnsErrorCodes.Unreachable, Message),
             _ => new DeployAIException("cloudflare_api_error", $"Could not {attempted}. {Message}")
         };
     }

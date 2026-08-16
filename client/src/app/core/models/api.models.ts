@@ -171,6 +171,24 @@ export interface DnsZone {
   accountName: string | null;
 }
 
+/**
+ * One input a DNS provider needs to be connected. Described by the server rather than hardcoded,
+ * because providers disagree about shape — one bearer token, or a key and a secret.
+ */
+export interface DnsCredentialField {
+  key: string;
+  label: string;
+  /** Mask it, and drop it from memory once stored. */
+  secret: boolean;
+  placeholder: string | null;
+}
+
+export interface DnsProviderInfo {
+  name: string;
+  displayName: string;
+  fields: DnsCredentialField[];
+}
+
 export interface DnsConnectionSummary {
   id: string;
   providerName: string;

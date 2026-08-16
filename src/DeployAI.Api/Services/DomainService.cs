@@ -290,7 +290,7 @@ public sealed class DomainService : IDomainService
     private static void MarkInvalidIfConclusive(ProviderCredential credential, Exception failure)
     {
         if (failure is not DeployAIException deployAiFailure ||
-            deployAiFailure.ErrorCode is "cloudflare_rate_limited" or "cloudflare_unreachable")
+            deployAiFailure.ErrorCode is DnsErrorCodes.RateLimited or DnsErrorCodes.Unreachable)
         {
             return;
         }

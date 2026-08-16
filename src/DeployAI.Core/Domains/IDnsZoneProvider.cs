@@ -111,6 +111,21 @@ public sealed record DnsCredentialCheck(
 }
 
 /// <summary>
+/// One input a provider needs in order to be connected.
+/// </summary>
+/// <remarks>
+/// Described by the provider rather than hardcoded in the UI because providers disagree about
+/// shape: one bearer token for Cloudflare, a key and a secret for Porkbun. A form built around a
+/// single password box quietly cannot express the second.
+/// </remarks>
+/// <param name="Secret">Whether to mask it, and to clear it from memory once stored.</param>
+public sealed record DnsCredentialField(
+    string Key,
+    string Label,
+    bool Secret,
+    string? Placeholder = null);
+
+/// <summary>
 /// A DNS account DeployAI can read zones from and write records into, so the user never has to
 /// leave the product to point a domain at their server.
 /// </summary>
@@ -124,6 +139,18 @@ public interface IDnsZoneProvider
     string ProviderName { get; }
 
     string DisplayName { get; }
+
+    /// <summary>What the user has to supply to connect this provider.</summary>
+    IReadOnlyList<DnsCredentialField> CredentialFields { get; }
+
+    /// <summary>
+    /// Packs the supplied fields into the opaque credential this provider expects back.
+    /// </summary>
+    /// <remarks>
+    /// Done by the provider so the storage format lives beside the code that reads it, and so
+    /// nothing upstream has to know whether a provider needs one secret or four.
+    /// </remarks>
+    ProviderCredentials PackCredential(IReadOnlyDictionary<string, string> fields);
 
     /// <summary>
     /// Checks a credential and, when it works, returns what it can see. Never throws for a

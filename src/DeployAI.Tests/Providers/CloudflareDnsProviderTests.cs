@@ -483,7 +483,7 @@ public class CloudflareDnsProviderTests
         var ex = await Assert.ThrowsAsync<DeployAIException>(
             () => Provider(handler).ListZonesAsync(Credentials, CancellationToken.None));
 
-        Assert.Equal("cloudflare_rate_limited", ex.ErrorCode);
+        Assert.Equal(DnsErrorCodes.RateLimited, ex.ErrorCode);
     }
 
     [Fact]
@@ -495,7 +495,7 @@ public class CloudflareDnsProviderTests
         var ex = await Assert.ThrowsAsync<DeployAIException>(
             () => Provider(handler).ListZonesAsync(Credentials, CancellationToken.None));
 
-        Assert.Equal("cloudflare_unreachable", ex.ErrorCode);
+        Assert.Equal(DnsErrorCodes.Unreachable, ex.ErrorCode);
     }
 
     [Fact]

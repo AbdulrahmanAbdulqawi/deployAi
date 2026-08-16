@@ -55,7 +55,12 @@ public sealed class DnsController : ControllerBase
         Ok(new
         {
             providers = _zoneProviders.All
-                .Select(p => new { name = p.ProviderName, displayName = p.DisplayName })
+                .Select(p => new
+                {
+                    name = p.ProviderName,
+                    displayName = p.DisplayName,
+                    fields = p.CredentialFields
+                })
         });
 
     [HttpGet("connections")]
@@ -75,17 +80,26 @@ public sealed class DnsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var userId = RequireUserId();
-        var providerName = string.IsNullOrWhiteSpace(request.ProviderName)
-            ? "cloudflare"
-            : request.ProviderName.Trim();
+
+        // Defaulting to a provider name was fine while there was exactly one, and becomes a way to
+        // silently store a Porkbun key pair as a Cloudflare token the moment there are two. When
+        // only one provider is registered it is unambiguous, so infer it; otherwise the caller says.
+        var providerName = request.ProviderName?.Trim();
+        if (string.IsNullOrWhiteSpace(providerName))
+        {
+            providerName = _zoneProviders.All.Count == 1
+                ? _zoneProviders.All[0].ProviderName
+                : throw new DeployAIException(
+                    "dns_provider_unknown",
+                    "Say which DNS provider this connection is for.");
+        }
 
         var provider = _zoneProviders.GetZoneProvider(providerName)
             ?? throw new DeployAIException(
                 "dns_provider_unknown", $"'{providerName}' is not a DNS provider DeployAI supports.");
 
-        var token = request.Token?.Trim() ?? string.Empty;
-        var check = await provider.ValidateCredentialsAsync(
-            new ProviderCredentials(token), cancellationToken);
+        var credentials = provider.PackCredential(request.Fields ?? new Dictionary<string, string>());
+        var check = await provider.ValidateCredentialsAsync(credentials, cancellationToken);
 
         if (!check.IsUsable)
         {
@@ -111,7 +125,7 @@ public sealed class DnsController : ControllerBase
 
         if (existing is not null)
         {
-            existing.TokenEncrypted = _encryption.Encrypt(token);
+            existing.TokenEncrypted = _encryption.Encrypt(credentials.Token);
             existing.IsValid = true;
             existing.LastValidatedAt = DateTimeOffset.UtcNow;
             existing.ExpiresAt = check.TokenExpiresOn;
@@ -126,7 +140,7 @@ public sealed class DnsController : ControllerBase
             ProviderName = providerName,
             Kind = CredentialKind.Dns,
             Label = label,
-            TokenEncrypted = _encryption.Encrypt(token),
+            TokenEncrypted = _encryption.Encrypt(credentials.Token),
             IsValid = true,
             LastValidatedAt = DateTimeOffset.UtcNow,
             ExpiresAt = check.TokenExpiresOn,
@@ -231,9 +245,12 @@ public sealed class DnsController : ControllerBase
 
             if (HasLiveDnsRecord(domain.Status))
             {
+                // Named from the provider rather than hardcoded: telling someone their Cloudflare
+                // connection was removed when it was actually Porkbun sends them to the wrong
+                // dashboard looking for a record that is not there.
                 domain.StatusMessage =
                     $"{domain.Hostname} is still working. Its DNS record is yours to maintain now that " +
-                    "the Cloudflare connection has been removed.";
+                    $"the {provider.DisplayName} connection has been removed.";
             }
         }
 
@@ -349,6 +366,14 @@ public sealed class DnsController : ControllerBase
         return (credential, provider);
     }
 
+    /// <summary>
+    /// Maps a verdict to the code the API edge answers with.
+    /// </summary>
+    /// <remarks>
+    /// Provider-neutral on purpose. These were the Cloudflare-specific codes, which meant any other
+    /// provider's throttle fell through to the default 400 — telling the caller their input was
+    /// wrong and inviting the immediate retry that lengthens a rate-limit window.
+    /// </remarks>
     private static string VerdictToErrorCode(DnsCredentialVerdict verdict) => verdict switch
     {
         DnsCredentialVerdict.Malformed => "dns_token_malformed",
@@ -356,8 +381,8 @@ public sealed class DnsController : ControllerBase
         DnsCredentialVerdict.Expired => "dns_token_expired",
         DnsCredentialVerdict.CannotListZones => "dns_token_cannot_list_zones",
         DnsCredentialVerdict.NoZonesVisible => "dns_no_zones_visible",
-        DnsCredentialVerdict.RateLimited => "cloudflare_rate_limited",
-        DnsCredentialVerdict.Unreachable => "cloudflare_unreachable",
+        DnsCredentialVerdict.RateLimited => DnsErrorCodes.RateLimited,
+        DnsCredentialVerdict.Unreachable => DnsErrorCodes.Unreachable,
         _ => "dns_token_rejected"
     };
 
@@ -380,7 +405,15 @@ public sealed class DnsController : ControllerBase
     private Guid RequireUserId() =>
         _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
 
-    public sealed record CreateDnsConnectionRequest(string Token, string? ProviderName = null, string? Label = null);
+    /// <param name="Fields">
+    /// Keyed by <see cref="DnsCredentialField.Key"/>. A dictionary rather than a single token
+    /// because providers disagree about shape — one bearer token, or a key and a secret — and the
+    /// provider packs them into its own storage format.
+    /// </param>
+    public sealed record CreateDnsConnectionRequest(
+        Dictionary<string, string>? Fields,
+        string? ProviderName = null,
+        string? Label = null);
 
     /// <summary>
     /// A stored connection. Never carries the token or any part of it — a secret in a response

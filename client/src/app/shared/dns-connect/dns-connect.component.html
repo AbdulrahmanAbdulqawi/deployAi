@@ -1,85 +1,73 @@
 <div class="dns-connect">
-  @if (!compact) {
-    <div class="dns-connect__help">
-      <p>In Cloudflare, go to <strong>My Profile → API Tokens → Create Token</strong> and start from
-        the <strong>Edit zone DNS</strong> template. It needs exactly two permissions and one scope:</p>
-      <!--
-        Both of these are traps rather than oversights, and both were hit on the first real attempt.
-        Cloudflare's permission rows begin with a group dropdown set to Account, and the Account
-        group has its own "DNS & Zones" section — DNS Firewall, DNS Views, Registrar — that looks
-        exactly like what is wanted and cannot list a zone or write a record. And Zone Resources
-        defaults to one zone you have to pick, which yields a token that authenticates, is allowed
-        to list, and still returns nothing.
-      -->
-      <ol class="dns-connect__steps">
-        <li>Set each permission row's first dropdown to <strong>Zone</strong> — not Account. The
-          Account group has a DNS section too, and none of it can read zones or change records.</li>
-        <li>Grant <strong>Zone → Read</strong> (so DeployAI can see which domains you own) and
-          <strong>DNS → Edit</strong> (so it can point them at your server).</li>
-        <li>Set <strong>Zone Resources</strong> to <strong>Include → All zones</strong>, or pick out
-          the specific domains you want DeployAI to manage.</li>
-      </ol>
-      <p class="dns-connect__aside">
-        Those two permissions are everything DeployAI uses — anything broader only widens what a
-        leaked token could reach.
-      </p>
+  @if (showsProviderChoice()) {
+    <div class="dns-connect__providers" role="group" aria-label="DNS provider">
+      @for (provider of providers(); track provider.name) {
+        <button
+          type="button"
+          class="dns-connect__provider"
+          [class.dns-connect__provider--active]="provider.name === selectedName()"
+          (click)="select(provider.name)">
+          {{ provider.displayName }}
+        </button>
+      }
     </div>
   }
 
-  <label class="dns-connect__field">
-    <span class="u-label-caps">Cloudflare API token</span>
-    <app-ui-input
-      type="password"
-      placeholder="Paste your token"
-      [ngModel]="token()"
-      (ngModelChange)="token.set($event)"
-      [disabled]="saving()" />
-  </label>
+  @if (selected(); as provider) {
+    <!--
+      Cloudflare-specific because the traps are Cloudflare-specific, and both were hit on the first
+      real attempt: the permission rows default to the Account group, whose DNS section cannot read
+      zones or write records, and Zone Resources defaults to a single zone you must pick — which
+      yields a token that authenticates, is allowed to list, and still returns nothing.
+    -->
+    @if (!compact && provider.name === 'cloudflare') {
+      <div class="dns-connect__help">
+        <p>In Cloudflare, go to <strong>My Profile → API Tokens → Create Token</strong> and start from
+          the <strong>Edit zone DNS</strong> template. It needs exactly two permissions and one scope:</p>
+        <ol class="dns-connect__steps">
+          <li>Set each permission row's first dropdown to <strong>Zone</strong> — not Account. The
+            Account group has a DNS section too, and none of it can read zones or change records.</li>
+          <li>Grant <strong>Zone → Read</strong> (so DeployAI can see which domains you own) and
+            <strong>DNS → Edit</strong> (so it can point them at your server).</li>
+          <li>Set <strong>Zone Resources</strong> to <strong>Include → All zones</strong>, or pick out
+            the specific domains you want DeployAI to manage.</li>
+        </ol>
+        <p class="dns-connect__aside">
+          Those two permissions are everything DeployAI uses — anything broader only widens what a
+          leaked token could reach.
+        </p>
+      </div>
+    }
 
-  <app-ui-button
-    variant="secondary"
-    tone="success"
-    icon="check"
-    [loading]="saving()"
-    [disabled]="!token().trim() || saving()"
-    (click)="connect()">
-    Connect Cloudflare
-  </app-ui-button>
+    @for (field of provider.fields; track field.key) {
+      <label class="dns-connect__field">
+        <span class="u-label-caps">{{ field.label }}</span>
+        <app-ui-input
+          [type]="field.secret ? 'password' : 'text'"
+          [placeholder]="field.placeholder ?? ''"
+          [ngModel]="values()[field.key] ?? ''"
+          (ngModelChange)="setValue(field.key, $event)"
+          [ngModelOptions]="{ standalone: true }"
+          [disabled]="saving()" />
+      </label>
+    }
+
+    <app-ui-button
+      variant="secondary"
+      tone="success"
+      icon="check"
+      [loading]="saving()"
+      [disabled]="!canSubmit()"
+      (click)="connect()">
+      Connect {{ provider.displayName }}
+    </app-ui-button>
+  }
 
   @if (error()) {
     <p class="dns-connect__error" role="alert">{{ error() }}</p>
   }
 
   @if (zones(); as loaded) {
-    <div class="dns-connect__zones">
-      @if (accountName(); as account) {
-        <p class="dns-connect__account">Connected to the <strong>{{ account }}</strong> account.</p>
-      }
-
-      @if (readyZones().length) {
-        <p class="dns-connect__group-title">Ready to use</p>
-        <ul class="dns-connect__list">
-          @for (zone of readyZones(); track zone.id) {
-            <li class="dns-connect__zone dns-connect__zone--ready">{{ zone.name }}</li>
-          }
-        </ul>
-      }
-
-      <!--
-        Shown rather than hidden: a zone that is listed but unusable is the case the user most needs
-        explained, and each reason has a different fix.
-      -->
-      @if (unusableZones().length) {
-        <p class="dns-connect__group-title">Needs attention</p>
-        <ul class="dns-connect__list">
-          @for (zone of unusableZones(); track zone.id) {
-            <li class="dns-connect__zone">
-              <span class="dns-connect__zone-name">{{ zone.name }}</span>
-              <span class="dns-connect__zone-why">{{ zone.usabilityMessage }}</span>
-            </li>
-          }
-        </ul>
-      }
-    </div>
+    <app-dns-zone-list [zones]="loaded" />
   }
 </div>

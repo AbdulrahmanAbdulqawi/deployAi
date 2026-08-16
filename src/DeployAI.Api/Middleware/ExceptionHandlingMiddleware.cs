@@ -1,3 +1,4 @@
+using DeployAI.Core.Domains;
 using DeployAI.Core.Exceptions;
 using System.Net;
 using System.Text.Json;
@@ -31,9 +32,10 @@ public sealed class ExceptionHandlingMiddleware
                 "credential_in_use" => (int)HttpStatusCode.Conflict,
                 // Neither of these says the caller did anything wrong, and the default 400 claims
                 // they did. A rate-limit answered as 400 also invites an immediate retry straight
-                // back into a longer lockout.
-                "cloudflare_rate_limited" => (int)HttpStatusCode.TooManyRequests,
-                "cloudflare_unreachable" => (int)HttpStatusCode.ServiceUnavailable,
+                // back into a longer lockout. Shared across every DNS and registrar provider so a
+                // new one cannot quietly fall through to 400 by spelling its code differently.
+                DnsErrorCodes.RateLimited => (int)HttpStatusCode.TooManyRequests,
+                DnsErrorCodes.Unreachable => (int)HttpStatusCode.ServiceUnavailable,
                 _ => (int)HttpStatusCode.BadRequest
             };
 
