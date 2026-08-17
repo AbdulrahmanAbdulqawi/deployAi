@@ -43,7 +43,8 @@ public class DomainPurchaseServiceTests
         public required Guid CredentialId { get; init; }
     }
 
-    private static Harness CreateHarness()
+    private static Harness CreateHarness(
+        string apiKey = "pk1_live_abc", string secretApiKey = "sk1_live_def")
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -57,8 +58,10 @@ public class DomainPurchaseServiceTests
             ProviderName = "porkbun",
             Kind = CredentialKind.Dns,
             Label = "Default",
-            TokenEncrypted = System.Text.Encoding.UTF8.GetBytes(
-                PorkbunCredentialStorage.Serialize("pk1_live_abc", "sk1_live_def")),
+            // Deliberately not the readable packed pair. The column holds AES ciphertext, so
+            // anything that reads it without going through the token service has to fail here
+            // the same way it fails in production rather than quietly working in tests.
+            TokenEncrypted = [0x9f, 0x2b, 0x00, 0xc4, 0x11],
             IsValid = true
         };
         var project = new Project
@@ -106,7 +109,7 @@ public class DomainPurchaseServiceTests
         var tokens = new Mock<IProviderCredentialTokenService>();
         tokens
             .Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(PorkbunCredentialStorage.Serialize("pk1_live_abc", "sk1_live_def"));
+            .ReturnsAsync(PorkbunCredentialStorage.Serialize(apiKey, secretApiKey));
 
         var domains = new Mock<IDomainService>();
         domains
@@ -162,6 +165,33 @@ public class DomainPurchaseServiceTests
         Assert.Equal(199, result.FirstYearCents);
         Assert.Equal(3499, result.RenewalCents);
         Assert.True(result.IsFirstYearPromotional);
+    }
+
+    // A sandbox order costs nothing and buys nothing, so a purchase record that does not say so
+    // is a fake order indistinguishable from a real one the moment anybody reads the table back.
+    // The keys can only be had from the token service — the stored column is ciphertext.
+    [Fact]
+    public async Task SearchAsync_MarksTheQuoteAsSandbox_WhenTheKeysAreSandboxKeys()
+    {
+        var harness = CreateHarness(apiKey: "pk1_sb_abc", secretApiKey: "sk1_sb_def");
+
+        var result = (await harness.Service.SearchAsync(
+            harness.UserId, Hostname, null, null, CancellationToken.None)).Single();
+
+        Assert.True(result.IsSandbox);
+        Assert.True(harness.Db.DomainPurchases.Single().IsSandbox);
+    }
+
+    [Fact]
+    public async Task SearchAsync_DoesNotCallALiveKeyPairSandbox()
+    {
+        var harness = CreateHarness();
+
+        var result = (await harness.Service.SearchAsync(
+            harness.UserId, Hostname, null, null, CancellationToken.None)).Single();
+
+        Assert.False(result.IsSandbox);
+        Assert.False(harness.Db.DomainPurchases.Single().IsSandbox);
     }
 
     [Fact]

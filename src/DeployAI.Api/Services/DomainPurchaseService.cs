@@ -106,7 +106,7 @@ public sealed class DomainPurchaseService : IDomainPurchaseService
             ];
         }
 
-        var sandbox = PorkbunSandbox(credential);
+        var sandbox = await PorkbunSandboxAsync(credential, cancellationToken);
         var now = _clock.GetUtcNow();
 
         // Written down at the moment it is shown, so the figure the user reads is the figure the
@@ -264,13 +264,15 @@ public sealed class DomainPurchaseService : IDomainPurchaseService
         }
     }
 
-    private static bool PorkbunSandbox(ProviderCredential credential) =>
+    private async Task<bool> PorkbunSandboxAsync(
+        ProviderCredential credential, CancellationToken cancellationToken) =>
         // Read from the stored key rather than asked about, so a test order cannot later be
-        // mistaken for a real one.
+        // mistaken for a real one. Through the token service because the column holds ciphertext:
+        // reading those bytes as text parses as nothing, which silently made every order real.
         credential.ProviderName.Equals("porkbun", StringComparison.OrdinalIgnoreCase) &&
         PorkbunCredentialStorage.IsSandbox(
             PorkbunCredentialStorage.TryParse(
-                System.Text.Encoding.UTF8.GetString(credential.TokenEncrypted))?.ApiKey);
+                await _tokens.GetTokenAsync(credential, cancellationToken))?.ApiKey);
 
     private async Task<(ProviderCredential Credential, IDomainRegistrar Registrar)> RequireRegistrarAsync(
         Guid userId, CancellationToken cancellationToken)
