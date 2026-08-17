@@ -1,7 +1,9 @@
 # Domains and certificates — a name a user owns, proven before a certificate is asked for
 
-**Status:** as of 2026-08-16, the lifecycle exists end to end and is covered by tests; three gaps
-remain open, and none of it has yet been exercised against a real domain.
+**Status:** as of 2026-08-17, the lifecycle exists end to end and is covered by tests, and buying a
+domain now works — exercised against Porkbun's sandbox through the UI, from search to a written A
+record. Everything past the DNS check remains unproven against a real domain, and the gaps below
+are open.
 
 ## The problem, stated once
 
@@ -89,9 +91,9 @@ Two details worth knowing before touching it:
   Hangfire's default of ten retries on its own ladder, against a job that already reschedules
   itself, produces two ladders, two clocks, and duplicate provider writes.
 
-## Two things only running it found
+## Three things only running it found
 
-Both were invisible to a green suite, and both were caught within minutes of opening the page.
+All three were invisible to a green suite, and each was caught within minutes of using the page.
 
 **Coolify reports its localhost server's `ip` as `host.docker.internal`.** `TryGetServerAddressAsync`
 read the field and trusted it, so the panel told the user to point an A record at a Docker
@@ -108,12 +110,41 @@ instructions hidden because the `source` comparison missed too. `DomainStatus` a
 now carry `[JsonConverter(typeof(JsonStringEnumConverter))]`. **This applies to any enum added to a
 response DTO, not just these** — worth promoting into the code conventions.
 
+**The DNS record was written once or never.** `TryWriteRecordAsync` was reachable only from
+`ResolveTargetAddressAsync`, which runs only in `Pending`. A registrar's zone listing does not
+include a registration that completed a second earlier, so buying a domain through the UI — where
+purchase and attach are seconds apart — found no covering zone, gave up permanently, and left the
+domain waiting out a sixty-minute deadline for a record DeployAI was supposed to write, then
+reported it as the user's failure to point their domain. The race is the *normal* case on the
+buy-a-domain path, not an unlucky one, and 1143 passing tests did not see it. The write is now
+retried every `DnsPending` tick until it lands, and the deadline drops to the ten-minute managed
+one when it does. Fixing it recovered a domain that was already stuck, which is the standard: a fix
+that only reaches resources created after it leaves the reporter still broken.
+
+Found alongside it: with two DNS accounts connected, the account that got the write was whichever
+the database returned first, ordered by nothing. Candidates are now gathered across all accounts
+and the most specific zone wins, with provider and id breaking genuine ties so the choice is at
+least reproducible. Two accounts claiming the same zone is logged, because only one of them can be
+the one actually answering queries.
+
 ## What remains
 
-- **No registrar purchase.** `DomainSource.Registrar` exists as an unused enum member and nothing
-  else — an unused enum member is a note, an unused interface would be a promise. Buying a domain
-  means money, a registration agreement accepted on someone's behalf, ICANN registrant
-  verification, and a renewal obligation, none of which DeployAI has anywhere to put.
+- **A domain DeployAI sold is not recorded as one it sold.** Buying works now, but
+  `DomainSource.Registrar` is still assigned nowhere in production code — only inside a test mock.
+  `AttachAsync` marks a just-bought domain `UserProvided`, and `TryWriteRecordAsync` then overwrites
+  it to `ManagedZone`. So disconnecting hands it back as though the user had brought it, and nothing
+  can distinguish "they own this elsewhere" from "we sold it to them and owe them a renewal."
+- **A stored DNS connection that holds no zones renders blank.** A valid credential on an empty
+  account can now be stored, which is what makes buying the first domain possible — but the panel
+  shows a header and empty space. The message explaining *why* it is empty is written at connect
+  time and never persisted, so the state that most needs an explanation is the one with none.
+- **Two DNS connections can be labelled identically.** Both default to `Default`, so the settings
+  page shows two `Remove Default` buttons with nothing to tell them apart. Removing the wrong one
+  hands a live domain's DNS back to the user by accident. Only reachable since an empty account
+  became storable, i.e. since there could be two.
+- **The approval flow has no UI.** `POST /api/dns/authorizations` and its poll endpoint exist and
+  are tested, and `client/src` contains no reference to either. Pasting keys is still the only path
+  the product offers, which is the thing that flow was built to remove.
 - **Nothing re-checks a domain that is `Active`.** Traefik renews on its own, but nothing notices
   when a renewal fails, and nothing notices if the DNS record is later changed or deleted.
   `ProjectHealthMonitorJob` already runs hourly and is the obvious home.

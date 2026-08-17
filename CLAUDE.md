@@ -126,7 +126,10 @@ was created and never regenerated; duplicate env-var repair wired only to the da
 path; `ProvisionAsync` requiring a storage link nothing ever created; a bucket's CORS rule applied
 only at bucket creation; and storage re-provisioning skipped whenever a link already existed. Two
 of those were introduced and found the same day, which is the point — the shape is easy to write
-and hard to see, so it wants a check that fails rather than a comment that informs.
+and hard to see, so it wants a check that fails rather than a comment that informs. A sixth arrived
+with the buy-a-domain flow: the DNS record write ran only in the `Pending` state, so a zone that was
+not listable in that one instant — the normal case moments after buying the domain — was never
+written at all, and the domain waited out its deadline for a record DeployAI owed it.
 
 **An absence must say which absence it is.** "Found nothing" and "could not look" are different
 answers, and code that returns the same value for both turns a blind scan into a confident
@@ -192,7 +195,15 @@ here, and the doc it links to.
 ### Domains & certificates — [docs/gaps/domains-and-certificates.md](docs/gaps/domains-and-certificates.md)
 - ~~A user-typed domain was discarded, and every app came up on plain-HTTP sslip.io~~ — closed; an
   `https://` FQDN is now written only after DNS is proven to reach the server.
-- Buying a domain is not implemented: `DomainSource.Registrar` is a note, not a capability.
+- ~~Buying a domain is not implemented~~ — closed; a domain can be bought end to end, verified
+  through the UI against Porkbun's sandbox. `DomainSource.Registrar` is still set nowhere, so a
+  domain DeployAI sold is indistinguishable from one the user brought.
+- A stored DNS connection holding no zones renders blank — the message explaining why is written at
+  connect time and never persisted.
+- Two DNS connections both default to the label `Default`, so the settings page offers two
+  identical `Remove Default` buttons.
+- The DNS approval flow has no UI: `POST /api/dns/authorizations` is tested and unreferenced by any
+  client code, so pasting keys is still the only path.
 - Nothing re-checks a domain once it is live — a failed renewal or a deleted record goes unnoticed.
 - The platform wildcard subdomain serves one server; a second needs per-app records.
 - A TLS handshake failure still reports as "redeploy the server", which cannot fix a missing cert.

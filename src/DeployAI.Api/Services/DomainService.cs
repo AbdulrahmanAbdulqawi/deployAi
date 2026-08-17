@@ -226,6 +226,13 @@ public sealed class DomainService : IDomainService
             .Where(c => c.UserId == userId && c.Kind == CredentialKind.Dns)
             .ToListAsync(cancellationToken);
 
+        // Every candidate is collected before one is chosen. Taking the first account that happened
+        // to cover the hostname meant the winner was whatever order the database returned — which
+        // nothing pins down, so the same two accounts could write into different zones on different
+        // runs. Only reachable once a user can hold two DNS connections at all.
+        var candidates =
+            new List<(ProviderCredential Credential, IDnsZoneProvider Provider, DnsZone Zone)>();
+
         foreach (var credential in credentials)
         {
             var provider = _dnsZones.GetZoneProvider(credential.ProviderName);
@@ -239,35 +246,18 @@ public sealed class DomainService : IDomainService
                 var token = new ProviderCredentials(await _tokens.GetTokenAsync(credential, cancellationToken));
                 var zones = await provider.ListZonesAsync(token, cancellationToken);
 
-                // Only a zone Cloudflare is actually authoritative for and serving. A zone whose
+                // Only a zone the provider is actually authoritative for and serving. A zone whose
                 // registrar has not delegated yet, or one set up as partial, accepts the write
                 // happily and then resolves to nothing — leaving the domain to wait out its
                 // deadline and be reported as the user's mistake.
-                // The longest matching zone wins: an account holding both example.com and
-                // eu.example.com should write app.eu.example.com into the more specific one.
-                var zone = zones
+                candidates.AddRange(zones
                     .Where(z => z.IsReady && CoversHostname(z.Name, domain.Hostname))
-                    .OrderByDescending(z => z.Name.Length)
-                    .FirstOrDefault();
-
-                if (zone is null)
-                {
-                    continue;
-                }
-
-                var written = await provider.UpsertAddressRecordAsync(
-                    token, zone.Id, domain.Hostname, address, cancellationToken);
-
-                domain.Source = DomainSource.ManagedZone;
-                domain.DnsCredentialId = credential.Id;
-                domain.ZoneId = zone.Id;
-                domain.ManagedRecordId = written.RecordId;
-                return;
+                    .Select(z => (credential, provider, z)));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(
-                    ex, "Could not write the DNS record for {Hostname} through {Provider}.",
+                    ex, "Could not list zones for {Hostname} through {Provider}.",
                     domain.Hostname, credential.ProviderName);
 
                 // A token that has been revoked or has expired otherwise fails silently forever:
@@ -276,6 +266,50 @@ public sealed class DomainService : IDomainService
                 // user be told which account stopped working, rather than left to notice that
                 // their DNS stopped being automatic.
                 MarkInvalidIfConclusive(credential, ex);
+            }
+        }
+
+        // Longest zone name first, across every account rather than within one: an account holding
+        // example.com and another holding sub.example.com should write app.sub.example.com into the
+        // more specific one, because that is the zone actually serving the name. Provider and id
+        // only break a genuine tie, and exist so the choice is reproducible rather than meaningful.
+        var best = candidates
+            .OrderByDescending(c => c.Zone.Name.Length)
+            .ThenBy(c => c.Credential.ProviderName, StringComparer.Ordinal)
+            .ThenBy(c => c.Credential.Id)
+            .FirstOrDefault();
+
+        if (best.Zone is not null)
+        {
+            var duplicates = candidates.Count(c =>
+                string.Equals(c.Zone.Name, best.Zone.Name, StringComparison.OrdinalIgnoreCase));
+            if (duplicates > 1)
+            {
+                // Two accounts both claiming the same zone is a real configuration the user may not
+                // know they have, and only one of them can be the one actually answering queries.
+                _logger.LogWarning(
+                    "{Count} connected accounts claim the zone {Zone}; wrote through {Provider}.",
+                    duplicates, best.Zone.Name, best.Credential.ProviderName);
+            }
+
+            try
+            {
+                var token = new ProviderCredentials(
+                    await _tokens.GetTokenAsync(best.Credential, cancellationToken));
+                var written = await best.Provider.UpsertAddressRecordAsync(
+                    token, best.Zone.Id, domain.Hostname, address, cancellationToken);
+
+                domain.Source = DomainSource.ManagedZone;
+                domain.DnsCredentialId = best.Credential.Id;
+                domain.ZoneId = best.Zone.Id;
+                domain.ManagedRecordId = written.RecordId;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(
+                    ex, "Could not write the DNS record for {Hostname} through {Provider}.",
+                    domain.Hostname, best.Credential.ProviderName);
+                MarkInvalidIfConclusive(best.Credential, ex);
             }
         }
 

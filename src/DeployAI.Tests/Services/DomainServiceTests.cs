@@ -48,7 +48,9 @@ public class DomainServiceTests
         DomainStatus status,
         string? expectedAddress = ServerIp,
         Mock<IDnsZoneProvider>? zoneProvider = null,
-        DomainSource source = DomainSource.UserProvided)
+        DomainSource source = DomainSource.UserProvided,
+        string hostname = Hostname,
+        Mock<IDnsZoneProvider>? secondZoneProvider = null)
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -81,8 +83,8 @@ public class DomainServiceTests
             Id = Guid.NewGuid(),
             ProjectId = project.Id,
             DeployTargetId = target.Id,
-            Hostname = Hostname,
-            DisplayHostname = Hostname,
+            Hostname = hostname,
+            DisplayHostname = hostname,
             Status = status,
             Source = source,
             ExpectedAddress = expectedAddress,
@@ -100,6 +102,20 @@ public class DomainServiceTests
                 Id = Guid.NewGuid(),
                 UserId = userId,
                 ProviderName = "porkbun",
+                Kind = CredentialKind.Dns,
+                Label = "Default",
+                TokenEncrypted = [],
+                IsValid = true
+            });
+        }
+
+        if (secondZoneProvider is not null)
+        {
+            db.ProviderCredentials.Add(new ProviderCredential
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                ProviderName = "cloudflare",
                 Kind = CredentialKind.Dns,
                 Label = "Default",
                 TokenEncrypted = [],
@@ -145,6 +161,12 @@ public class DomainServiceTests
         {
             zoneProvider.SetupGet(p => p.ProviderName).Returns("porkbun");
             zoneFactory.Setup(f => f.GetZoneProvider("porkbun")).Returns(zoneProvider.Object);
+        }
+
+        if (secondZoneProvider is not null)
+        {
+            secondZoneProvider.SetupGet(p => p.ProviderName).Returns("cloudflare");
+            zoneFactory.Setup(f => f.GetZoneProvider("cloudflare")).Returns(secondZoneProvider.Object);
         }
 
         return new Harness
@@ -254,6 +276,32 @@ public class DomainServiceTests
 
         zones.Verify(
             p => p.ListZonesAsync(It.IsAny<ProviderCredentials>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // Two connected accounts could each cover the hostname, and the loop took whichever the
+    // database happened to return first — an order nothing pins down, so the same setup could
+    // write into a different account between runs. The more specific zone is the one that is
+    // actually serving the name, so it wins regardless of which account holds it.
+    [Fact]
+    public async Task ReconcileOnceAsync_PrefersTheMoreSpecificZone_AcrossTwoConnectedAccounts()
+    {
+        var broad = ZoneProviderHolding("example.com");
+        var specific = ZoneProviderHolding("sub.example.com");
+        var harness = CreateHarness(
+            DomainStatus.DnsPending, hostname: "app.sub.example.com",
+            zoneProvider: broad, secondZoneProvider: specific);
+        harness.Dns
+            .Setup(d => d.CheckAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DnsUnanswered());
+
+        await harness.Service.ReconcileOnceAsync(harness.DomainId, CancellationToken.None);
+
+        Assert.Equal("sub.example.com", harness.Domain.ZoneId);
+        broad.Verify(
+            p => p.UpsertAddressRecordAsync(
+                It.IsAny<ProviderCredentials>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);
     }
 
