@@ -44,7 +44,11 @@ public class DomainServiceTests
         public ProjectDomain Domain => Db.ProjectDomains.AsTracking().First(d => d.Id == DomainId);
     }
 
-    private static Harness CreateHarness(DomainStatus status, string? expectedAddress = ServerIp)
+    private static Harness CreateHarness(
+        DomainStatus status,
+        string? expectedAddress = ServerIp,
+        Mock<IDnsZoneProvider>? zoneProvider = null,
+        DomainSource source = DomainSource.UserProvided)
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -80,11 +84,29 @@ public class DomainServiceTests
             Hostname = Hostname,
             DisplayHostname = Hostname,
             Status = status,
+            Source = source,
             ExpectedAddress = expectedAddress,
             StatusMessage = "seeded"
         };
 
         db.ProviderCredentials.Add(credential);
+
+        // Only seeded when a test supplies a zone provider, so every existing test keeps the
+        // no-DNS-account path it was written against.
+        if (zoneProvider is not null)
+        {
+            db.ProviderCredentials.Add(new ProviderCredential
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                ProviderName = "porkbun",
+                Kind = CredentialKind.Dns,
+                Label = "Default",
+                TokenEncrypted = [],
+                IsValid = true
+            });
+        }
+
         db.Projects.Add(project);
         db.DeployTargets.Add(target);
         db.ProjectDomains.Add(domain);
@@ -118,6 +140,13 @@ public class DomainServiceTests
         var orchestrator = new Mock<IDeploymentOrchestrator>();
         var clock = new FixedClock(DateTimeOffset.Parse("2026-08-16T12:00:00Z"));
 
+        var zoneFactory = new Mock<IDnsZoneProviderFactory>();
+        if (zoneProvider is not null)
+        {
+            zoneProvider.SetupGet(p => p.ProviderName).Returns("porkbun");
+            zoneFactory.Setup(f => f.GetZoneProvider("porkbun")).Returns(zoneProvider.Object);
+        }
+
         return new Harness
         {
             Db = db,
@@ -133,7 +162,7 @@ public class DomainServiceTests
                 certificates.Object,
                 addressFactory.Object,
                 assignments.Object,
-                Mock.Of<IDnsZoneProviderFactory>(),
+                zoneFactory.Object,
                 tokens.Object,
                 orchestrator.Object,
                 Mock.Of<IDomainReconciliationScheduler>(),
@@ -153,6 +182,80 @@ public class DomainServiceTests
 
     private static CertificateInspection Certificate(CertificateOutcome outcome) =>
         new(Hostname, outcome, "issuer", "subject", null, DateTimeOffset.UtcNow.AddDays(89), [], ["finding"]);
+
+    private static Mock<IDnsZoneProvider> ZoneProviderHolding(string zoneName)
+    {
+        var provider = new Mock<IDnsZoneProvider>();
+        provider
+            .Setup(p => p.ListZonesAsync(It.IsAny<ProviderCredentials>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new DnsZone(zoneName, zoneName, true, DnsZoneUsability.Ready, "Ready.")]);
+        provider
+            .Setup(p => p.UpsertAddressRecordAsync(
+                It.IsAny<ProviderCredentials>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DnsRecordWrite("rec-1", true));
+        return provider;
+    }
+
+    // Found by buying a domain through the UI and watching it wait for a record DeployAI was
+    // supposed to write. The zone listing had not caught up with the registration when the first
+    // tick ran, so the one write attempt found nothing and the domain sat in DnsPending until its
+    // deadline -- on the very path that sells the user the domain. Buying and attaching are
+    // seconds apart, so this race is the normal case there, not an unlucky one.
+    [Fact]
+    public async Task ReconcileOnceAsync_WritesTheRecordOnALaterTick_WhenTheZoneWasNotListableYet()
+    {
+        var zones = ZoneProviderHolding("example.com");
+        var harness = CreateHarness(DomainStatus.DnsPending, zoneProvider: zones);
+        harness.Dns
+            .Setup(d => d.CheckAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DnsUnanswered());
+
+        await harness.Service.ReconcileOnceAsync(harness.DomainId, CancellationToken.None);
+
+        var domain = harness.Domain;
+        Assert.Equal(DomainSource.ManagedZone, domain.Source);
+        Assert.Equal("example.com", domain.ZoneId);
+        Assert.Equal("rec-1", domain.ManagedRecordId);
+    }
+
+    // Once the record is DeployAI's own it carries a short TTL, so the hour meant for someone
+    // editing DNS by hand would spend fifty minutes past the point it became a provider problem.
+    [Fact]
+    public async Task ReconcileOnceAsync_ShortensTheDeadline_OnceItHasWrittenTheRecordItself()
+    {
+        var zones = ZoneProviderHolding("example.com");
+        var harness = CreateHarness(DomainStatus.DnsPending, zoneProvider: zones);
+        harness.Domain.DeadlineAt = harness.Clock.Now.AddMinutes(55);
+        harness.Db.SaveChanges();
+        harness.Dns
+            .Setup(d => d.CheckAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DnsUnanswered());
+
+        await harness.Service.ReconcileOnceAsync(harness.DomainId, CancellationToken.None);
+
+        Assert.Equal(
+            harness.Clock.Now.Add(DomainReconciliation.ManagedDnsDeadline), harness.Domain.DeadlineAt);
+    }
+
+    // Retrying must not mean re-listing every tick forever. Porkbun rate-limits, and once the
+    // record is ours there is nothing left to discover.
+    [Fact]
+    public async Task ReconcileOnceAsync_StopsLookingForAZone_OnceTheRecordIsAlreadyManaged()
+    {
+        var zones = ZoneProviderHolding("example.com");
+        var harness = CreateHarness(
+            DomainStatus.DnsPending, zoneProvider: zones, source: DomainSource.ManagedZone);
+        harness.Dns
+            .Setup(d => d.CheckAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(DnsUnanswered());
+
+        await harness.Service.ReconcileOnceAsync(harness.DomainId, CancellationToken.None);
+
+        zones.Verify(
+            p => p.ListZonesAsync(It.IsAny<ProviderCredentials>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
 
     // The single most important assertion in this feature.
     [Theory]

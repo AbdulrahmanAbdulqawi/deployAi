@@ -477,6 +477,29 @@ public sealed class DomainService : IDomainService
     private async Task<DomainTickResult> CheckDnsAsync(
         ProjectDomain domain, bool deadlinePassed, CancellationToken cancellationToken)
     {
+        // Retried on every tick, not only when the domain was created. A zone bought through
+        // DeployAI seconds earlier is routinely not listable yet when the first tick runs, and a
+        // single attempt left the domain waiting out its deadline for a record DeployAI was
+        // supposed to write — on the one path where DeployAI sold the domain and therefore owns
+        // the DNS completely. The upsert is idempotent, so a repeat costs one listing call.
+        if (domain.Source != DomainSource.ManagedZone)
+        {
+            await TryWriteRecordAsync(
+                domain, domain.Project.UserId, domain.ExpectedAddress!, cancellationToken);
+
+            if (domain.Source == DomainSource.ManagedZone)
+            {
+                // The record is ours now and carries a short TTL, so the hour allowed for someone
+                // editing DNS by hand no longer applies. Recomputed rather than left alone,
+                // because a deadline that has already passed would otherwise fail a domain on the
+                // same tick that finally pointed it.
+                domain.DeadlineAt = _clock.GetUtcNow().Add(DomainReconciliation.ManagedDnsDeadline);
+                deadlinePassed = false;
+                // No status message here: the DNS check below writes its own through Apply, and a
+                // line set at this point is overwritten before anyone can read it.
+            }
+        }
+
         var check = await _dns.CheckAsync(domain.Hostname, domain.ExpectedAddress!, cancellationToken);
         var transition = DomainTransitions.AfterDnsCheck(
             check, deadlinePassed, ToLifecycle(domain.LastConclusiveStatus));
