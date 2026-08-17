@@ -142,9 +142,13 @@ the one actually answering queries.
   page shows two `Remove Default` buttons with nothing to tell them apart. Removing the wrong one
   hands a live domain's DNS back to the user by accident. Only reachable since an empty account
   became storable, i.e. since there could be two.
-- **The approval flow has no UI.** `POST /api/dns/authorizations` and its poll endpoint exist and
-  are tested, and `client/src` contains no reference to either. Pasting keys is still the only path
-  the product offers, which is the thing that flow was built to remove.
+- **The approval round trip has not been completed against the live provider.** The UI exists now:
+  approval is offered wherever a provider declares `supportsApproval`, and the key form sits behind
+  "enter keys instead". `GET /api/dns/providers` carries that flag for the same reason it carries
+  `fields` — a client holding its own list of approvable providers means registering a flow silently
+  leaves the provider on the paste form. What is verified is the flag reaching the client and the
+  screen rendering from it; what is not is begin → approve in Porkbun → poll → stored, which needs
+  a human to approve in their own account.
 - **Nothing re-checks a domain that is `Active`.** Traefik renews on its own, but nothing notices
   when a renewal fails, and nothing notices if the DNS record is later changed or deleted.
   `ProjectHealthMonitorJob` already runs hourly and is the obvious home.

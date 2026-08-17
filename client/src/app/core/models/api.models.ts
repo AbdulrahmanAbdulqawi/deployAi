@@ -187,6 +187,32 @@ export interface DnsProviderInfo {
   name: string;
   displayName: string;
   fields: DnsCredentialField[];
+  /**
+   * Whether this provider can hand over credentials through an approval flow. Declared by the
+   * server rather than known here, so registering a flow never means remembering to edit the UI.
+   */
+  supportsApproval: boolean;
+}
+
+/** Where an approval request has got to. Sent as a string — the enum carries a converter. */
+export enum DnsAuthorizationState {
+  Pending = 'Pending',
+  Approved = 'Approved',
+  Denied = 'Denied',
+  Expired = 'Expired',
+  Unreachable = 'Unreachable',
+}
+
+export interface DnsAuthorizationStart {
+  requestToken: string;
+  approvalUrl: string;
+  expiresAt: string;
+}
+
+export interface DnsAuthorizationPoll {
+  state: DnsAuthorizationState;
+  message: string;
+  connection: DnsConnectionDetail | null;
 }
 
 export enum DomainAvailability {

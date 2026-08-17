@@ -29,6 +29,8 @@ import {
   ProjectDomain,
   DomainOptions,
   DnsConnectionSummary,
+  DnsAuthorizationPoll,
+  DnsAuthorizationStart,
   DnsConnectionDetail,
   DnsDisconnectImpact,
   DnsProviderInfo,
@@ -415,6 +417,31 @@ export class ApiService {
     label?: string;
   }) {
     return this.http.post<DnsConnectionDetail>('/api/dns/connections', payload);
+  }
+
+  /**
+   * Asks the provider for access and returns the link the account holder has to approve.
+   *
+   * The verifier that makes the later poll safe stays on the server and is deliberately absent
+   * from this response — holding it here would put it in the browser, which is the one place it
+   * must never be.
+   */
+  beginDnsAuthorization(payload: { providerName: string; label?: string }) {
+    return this.http.post<DnsAuthorizationStart>('/api/dns/authorizations', payload);
+  }
+
+  /**
+   * Asks whether the approval has happened yet.
+   *
+   * The connection is stored by the server on the first successful poll, because the secret is
+   * returned exactly once — so an `Approved` response has already been persisted and there is
+   * nothing for the caller to save.
+   */
+  pollDnsAuthorization(requestToken: string, payload: { providerName: string; label?: string }) {
+    return this.http.post<DnsAuthorizationPoll>(
+      `/api/dns/authorizations/${requestToken}/poll`,
+      payload
+    );
   }
 
   /** Re-read from the provider every time — a zone waiting on its registrar becomes usable later. */

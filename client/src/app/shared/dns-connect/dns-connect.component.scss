@@ -109,6 +109,61 @@
   line-height: 1.5;
 }
 
+/*
+ * The approval path. Stacked rather than laid out in a row: the primary button and the
+ * "enter keys instead" fallback are not peers, and side by side they read as two equal choices —
+ * which is the decision this flow exists to stop the user having to make.
+ */
+.dns-connect__approval {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.dns-connect__approval-lead {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.dns-connect__approval-status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.dns-connect__approval-link {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+
+  a {
+    color: var(--status-accent);
+  }
+}
+
+/* A quieter way out, not a second primary action. */
+.dns-connect__alternative {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+}
+
 .dns-connect__providers {
   display: flex;
   gap: var(--space-2);

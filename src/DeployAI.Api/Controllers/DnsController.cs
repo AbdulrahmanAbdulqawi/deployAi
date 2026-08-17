@@ -56,7 +56,14 @@ public sealed class DnsController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>The DNS providers a token can be pasted for.</summary>
+    /// <summary>
+    /// The DNS providers that can be connected, and how each of them can be.
+    /// </summary>
+    /// <remarks>
+    /// <c>supportsApproval</c> is declared here for the same reason <c>fields</c> is: the client
+    /// must not hold a list of provider names that can be approved, or registering a flow means
+    /// editing the UI too, and forgetting leaves a provider quietly stuck on the paste form.
+    /// </remarks>
     [HttpGet("providers")]
     public IActionResult ListProviders() =>
         Ok(new
@@ -66,7 +73,9 @@ public sealed class DnsController : ControllerBase
                 {
                     name = p.ProviderName,
                     displayName = p.DisplayName,
-                    fields = p.CredentialFields
+                    fields = p.CredentialFields,
+                    supportsApproval = _authorizationFlows.Any(f =>
+                        string.Equals(f.ProviderName, p.ProviderName, StringComparison.OrdinalIgnoreCase))
                 })
         });
 

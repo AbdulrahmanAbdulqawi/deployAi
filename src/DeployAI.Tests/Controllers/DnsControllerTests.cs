@@ -46,7 +46,8 @@ public class DnsControllerTests
     private static DnsZone ReadyZone(string name = "example.com") =>
         new("zone-1", name, null, DnsZoneUsability.Ready, "Ready.", "Acme");
 
-    private static Harness CreateHarness(DnsCredentialCheck? check = null)
+    private static Harness CreateHarness(
+        DnsCredentialCheck? check = null, IDnsAuthorizationFlow[]? flows = null)
     {
         var db = new DeployAIDbContext(new DbContextOptionsBuilder<DeployAIDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -114,7 +115,7 @@ public class DnsControllerTests
             DeployTargetId = target.Id,
             Controller = new DnsController(
                 db, currentUser.Object, factory.Object, tokens.Object,
-                new PassthroughEncryption(), [],
+                new PassthroughEncryption(), flows ?? [],
                 new Microsoft.Extensions.Caching.Memory.MemoryCache(
                     new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
                 NullLogger<DnsController>.Instance)
@@ -159,6 +160,39 @@ public class DnsControllerTests
         harness.Db.ProjectDomains.Add(domain);
         harness.Db.SaveChanges();
         return domain;
+    }
+
+    // ---- what the connect screen is told ---------------------------------
+
+    // The UI has to offer approval instead of a key form for providers that support it, and the
+    // only alternative to being told is hardcoding a provider name in the client — which is the
+    // thing the fields list already exists to avoid.
+    [Fact]
+    public void ListProviders_SaysWhichProvidersCanBeConnectedByApproval()
+    {
+        var flow = new Mock<IDnsAuthorizationFlow>();
+        flow.SetupGet(f => f.ProviderName).Returns("cloudflare");
+        var harness = CreateHarness(flows: [flow.Object]);
+
+        var body = Assert.IsType<OkObjectResult>(harness.Controller.ListProviders()).Value!;
+        var providers = Assert.IsAssignableFrom<IEnumerable<object>>(
+            body.GetType().GetProperty("providers")!.GetValue(body)!);
+
+        var only = providers.Single();
+        Assert.True((bool)only.GetType().GetProperty("supportsApproval")!.GetValue(only)!);
+    }
+
+    [Fact]
+    public void ListProviders_SaysApprovalIsUnavailable_WhenNoFlowIsRegisteredForTheProvider()
+    {
+        var harness = CreateHarness();
+
+        var body = Assert.IsType<OkObjectResult>(harness.Controller.ListProviders()).Value!;
+        var providers = Assert.IsAssignableFrom<IEnumerable<object>>(
+            body.GetType().GetProperty("providers")!.GetValue(body)!);
+
+        var only = providers.Single();
+        Assert.False((bool)only.GetType().GetProperty("supportsApproval")!.GetValue(only)!);
     }
 
     // ---- connecting ------------------------------------------------------

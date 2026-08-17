@@ -202,8 +202,9 @@ here, and the doc it links to.
   connect time and never persisted.
 - Two DNS connections both default to the label `Default`, so the settings page offers two
   identical `Remove Default` buttons.
-- The DNS approval flow has no UI: `POST /api/dns/authorizations` is tested and unreferenced by any
-  client code, so pasting keys is still the only path.
+- ~~The DNS approval flow has no UI~~ — closed; approval is the offered path wherever a provider
+  declares `supportsApproval`, with the key form behind "enter keys instead". The approval round
+  trip has not yet been completed against the live provider.
 - Nothing re-checks a domain once it is live — a failed renewal or a deleted record goes unnoticed.
 - The platform wildcard subdomain serves one server; a second needs per-app records.
 - A TLS handshake failure still reports as "redeploy the server", which cannot fix a missing cert.

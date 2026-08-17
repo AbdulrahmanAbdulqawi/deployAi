@@ -20,7 +20,48 @@
       zones or write records, and Zone Resources defaults to a single zone you must pick — which
       yields a token that authenticates, is allowed to list, and still returns nothing.
     -->
-    @if (!compact && provider.name === 'cloudflare') {
+    <!--
+      Offered first where the provider supports it. Nothing to create, scope, copy or paste, which
+      between them account for every failed connection attempt this feature has seen.
+    -->
+    @if (offersApproval() && !showsKeyForm()) {
+      <div class="dns-connect__approval">
+        @if (!compact) {
+          <p class="dns-connect__approval-lead">
+            DeployAI will ask {{ provider.displayName }} for access. You approve it in your
+            {{ provider.displayName }} account — there is no key to create or paste.
+          </p>
+        }
+
+        <app-ui-button
+          variant="secondary"
+          tone="success"
+          icon="check"
+          [loading]="awaitingApproval()"
+          [disabled]="awaitingApproval()"
+          (click)="approve()">
+          Connect {{ provider.displayName }}
+        </app-ui-button>
+
+        @if (approvalMessage(); as waiting) {
+          <p class="dns-connect__approval-status" role="status">{{ waiting }}</p>
+        }
+
+        <!-- Kept on screen: a popup blocker or a closed tab must not strand the flow. -->
+        @if (approvalUrl(); as url) {
+          <p class="dns-connect__approval-link">
+            Didn't a tab open?
+            <a [href]="url" target="_blank" rel="noopener">Open the approval page</a>
+          </p>
+        }
+
+        <button type="button" class="dns-connect__alternative" (click)="enterKeysInstead()">
+          Enter {{ provider.displayName }} keys instead
+        </button>
+      </div>
+    }
+
+    @if (showsFields() && !compact && provider.name === 'cloudflare') {
       <div class="dns-connect__help">
         <p>In Cloudflare, go to <strong>My Profile → API Tokens → Create Token</strong> and start from
           the <strong>Edit zone DNS</strong> template. It needs exactly two permissions and one scope:</p>
@@ -39,28 +80,30 @@
       </div>
     }
 
-    @for (field of provider.fields; track field.key) {
-      <label class="dns-connect__field">
-        <span class="u-label-caps">{{ field.label }}</span>
-        <app-ui-input
-          [type]="field.secret ? 'password' : 'text'"
-          [placeholder]="field.placeholder ?? ''"
-          [ngModel]="values()[field.key] ?? ''"
-          (ngModelChange)="setValue(field.key, $event)"
-          [ngModelOptions]="{ standalone: true }"
-          [disabled]="saving()" />
-      </label>
-    }
+    @if (showsFields()) {
+      @for (field of provider.fields; track field.key) {
+        <label class="dns-connect__field">
+          <span class="u-label-caps">{{ field.label }}</span>
+          <app-ui-input
+            [type]="field.secret ? 'password' : 'text'"
+            [placeholder]="field.placeholder ?? ''"
+            [ngModel]="values()[field.key] ?? ''"
+            (ngModelChange)="setValue(field.key, $event)"
+            [ngModelOptions]="{ standalone: true }"
+            [disabled]="saving()" />
+        </label>
+      }
 
-    <app-ui-button
-      variant="secondary"
-      tone="success"
-      icon="check"
-      [loading]="saving()"
-      [disabled]="!canSubmit()"
-      (click)="connect()">
-      Connect {{ provider.displayName }}
-    </app-ui-button>
+      <app-ui-button
+        variant="secondary"
+        tone="success"
+        icon="check"
+        [loading]="saving()"
+        [disabled]="!canSubmit()"
+        (click)="connect()">
+        Connect {{ provider.displayName }}
+      </app-ui-button>
+    }
   }
 
   @if (error()) {

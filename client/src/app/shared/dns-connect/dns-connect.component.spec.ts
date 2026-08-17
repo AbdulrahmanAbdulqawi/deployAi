@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { DnsConnectComponent } from './dns-connect.component';
@@ -10,6 +10,21 @@ const PROVIDERS = {
       name: 'cloudflare',
       displayName: 'Cloudflare',
       fields: [{ key: 'token', label: 'API token', secret: true, placeholder: null }],
+      supportsApproval: false,
+    },
+  ],
+};
+
+const APPROVABLE = {
+  providers: [
+    {
+      name: 'porkbun',
+      displayName: 'Porkbun',
+      fields: [
+        { key: 'apiKey', label: 'API key', secret: true, placeholder: 'pk1_…' },
+        { key: 'secretApiKey', label: 'Secret API key', secret: true, placeholder: 'sk1_…' },
+      ],
+      supportsApproval: true,
     },
   ],
 };
@@ -139,5 +154,163 @@ describe('DnsConnectComponent', () => {
     http.expectOne('/api/dns/connections').flush({ connection: {}, zones: [zone()] });
 
     expect(emitted!.length).toBe(1);
+  });
+
+  // A provider with no approval flow must still get the key form immediately — the whole screen
+  // would otherwise be an approval button that cannot do anything.
+  it('shows the key form for a provider that cannot be approved', () => {
+    expect(component.offersApproval()).toBe(false);
+    expect(component.showsFields()).toBe(true);
+  });
+
+  describe('connecting by approval', () => {
+    // A second component, because the outer setup has already answered the providers call with a
+    // provider that has no approval flow.
+    const approvable = () => {
+      const f = TestBed.createComponent(DnsConnectComponent);
+      f.detectChanges();
+      http.expectOne('/api/dns/providers').flush(APPROVABLE);
+      return f.componentInstance;
+    };
+
+    it('offers approval instead of the key form', () => {
+      const c = approvable();
+
+      expect(c.offersApproval()).toBe(true);
+      expect(c.showsFields()).toBe(false);
+    });
+
+    it('sends the account holder to the approval page', () => {
+      const opened = spyOn(window, 'open');
+      const c = approvable();
+
+      c.approve();
+      http.expectOne('/api/dns/authorizations').flush({
+        requestToken: 'req-1',
+        approvalUrl: 'https://porkbun.com/approve/req-1',
+        expiresAt: '2026-08-17T13:20:00Z',
+      });
+
+      expect(opened).toHaveBeenCalledWith(
+        'https://porkbun.com/approve/req-1',
+        '_blank',
+        'noopener'
+      );
+      // Kept on screen too, for a blocked popup.
+      expect(c.approvalUrl()).toBe('https://porkbun.com/approve/req-1');
+    });
+
+    // The server stores the credentials on the first successful poll, because the secret is
+    // returned exactly once. Nothing here may post them a second time.
+    it('saves nothing itself once approved', fakeAsync(() => {
+      spyOn(window, 'open');
+      const c = approvable();
+      let emitted: DnsZone[] | null = null;
+      c.connected.subscribe((zones) => (emitted = zones));
+
+      c.approve();
+      http.expectOne('/api/dns/authorizations').flush({
+        requestToken: 'req-1',
+        approvalUrl: 'https://porkbun.com/approve/req-1',
+        expiresAt: '2026-08-17T13:20:00Z',
+      });
+
+      tick(3000);
+      http.expectOne('/api/dns/authorizations/req-1/poll').flush({
+        state: 'Approved',
+        message: 'Connected.',
+        connection: { connection: {}, zones: [zone()] },
+      });
+
+      http.expectNone('/api/dns/connections');
+      expect(emitted!.length).toBe(1);
+      expect(c.awaitingApproval()).toBe(false);
+
+      // No further polling once it is done.
+      tick(10000);
+      http.expectNone('/api/dns/authorizations/req-1/poll');
+    }));
+
+    // Denied is an answer. Treated as pending it would spin on something never going to happen.
+    it('stops and says why when the account holder declines', fakeAsync(() => {
+      spyOn(window, 'open');
+      const c = approvable();
+
+      c.approve();
+      http.expectOne('/api/dns/authorizations').flush({
+        requestToken: 'req-1',
+        approvalUrl: 'https://porkbun.com/approve/req-1',
+        expiresAt: '2026-08-17T13:20:00Z',
+      });
+
+      tick(3000);
+      http.expectOne('/api/dns/authorizations/req-1/poll').flush({
+        state: 'Denied',
+        message: 'That request was declined in Porkbun.',
+        connection: null,
+      });
+
+      expect(c.error()).toContain('declined');
+      expect(c.awaitingApproval()).toBe(false);
+
+      tick(10000);
+      http.expectNone('/api/dns/authorizations/req-1/poll');
+    }));
+
+    // Unreachable says nothing about the approval, so it must not throw away one already given.
+    it('keeps waiting when the provider could not be asked', fakeAsync(() => {
+      spyOn(window, 'open');
+      const c = approvable();
+
+      c.approve();
+      http.expectOne('/api/dns/authorizations').flush({
+        requestToken: 'req-1',
+        approvalUrl: 'https://porkbun.com/approve/req-1',
+        expiresAt: '2026-08-17T13:20:00Z',
+      });
+
+      tick(3000);
+      http.expectOne('/api/dns/authorizations/req-1/poll').flush({
+        state: 'Unreachable',
+        message: 'Could not reach Porkbun.',
+        connection: null,
+      });
+
+      expect(c.error()).toBeNull();
+      expect(c.awaitingApproval()).toBe(true);
+
+      tick(3000);
+      http.expectOne('/api/dns/authorizations/req-1/poll').flush({
+        state: 'Expired',
+        message: 'That approval link expired.',
+        connection: null,
+      });
+    }));
+
+    it('still allows keys to be entered by hand', () => {
+      const c = approvable();
+
+      c.enterKeysInstead();
+
+      expect(c.showsFields()).toBe(true);
+    });
+
+    // Leaving a timer running would poll on forever behind a closed panel.
+    it('stops polling when it goes away', fakeAsync(() => {
+      spyOn(window, 'open');
+      const c = approvable();
+
+      c.approve();
+      http.expectOne('/api/dns/authorizations').flush({
+        requestToken: 'req-1',
+        approvalUrl: 'https://porkbun.com/approve/req-1',
+        expiresAt: '2026-08-17T13:20:00Z',
+      });
+
+      c.ngOnDestroy();
+
+      tick(10000);
+      http.expectNone('/api/dns/authorizations/req-1/poll');
+    }));
   });
 });
