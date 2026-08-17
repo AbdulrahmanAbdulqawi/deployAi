@@ -119,6 +119,40 @@ describe('DomainPanelComponent', () => {
     request.flush(domain({ hostname: 'shop.example.com' }));
   });
 
+  // Behind a disclosure it was a footnote next to the work it removes: anyone who did not think to
+  // open it went and edited DNS by hand, which is the outcome the whole feature exists to prevent.
+  it('offers to connect DNS without anything needing to be opened first', () => {
+    flushInitialRequests();
+
+    const offer = fixture.nativeElement.querySelector('.domains__connect-offer');
+    expect(offer).toBeTruthy();
+    expect(offer.closest('details')).toBeNull();
+    expect(offer.querySelector('app-dns-connect')).toBeTruthy();
+  });
+
+  // Nothing to offer once DeployAI can already write the record.
+  it('drops the offer once a writable zone is connected', () => {
+    fixture.detectChanges();
+    http.expectOne('/api/projects/project-1/domains').flush([]);
+    http.expectOne('/api/projects/project-1/domains/options').flush({
+      suggestedSubdomain: null,
+      zones: [
+        {
+          id: 'example.com',
+          name: 'example.com',
+          canWrite: true,
+          usability: 'Ready',
+          usabilityMessage: 'Ready.',
+          accountName: null,
+        },
+      ],
+    });
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.domains__connect-offer')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('DNS account is connected');
+  });
+
   it('surfaces the reason a domain was rejected', () => {
     flushInitialRequests();
 

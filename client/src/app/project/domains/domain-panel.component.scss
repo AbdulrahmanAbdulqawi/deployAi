@@ -88,6 +88,18 @@
   }
 }
 
+/*
+ * Solid rather than the dashed outline the collapsed disclosures use. Dashed reads as "optional
+ * extra, open if curious", which is exactly the wrong weight for the step that decides whether the
+ * user edits DNS by hand.
+ */
+.domains__connect-offer {
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+}
+
 .domains__connect-lead {
   margin: var(--space-2) 0 var(--space-3);
   font-size: 0.875rem;

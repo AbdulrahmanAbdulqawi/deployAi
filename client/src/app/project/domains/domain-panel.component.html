@@ -38,18 +38,25 @@
     <p class="domains__note">
       Your DNS account is connected, so we'll point the domain for you.
     </p>
-  } @else {
+  } @else if (zonesAreKnown()) {
     <!--
-      The offer belongs here rather than only in Settings: this is the moment it pays off, next to
-      the record the user would otherwise copy into someone else's dashboard by hand.
+      Shown rather than tucked into a disclosure. This is the moment the offer pays off — the user
+      is one step from being handed a record to copy into someone else's dashboard — and behind a
+      summary reading "rather not touch DNS yourself?" it was a footnote beside the very work it
+      removes, found only by someone curious enough to open it. Whoever does not open it does the
+      work by hand, which is the outcome the product exists to prevent.
+
+      Gated on the answer having arrived, not merely on there being no zones yet: rendered while
+      the lookup is still in flight, it appears in full and then vanishes for every user who
+      already has an account connected.
     -->
-    <details class="domains__connect">
-      <summary>Rather not touch DNS yourself?</summary>
+    <section class="domains__connect-offer">
       <p class="domains__connect-lead">
-        Connect your DNS account and DeployAI will point your domain for you — no records to copy.
+        Connect your DNS account and DeployAI will point your domain for you — nothing to copy, and
+        no dashboard to open.
       </p>
       <app-dns-connect [compact]="false" (connected)="onDnsConnected()" />
-    </details>
+    </section>
   }
 
   <details class="domains__connect">

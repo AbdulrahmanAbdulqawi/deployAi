@@ -163,6 +163,27 @@ describe('DnsConnectComponent', () => {
     expect(component.showsFields()).toBe(true);
   });
 
+  // Which provider is offered first decides what most users do. One that can be approved has
+  // nothing to create or paste, so it leads even when another is listed before it — otherwise the
+  // panel opens on a wall of token instructions and the easy path is the one behind a tab.
+  it('opens on a provider that can be approved, whatever the order', () => {
+    const fixture2 = TestBed.createComponent(DnsConnectComponent);
+    fixture2.detectChanges();
+    http.expectOne('/api/dns/providers').flush({
+      providers: [...PROVIDERS.providers, ...APPROVABLE.providers],
+    });
+
+    expect(fixture2.componentInstance.selectedName()).toBe('porkbun');
+  });
+
+  it('falls back to the first provider when none can be approved', () => {
+    const fixture2 = TestBed.createComponent(DnsConnectComponent);
+    fixture2.detectChanges();
+    http.expectOne('/api/dns/providers').flush(PROVIDERS);
+
+    expect(fixture2.componentInstance.selectedName()).toBe('cloudflare');
+  });
+
   describe('connecting by approval', () => {
     // A second component, because the outer setup has already answered the providers call with a
     // provider that has no approval flow.

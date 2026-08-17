@@ -51,12 +51,30 @@ export class DomainPanelComponent implements OnInit {
     (this.options()?.zones ?? []).some((zone) => zone.usability === DnsZoneUsability.Ready)
   );
 
+  /**
+   * Whether the answer about zones has arrived — either a list, or a failure to fetch one.
+   *
+   * Not the same question as "are there no zones", and the offer below depends on the difference:
+   * until this is true the panel has simply not heard yet, and treating that as "no DNS account"
+   * flashes the whole connect offer at someone who already has one before snatching it away.
+   * A failed lookup counts as heard, because the alternative — hiding the offer whenever that call
+   * fails — sends a user with no DNS account off to edit records by hand, which is worse than
+   * offering a connection to someone who already has one.
+   */
+  readonly zonesAreKnown = signal(false);
+
   ngOnInit(): void {
     this.refresh();
     this.api.getDomainOptions(this.projectId).subscribe({
-      next: (options) => this.options.set(options),
+      next: (options) => {
+        this.options.set(options);
+        this.zonesAreKnown.set(true);
+      },
       // Suggestions are a convenience; failing to load them must not block adding a domain.
-      error: () => this.options.set(null),
+      error: () => {
+        this.options.set(null);
+        this.zonesAreKnown.set(true);
+      },
     });
   }
 

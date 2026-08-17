@@ -94,7 +94,10 @@ export class DnsConnectComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.providers.set(response.providers);
         if (response.providers.length && !this.selectedName()) {
-          this.select(response.providers[0].name);
+          // Whichever provider opens first is the one most people will use, so it is the one with
+          // nothing to create, scope or paste — not merely the first the server happened to list.
+          const approvable = response.providers.find((p) => p.supportsApproval);
+          this.select((approvable ?? response.providers[0]).name);
         }
       },
       error: () => this.error.set('Could not load the list of DNS providers.'),
