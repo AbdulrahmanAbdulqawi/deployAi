@@ -8,6 +8,7 @@ using DeployAI.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace DeployAI.Api.Controllers;
 
@@ -31,6 +32,8 @@ public sealed class DnsController : ControllerBase
     private readonly IDnsZoneProviderFactory _zoneProviders;
     private readonly IProviderCredentialTokenService _tokens;
     private readonly IEncryptionService _encryption;
+    private readonly IEnumerable<IDnsAuthorizationFlow> _authorizationFlows;
+    private readonly IMemoryCache _pendingAuthorizations;
     private readonly ILogger<DnsController> _logger;
 
     public DnsController(
@@ -39,6 +42,8 @@ public sealed class DnsController : ControllerBase
         IDnsZoneProviderFactory zoneProviders,
         IProviderCredentialTokenService tokens,
         IEncryptionService encryption,
+        IEnumerable<IDnsAuthorizationFlow> authorizationFlows,
+        IMemoryCache pendingAuthorizations,
         ILogger<DnsController> logger)
     {
         _db = db;
@@ -46,6 +51,8 @@ public sealed class DnsController : ControllerBase
         _zoneProviders = zoneProviders;
         _tokens = tokens;
         _encryption = encryption;
+        _authorizationFlows = authorizationFlows;
+        _pendingAuthorizations = pendingAuthorizations;
         _logger = logger;
     }
 
@@ -98,20 +105,44 @@ public sealed class DnsController : ControllerBase
             ?? throw new DeployAIException(
                 "dns_provider_unknown", $"'{providerName}' is not a DNS provider DeployAI supports.");
 
+        // Rate-limiting and an unreachable provider say nothing about the credentials, so they
+        // get their own codes (429/503 at the edge) and nothing is persisted either way.
         var credentials = provider.PackCredential(request.Fields ?? new Dictionary<string, string>());
-        var check = await provider.ValidateCredentialsAsync(credentials, cancellationToken);
 
+        var (detail, created) = await StoreConnectionAsync(
+            userId, providerName, credentials, request.Label, cancellationToken);
+
+        // 200 for a replaced credential, 201 for a new one -- a repeat connect is not a creation.
+        return created
+            ? Created($"/api/dns/connections/{detail.Connection.Id}", detail)
+            : Ok(detail);
+    }
+
+    /// <summary>
+    /// Validates and stores a connection. Shared by the paste path and the approval flow so the
+    /// two cannot disagree about what a connected account looks like.
+    /// </summary>
+    private async Task<(DnsConnectionDetail Detail, bool Created)> StoreConnectionAsync(
+        Guid userId,
+        string providerName,
+        ProviderCredentials credentials,
+        string? requestedLabel,
+        CancellationToken cancellationToken)
+    {
+        var provider = _zoneProviders.GetZoneProvider(providerName)
+            ?? throw new DeployAIException(
+                "dns_provider_unknown", $"'{providerName}' is not a DNS provider DeployAI supports.");
+
+        var check = await provider.ValidateCredentialsAsync(credentials, cancellationToken);
         if (!check.IsUsable)
         {
-            // Rate-limiting and an unreachable provider say nothing about the token, so they get
-            // their own codes (429/503 at the edge) and never mark anything invalid.
             throw new DeployAIException(VerdictToErrorCode(check.Verdict), check.Message);
         }
 
-        var label = string.IsNullOrWhiteSpace(request.Label) ? "Default" : request.Label.Trim();
+        var label = string.IsNullOrWhiteSpace(requestedLabel) ? "Default" : requestedLabel.Trim();
 
-        // Dedupe on the shape the unique index actually uses — (UserId, ProviderName, Label), which
-        // does not include Kind — or a repeat connect surfaces a raw unique violation.
+        // Dedupe on the shape the unique index actually uses -- (UserId, ProviderName, Label),
+        // which does not include Kind -- or a repeat connect surfaces a raw unique violation.
         var existing = await _db.ProviderCredentials.FirstOrDefaultAsync(
             c => c.UserId == userId && c.ProviderName == providerName && c.Label == label,
             cancellationToken);
@@ -130,7 +161,7 @@ public sealed class DnsController : ControllerBase
             existing.LastValidatedAt = DateTimeOffset.UtcNow;
             existing.ExpiresAt = check.TokenExpiresOn;
             await _db.SaveChangesAsync(cancellationToken);
-            return Ok(ToDetail(existing, check.Zones));
+            return (ToDetail(existing, check.Zones), false);
         }
 
         var credential = new ProviderCredential
@@ -149,9 +180,83 @@ public sealed class DnsController : ControllerBase
 
         _db.ProviderCredentials.Add(credential);
         await _db.SaveChangesAsync(cancellationToken);
-
-        return Created($"/api/dns/connections/{credential.Id}", ToDetail(credential, check.Zones));
+        return (ToDetail(credential, check.Zones), true);
     }
+
+    /// <summary>
+    /// Starts an approval flow, so a provider that supports one can be connected without the user
+    /// creating or pasting a key.
+    /// </summary>
+    [HttpPost("authorizations")]
+    public async Task<IActionResult> BeginAuthorization(
+        [FromBody] BeginAuthorizationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+        var flow = _authorizationFlows.FirstOrDefault(f =>
+            string.Equals(f.ProviderName, request.ProviderName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new DeployAIException(
+                "dns_authorization_unsupported",
+                $"'{request.ProviderName}' cannot be connected that way. Enter its keys instead.");
+
+        var started = await flow.BeginAsync(cancellationToken);
+
+        // The verifier stays here. It is what proves a later poll comes from whoever started the
+        // request, so sending it to the browser would defeat the point of using PKCE at all.
+        // Keyed by user as well as token so one account cannot complete another's approval.
+        _pendingAuthorizations.Set(
+            PendingKey(userId, started.RequestToken),
+            started,
+            started.ExpiresAt);
+
+        return Ok(new BeginAuthorizationResponse(
+            started.RequestToken, started.ApprovalUrl, started.ExpiresAt));
+    }
+
+    /// <summary>
+    /// Asks whether an approval has happened yet, and stores the credentials the moment it has.
+    /// </summary>
+    /// <remarks>
+    /// Porkbun returns the secret exactly once, on the first successful poll. So this persists
+    /// immediately on approval rather than handing it back for a second request to save — there is
+    /// no second chance to ask for it.
+    /// </remarks>
+    [HttpPost("authorizations/{requestToken}/poll")]
+    public async Task<IActionResult> PollAuthorization(
+        string requestToken,
+        [FromBody] PollAuthorizationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = RequireUserId();
+
+        if (!_pendingAuthorizations.TryGetValue<DnsAuthorizationRequest>(
+                PendingKey(userId, requestToken), out var pending) || pending is null)
+        {
+            return Ok(new PollAuthorizationResponse(
+                DnsAuthorizationState.Expired,
+                "That approval is no longer in progress. Start again.",
+                null));
+        }
+
+        var flow = _authorizationFlows.First(f =>
+            string.Equals(f.ProviderName, request.ProviderName, StringComparison.OrdinalIgnoreCase));
+        var result = await flow.PollAsync(pending, cancellationToken);
+
+        if (result.State is not DnsAuthorizationState.Approved || result.Credentials is null)
+        {
+            return Ok(new PollAuthorizationResponse(result.State, result.Message, null));
+        }
+
+        _pendingAuthorizations.Remove(PendingKey(userId, requestToken));
+
+        var (detail, _) = await StoreConnectionAsync(
+            userId, request.ProviderName, result.Credentials, request.Label, cancellationToken);
+
+        return Ok(new PollAuthorizationResponse(DnsAuthorizationState.Approved, "Connected.", detail));
+    }
+
+    private static string PendingKey(Guid userId, string requestToken) =>
+        $"dns-auth:{userId}:{requestToken}";
 
     /// <summary>
     /// The zones this connection can see, re-read from the provider every time.
@@ -429,6 +534,17 @@ public sealed class DnsController : ControllerBase
         DateTimeOffset? ExpiresAt);
 
     public sealed record DnsConnectionDetail(DnsConnectionSummary Connection, IReadOnlyList<DnsZone> Zones);
+
+    public sealed record BeginAuthorizationRequest(string ProviderName, string? Label = null);
+
+    /// <summary>Deliberately carries no verifier — that stays on the server.</summary>
+    public sealed record BeginAuthorizationResponse(
+        string RequestToken, string ApprovalUrl, DateTimeOffset ExpiresAt);
+
+    public sealed record PollAuthorizationRequest(string ProviderName, string? Label = null);
+
+    public sealed record PollAuthorizationResponse(
+        DnsAuthorizationState State, string Message, DnsConnectionDetail? Connection);
 
     public sealed record DisconnectImpact(
         int DependentCount,

@@ -103,6 +103,10 @@ builder.Services.AddScoped<IDomainService, DomainService>();
 builder.Services.AddScoped<IDomainReconciliationScheduler, DomainReconciliationScheduler>();
 builder.Services.AddScoped<DomainReconciliationJob>();
 builder.Services.AddSingleton(TimeProvider.System);
+// Holds an in-flight approval's PKCE verifier for the ten minutes the provider's link is valid.
+// Deliberately not persisted: losing one on restart costs a click, and it is a secret whose whole
+// purpose is to be short-lived.
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IRailwayDatabaseProvisioningService, RailwayDatabaseProvisioningService>();
 builder.Services.AddScoped<IObjectStorageVerifier, ObjectStorageVerifier>();
 builder.Services.AddScoped<IObjectStorageProvisioningService, ObjectStorageProvisioningService>();

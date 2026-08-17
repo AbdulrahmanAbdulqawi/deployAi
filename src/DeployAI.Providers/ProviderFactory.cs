@@ -265,6 +265,11 @@ public static class ProviderDependencyInjection
         services.AddHttpClient<Porkbun.PorkbunDnsProvider>();
         services.AddSingleton<Porkbun.PorkbunDnsProvider>();
         services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Porkbun.PorkbunDnsProvider>());
+        // The approval flow is optional per provider: Cloudflare has none, so it is registered
+        // only for Porkbun and the paste path remains the fallback everywhere.
+        services.AddHttpClient<Porkbun.PorkbunAuthorizationFlow>();
+        services.AddSingleton<IDnsAuthorizationFlow>(sp =>
+            sp.GetRequiredService<Porkbun.PorkbunAuthorizationFlow>());
         services.AddSingleton<IDnsZoneProviderFactory, DnsZoneProviderFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();

@@ -114,7 +114,10 @@ public class DnsControllerTests
             DeployTargetId = target.Id,
             Controller = new DnsController(
                 db, currentUser.Object, factory.Object, tokens.Object,
-                new PassthroughEncryption(), NullLogger<DnsController>.Instance)
+                new PassthroughEncryption(), [],
+                new Microsoft.Extensions.Caching.Memory.MemoryCache(
+                    new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
+                NullLogger<DnsController>.Instance)
         };
     }
 
