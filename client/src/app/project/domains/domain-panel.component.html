@@ -52,6 +52,14 @@
     </details>
   }
 
+  <details class="domains__connect">
+    <summary>Need a domain?</summary>
+    <app-domain-buy
+      [projectId]="projectId"
+      [deployTargetId]="deployTargetId"
+      (bought)="onDomainBought()" />
+  </details>
+
   <ul class="domains__list">
     @for (domain of domains(); track trackById($index, domain)) {
       <li class="domain" [attr.data-tone]="presentation(domain.status).tone">

@@ -289,9 +289,39 @@ public sealed class DomainPurchaseService : IDomainPurchaseService
             }
         }
 
-        throw new DeployAIException(
-            "domain_registrar_not_connected",
-            "Connect an account that can buy domains first — Cloudflare can host DNS but cannot " +
-            "register new names.");
+        throw new DeployAIException("domain_registrar_not_connected", CannotBuyMessage(credentials.Count > 0));
+    }
+
+    /// <summary>
+    /// Why buying is unavailable, and what to do about it.
+    /// </summary>
+    /// <remarks>
+    /// Hosting DNS and selling domains are separate capabilities, and a user has no reason to know
+    /// which of their accounts does which — so the message says which case they are in and names a
+    /// provider that would work, rather than naming one they may not have connected. It previously
+    /// blamed Cloudflare unconditionally, including when nothing at all was connected.
+    /// </remarks>
+    private string CannotBuyMessage(bool hasDnsOnlyAccount)
+    {
+        var suggestion = _registrars.All.Count > 0
+            ? $"Connect {Humanise(_registrars.All.Select(r => r.DisplayName))} under Settings → Connections"
+            : "No connected provider can register domains yet";
+
+        return hasDnsOnlyAccount
+            ? $"The account you've connected can point a domain you already own at this app, but it " +
+              $"can't register a new one. {suggestion} to buy one here."
+            : $"Buying a domain needs an account that can register names. {suggestion}, then search again.";
+    }
+
+    /// <summary>"Porkbun", "Porkbun or Namecheap", "A, B or C" — a list a person would read aloud.</summary>
+    private static string Humanise(IEnumerable<string> names)
+    {
+        var list = names.ToList();
+        return list.Count switch
+        {
+            0 => string.Empty,
+            1 => list[0],
+            _ => $"{string.Join(", ", list.Take(list.Count - 1))} or {list[^1]}"
+        };
     }
 }

@@ -10,6 +10,7 @@ import {
   ProjectDomain,
 } from '../../core/models/api.models';
 import { DnsConnectComponent } from '../../shared/dns-connect/dns-connect.component';
+import { DomainBuyComponent } from './domain-buy.component';
 
 /** How a status should read to someone who has never configured DNS. */
 interface StatusPresentation {
@@ -20,7 +21,7 @@ interface StatusPresentation {
 @Component({
   selector: 'app-domain-panel',
   standalone: true,
-  imports: [CommonModule, FormsModule, DnsConnectComponent],
+  imports: [CommonModule, FormsModule, DnsConnectComponent, DomainBuyComponent],
   templateUrl: './domain-panel.component.html',
   styleUrl: './domain-panel.component.scss',
 })
@@ -65,6 +66,12 @@ export class DomainPanelComponent implements OnInit {
       next: (options) => this.options.set(options),
       error: () => undefined,
     });
+  }
+
+  /** A bought domain is already attached server-side; reload so it appears moving through setup. */
+  onDomainBought(): void {
+    this.refresh();
+    this.onDnsConnected();
   }
 
   refresh(): void {

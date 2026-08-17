@@ -33,6 +33,8 @@ import {
   DnsDisconnectImpact,
   DnsProviderInfo,
   DnsZone,
+  DomainSearchResult,
+  DomainPurchaseResult,
   NotificationPreferencesResponse,
   ProjectServicesResponse,
   ProjectServiceStatus,
@@ -429,6 +431,25 @@ export class ApiService {
 
   deleteDnsConnection(connectionId: string) {
     return this.http.delete(`/api/dns/connections/${connectionId}`);
+  }
+
+  /**
+   * Prices a domain and records the quote. Spends nothing, but the registrar allows only one check
+   * every ten seconds — so this is called on a deliberate search, never on a keystroke.
+   */
+  searchDomains(projectId: string, payload: { name: string; deployTargetId?: string }) {
+    return this.http.post<{ results: DomainSearchResult[] }>(
+      `/api/projects/${projectId}/domains/search`,
+      payload
+    );
+  }
+
+  /** Spends real money. Takes the quote id, so the price is the server's word rather than ours. */
+  purchaseDomain(projectId: string, payload: { quoteId: string; agreeToTerms: boolean }) {
+    return this.http.post<DomainPurchaseResult>(
+      `/api/projects/${projectId}/domains/purchase`,
+      payload
+    );
   }
 
   getDomains(projectId: string) {

@@ -1,0 +1,100 @@
+<div class="buy">
+  <p class="buy__lead">Don't own one yet? Find a domain and buy it here.</p>
+
+  <div class="buy__search">
+    <label class="buy__field">
+      <span class="u-visually-hidden">Domain to look for</span>
+      <input
+        type="text"
+        [ngModel]="typed()"
+        (ngModelChange)="typed.set($event)"
+        (keyup.enter)="search()"
+        placeholder="yourname.com"
+        [disabled]="searching() || buying()" />
+    </label>
+    <button type="button" class="buy__go" (click)="search()" [disabled]="!canSearch()">
+      {{ searching() ? 'Checking…' : 'Check' }}
+    </button>
+  </div>
+
+  @if (error()) {
+    <p class="buy__error" role="alert">{{ error() }}</p>
+  }
+
+  @if (purchased(); as name) {
+    <p class="buy__bought">
+      <strong>{{ name }}</strong> is yours. Setting it up now — it'll appear below and go live on
+      its own.
+    </p>
+  }
+
+  @if (result(); as offer) {
+    <div class="buy__result" [attr.data-available]="offer.availability === Availability.Available">
+      <div class="buy__result-head">
+        <span class="buy__name">{{ offer.hostname }}</span>
+        @if (offer.isSandbox) {
+          <!-- No money here is real. Said everywhere it appears, so a test can never be mistaken
+               for a purchase. -->
+          <span class="buy__badge">Test mode</span>
+        }
+      </div>
+
+      <p class="buy__message">{{ offer.message }}</p>
+
+      @if (offer.availability === Availability.Available && offer.quoteId) {
+        <button type="button" class="buy__primary" (click)="askToBuy(offer)" [disabled]="buying()">
+          Buy for {{ money(offer.firstYearCents) }}
+        </button>
+      }
+    </div>
+  }
+
+  <!--
+    A confirmation rather than a one-click buy. The purchase is irreversible and the renewal price
+    is stated as plainly as the first-year one.
+  -->
+  @if (confirming(); as offer) {
+    <div class="buy__confirm" role="alertdialog" aria-label="Confirm domain purchase">
+      <p class="buy__confirm-title">Buy {{ offer.hostname }}?</p>
+
+      <dl class="buy__prices">
+        <div>
+          <dt>Today</dt>
+          <dd>{{ money(offer.firstYearCents) }}</dd>
+        </div>
+        <div>
+          <dt>Every year after</dt>
+          <dd>{{ money(offer.renewalCents) }}</dd>
+        </div>
+      </dl>
+
+      @if (offer.isFirstYearPromotional) {
+        <p class="buy__warn">
+          The first year is a promotional price. It renews at {{ money(offer.renewalCents) }}.
+        </p>
+      }
+
+      @if (offer.isPremium) {
+        <p class="buy__warn">This is a premium name, priced by the registry.</p>
+      }
+
+      <p class="buy__terms">
+        @if (offer.isSandbox) {
+          This is a test purchase — no real money will be charged.
+        } @else {
+          This charges your registrar account now, and domains can't be refunded. Buying it also
+          accepts the registrar's registration agreement.
+        }
+      </p>
+
+      <div class="buy__confirm-actions">
+        <button type="button" class="buy__primary" (click)="confirmBuy()" [disabled]="buying()">
+          {{ buying() ? 'Buying…' : 'Yes, buy it' }}
+        </button>
+        <button type="button" class="buy__cancel" (click)="cancel()" [disabled]="buying()">
+          Cancel
+        </button>
+      </div>
+    </div>
+  }
+</div>

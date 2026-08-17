@@ -189,6 +189,41 @@ export interface DnsProviderInfo {
   fields: DnsCredentialField[];
 }
 
+export enum DomainAvailability {
+  Unknown = 'Unknown',
+  Available = 'Available',
+  Taken = 'Taken',
+  Unsupported = 'Unsupported',
+}
+
+/**
+ * A priced search result. `quoteId` is what a purchase is made against — never an amount, so
+ * nothing can ask to be charged a figure that was not displayed.
+ */
+export interface DomainSearchResult {
+  hostname: string;
+  availability: DomainAvailability;
+  message: string;
+  quoteId: string | null;
+  firstYearCents: number | null;
+  /** What it costs every year after. The figure people are surprised by. */
+  renewalCents: number | null;
+  isFirstYearPromotional: boolean;
+  isPremium: boolean;
+  /** Priced against a sandbox account, where no money is real. */
+  isSandbox: boolean;
+  quoteExpiresAt: string | null;
+}
+
+export interface DomainPurchaseResult {
+  succeeded: boolean;
+  hostname: string;
+  message: string;
+  chargedCents: number | null;
+  orderId: string | null;
+  domainId: string | null;
+}
+
 export interface DnsConnectionSummary {
   id: string;
   providerName: string;

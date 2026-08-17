@@ -220,6 +220,65 @@ public class DomainPurchaseServiceTests
         Assert.Equal("domain_registrar_not_connected", ex.ErrorCode);
     }
 
+    // Being told "connect an account that can buy domains" without being told which ones can, or
+    // where, leaves a non-technical user with nowhere to go.
+    [Fact]
+    public async Task SearchAsync_NamesAProviderThatCanBuy_AndWhereToConnectIt()
+    {
+        var harness = CreateHarness();
+        harness.Db.ProviderCredentials.RemoveRange(harness.Db.ProviderCredentials);
+        harness.Db.SaveChanges();
+
+        var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Service.SearchAsync(
+            harness.UserId, Hostname, null, null, CancellationToken.None));
+
+        Assert.Contains("Porkbun", ex.Message);
+        Assert.Contains("Settings", ex.Message);
+    }
+
+    // The message named Cloudflare whatever was actually connected — including when nothing was.
+    // Naming a provider the user may never have heard of, as the reason their search failed, sends
+    // them looking for a setting that does not exist.
+    [Fact]
+    public async Task SearchAsync_DoesNotBlameAProviderTheUserHasNotConnected()
+    {
+        var harness = CreateHarness();
+        harness.Db.ProviderCredentials.RemoveRange(harness.Db.ProviderCredentials);
+        harness.Db.SaveChanges();
+
+        var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Service.SearchAsync(
+            harness.UserId, Hostname, null, null, CancellationToken.None));
+
+        Assert.DoesNotContain("Cloudflare", ex.Message);
+    }
+
+    // A DNS-only account is the interesting case: something *is* connected, it works for a domain
+    // the user already owns, and it still cannot buy. That distinction is the whole message.
+    [Fact]
+    public async Task SearchAsync_DistinguishesADnsOnlyAccountFromNothingConnected()
+    {
+        var harness = CreateHarness();
+        harness.Db.ProviderCredentials.RemoveRange(harness.Db.ProviderCredentials);
+        harness.Db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = Guid.NewGuid(),
+            UserId = harness.UserId,
+            ProviderName = "cloudflare",
+            Kind = CredentialKind.Dns,
+            Label = "Default",
+            TokenEncrypted = System.Text.Encoding.UTF8.GetBytes("cf-token"),
+            IsValid = true
+        });
+        harness.Db.SaveChanges();
+
+        var ex = await Assert.ThrowsAsync<DeployAIException>(() => harness.Service.SearchAsync(
+            harness.UserId, Hostname, null, null, CancellationToken.None));
+
+        Assert.Equal("domain_registrar_not_connected", ex.ErrorCode);
+        Assert.Contains("already own", ex.Message);
+        Assert.Contains("Porkbun", ex.Message);
+    }
+
     // ---- the money guards ------------------------------------------------
 
     [Fact]
