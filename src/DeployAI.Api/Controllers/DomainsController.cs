@@ -14,11 +14,16 @@ namespace DeployAI.Api.Controllers;
 public sealed class DomainsController : ControllerBase
 {
     private readonly IDomainService _domains;
+    private readonly IDomainPurchaseService _purchases;
     private readonly ICurrentUserService _currentUser;
 
-    public DomainsController(IDomainService domains, ICurrentUserService currentUser)
+    public DomainsController(
+        IDomainService domains,
+        IDomainPurchaseService purchases,
+        ICurrentUserService currentUser)
     {
         _domains = domains;
+        _purchases = purchases;
         _currentUser = currentUser;
     }
 
@@ -66,6 +71,45 @@ public sealed class DomainsController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Looks up whether a domain can be bought and what it would cost, recording the price so a
+    /// purchase can only ever be made at the figure that was shown.
+    /// </summary>
+    /// <remarks>
+    /// Spends nothing, but the registrar rate-limits availability lookups — so this belongs behind
+    /// a deliberate search rather than firing on every keystroke.
+    /// </remarks>
+    [HttpPost("search")]
+    public async Task<IActionResult> Search(
+        Guid projectId,
+        [FromBody] SearchDomainsRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(new
+        {
+            results = await _purchases.SearchAsync(
+                RequireUserId(), request.Name, projectId, request.DeployTargetId, cancellationToken)
+        });
+
+    /// <summary>
+    /// Buys a domain. Spends real money.
+    /// </summary>
+    /// <remarks>
+    /// Takes a quote id rather than a price, so nothing can ask to be charged a figure the user was
+    /// never shown, and requires the registration agreement to be accepted explicitly rather than
+    /// on their behalf. The quote id is also the idempotency key, so a retry after a timeout cannot
+    /// buy the same domain twice.
+    /// </remarks>
+    [HttpPost("purchase")]
+    public async Task<IActionResult> Purchase(
+        Guid projectId,
+        [FromBody] PurchaseDomainRequest request,
+        CancellationToken cancellationToken)
+    {
+        _ = projectId;
+        return Ok(await _purchases.PurchaseAsync(
+            RequireUserId(), request.QuoteId, request.AgreeToTerms, cancellationToken));
+    }
+
     /// <summary>Removes a domain from the project.</summary>
     [HttpDelete("{domainId:guid}")]
     public async Task<IActionResult> Remove(
@@ -80,4 +124,12 @@ public sealed class DomainsController : ControllerBase
         _currentUser.UserId ?? throw new DeployAIException("unauthorized", "Sign in to continue.");
 
     public sealed record AttachDomainRequest(Guid DeployTargetId, string Domain);
+
+    public sealed record SearchDomainsRequest(string Name, Guid? DeployTargetId = null);
+
+    /// <param name="AgreeToTerms">
+    /// The registrar requires this per purchase and refuses without it. DeployAI asks for it in its
+    /// own right rather than sending "yes" on someone's behalf.
+    /// </param>
+    public sealed record PurchaseDomainRequest(Guid QuoteId, bool AgreeToTerms);
 }

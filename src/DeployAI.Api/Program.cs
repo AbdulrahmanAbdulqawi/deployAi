@@ -102,6 +102,7 @@ builder.Services.AddScoped<DeploymentJobRunner>();
 builder.Services.AddScoped<IDomainService, DomainService>();
 builder.Services.AddScoped<IDomainReconciliationScheduler, DomainReconciliationScheduler>();
 builder.Services.AddScoped<DomainReconciliationJob>();
+builder.Services.AddScoped<IDomainPurchaseService, DomainPurchaseService>();
 builder.Services.AddSingleton(TimeProvider.System);
 // Holds an in-flight approval's PKCE verifier for the ten minutes the provider's link is valid.
 // Deliberately not persisted: losing one on restart costs a click, and it is a secret whose whole

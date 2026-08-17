@@ -164,6 +164,21 @@ public sealed class DnsZoneProviderFactory : IDnsZoneProviderFactory
     public IReadOnlyList<IDnsZoneProvider> All => _providers.Values.ToList();
 }
 
+public sealed class DomainRegistrarFactory : IDomainRegistrarFactory
+{
+    private readonly IReadOnlyDictionary<string, IDomainRegistrar> _registrars;
+
+    public DomainRegistrarFactory(IEnumerable<IDomainRegistrar> registrars)
+    {
+        _registrars = registrars.ToDictionary(r => r.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IDomainRegistrar? GetRegistrar(string providerName) =>
+        _registrars.TryGetValue(providerName, out var registrar) ? registrar : null;
+
+    public IReadOnlyList<IDomainRegistrar> All => _registrars.Values.ToList();
+}
+
 public sealed class ApplicationDomainAssignmentFactory : IApplicationDomainAssignmentFactory
 {
     private readonly IReadOnlyDictionary<string, IApplicationDomainAssignment> _providers;
@@ -271,6 +286,12 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IDnsAuthorizationFlow>(sp =>
             sp.GetRequiredService<Porkbun.PorkbunAuthorizationFlow>());
         services.AddSingleton<IDnsZoneProviderFactory, DnsZoneProviderFactory>();
+        // Buying is a separate capability from hosting DNS: Cloudflare hosts but cannot register,
+        // so only providers that can actually sell a domain appear here.
+        services.AddHttpClient<Porkbun.PorkbunRegistrar>();
+        services.AddSingleton<Porkbun.PorkbunRegistrar>();
+        services.AddSingleton<IDomainRegistrar>(sp => sp.GetRequiredService<Porkbun.PorkbunRegistrar>());
+        services.AddSingleton<IDomainRegistrarFactory, DomainRegistrarFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
         return services;
