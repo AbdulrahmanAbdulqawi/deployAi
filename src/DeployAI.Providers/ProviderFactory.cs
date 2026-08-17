@@ -262,6 +262,9 @@ public static class ProviderDependencyInjection
         services.AddHttpClient<Cloudflare.CloudflareDnsProvider>();
         services.AddSingleton<Cloudflare.CloudflareDnsProvider>();
         services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Cloudflare.CloudflareDnsProvider>());
+        services.AddHttpClient<Porkbun.PorkbunDnsProvider>();
+        services.AddSingleton<Porkbun.PorkbunDnsProvider>();
+        services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Porkbun.PorkbunDnsProvider>());
         services.AddSingleton<IDnsZoneProviderFactory, DnsZoneProviderFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
