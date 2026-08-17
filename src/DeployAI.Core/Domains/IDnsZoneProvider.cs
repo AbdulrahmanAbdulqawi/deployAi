@@ -92,14 +92,37 @@ public enum DnsCredentialVerdict
 /// permissions, or wait and try again. The provider builds the message because it is the only
 /// layer that knows what its own error codes mean.
 /// </remarks>
+/// <param name="CredentialsProven">
+/// Whether the provider confirmed the credential itself works, independently of what it can see.
+/// Only meaningful alongside <see cref="DnsCredentialVerdict.NoZonesVisible"/>, where an empty list
+/// has two causes that look identical: an account that genuinely holds no domains, and a credential
+/// that cannot see the ones that are there. A provider sets this only when it asked a question that
+/// distinguishes them — Porkbun's <c>/ping</c>, Cloudflare's <c>user/tokens/verify</c> — and never
+/// by inferring it from the empty list itself.
+/// </param>
 public sealed record DnsCredentialCheck(
     DnsCredentialVerdict Verdict,
     string Message,
     IReadOnlyList<DnsZone> Zones,
     DateTimeOffset? TokenExpiresOn = null,
-    TimeSpan? RetryAfter = null)
+    TimeSpan? RetryAfter = null,
+    bool CredentialsProven = false)
 {
     public bool IsUsable => Verdict is DnsCredentialVerdict.Ok;
+
+    /// <summary>
+    /// Whether this connection is worth keeping, which is a weaker question than whether it can
+    /// host DNS today.
+    /// </summary>
+    /// <remarks>
+    /// An account holding no domains is not a broken credential, and refusing to store one made
+    /// buying a domain unreachable for the only user who needs to: registering requires a stored
+    /// registrar connection, and the connection was refused for having nothing registered yet.
+    /// Hosting DNS and selling domains are separate capabilities, so zone visibility must not gate
+    /// a credential that has been proven to work.
+    /// </remarks>
+    public bool IsStorable =>
+        IsUsable || (Verdict is DnsCredentialVerdict.NoZonesVisible && CredentialsProven);
 
     /// <summary>
     /// Whether this says something about the credential itself. False for rate-limiting and for an

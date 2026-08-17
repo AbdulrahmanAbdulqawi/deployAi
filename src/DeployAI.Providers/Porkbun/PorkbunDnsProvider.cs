@@ -78,7 +78,7 @@ public sealed class PorkbunDnsProvider : IDnsZoneProvider
             // /ping is the credential check and the sandbox check in one: it answers
             // credentialsValid and sandbox, so nothing has to ask the user which they pasted.
             var ping = await PostAsync<PorkbunPing>(keys, "ping", null, cancellationToken);
-            if (ping?.CredentialsValid != true)
+            if (ping is not { CredentialsValid: true })
             {
                 return new DnsCredentialCheck(
                     DnsCredentialVerdict.Rejected,
@@ -86,18 +86,35 @@ public sealed class PorkbunDnsProvider : IDnsZoneProvider
                     []);
             }
 
+            // Porkbun's own answer first and the prefix second. A sandbox key that does not follow
+            // the naming convention would otherwise read as a live account, and that is the
+            // expensive direction to be wrong in.
+            var isSandbox = ping.Sandbox || PorkbunCredentialStorage.IsSandbox(keys.ApiKey);
+
             var zones = await ListZonesInternalAsync(keys, cancellationToken);
             if (zones.Count == 0)
             {
+                // Two different absences behind one empty list. The sandbox is a separate account
+                // that is empty until something is registered in it, so telling its holder to buy
+                // a domain is telling them to spend real money on something that will never show
+                // up here.
                 return new DnsCredentialCheck(
                     DnsCredentialVerdict.NoZonesVisible,
-                    "These keys work, but there are no domains in this Porkbun account yet. " +
-                    "Buy or transfer one first — no key can list a domain that is not there.",
-                    []);
+                    isSandbox
+                        ? "These keys work, but they are test mode keys, and the sandbox account " +
+                          "they address holds no domains. Register one in the sandbox to test " +
+                          "against — a domain bought for real will not appear here."
+                        : "These keys work, but there are no domains in this Porkbun account yet. " +
+                          "Buy or transfer one first — no key can list a domain that is not there.",
+                    [],
+                    // /ping already answered for the keys themselves, so an empty list here means
+                    // an empty account and nothing worse. Storing it is what lets the account's
+                    // first domain be bought through DeployAI at all.
+                    CredentialsProven: true);
             }
 
             var ready = zones.Count(z => z.IsReady);
-            var sandbox = PorkbunCredentialStorage.IsSandbox(keys.ApiKey) ? " (test mode — nothing here is real)" : string.Empty;
+            var sandbox = isSandbox ? " (test mode — nothing here is real)" : string.Empty;
 
             return new DnsCredentialCheck(
                 DnsCredentialVerdict.Ok,

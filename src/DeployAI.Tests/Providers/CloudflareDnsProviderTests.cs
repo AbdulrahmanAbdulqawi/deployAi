@@ -411,6 +411,46 @@ public class CloudflareDnsProviderTests
         Assert.Contains("more than one Cloudflare account", check.Message, StringComparison.Ordinal);
     }
 
+    // An empty zone list has two causes that look identical from here, and only Cloudflare can
+    // separate them: token/verify answers for the token itself, whatever it is scoped to see.
+    [Fact]
+    public async Task ValidateCredentialsAsync_ProvesTheToken_WhenCloudflareConfirmsItIsActive()
+    {
+        var handler = new MockHttpMessageHandler();
+        RespondWithZones(handler,
+            """{"success":true,"errors":[],"result":[],"result_info":{"page":1,"total_pages":1}}""");
+        handler.When(HttpMethod.Get, $"{Api}/accounts*").Throw(new HttpRequestException("nope"));
+        handler.When(HttpMethod.Get, $"{Api}/user/tokens/verify")
+            .Respond(HttpStatusCode.OK, "application/json",
+                """{"success":true,"errors":[],"result":{"status":"active"}}""");
+
+        var check = await Provider(handler).ValidateCredentialsAsync(Credentials, CancellationToken.None);
+
+        Assert.Equal(DnsCredentialVerdict.NoZonesVisible, check.Verdict);
+        Assert.True(check.CredentialsProven);
+        Assert.True(check.IsStorable);
+        Assert.False(check.IsUsable);
+    }
+
+    // Could-not-confirm is not confirmed. Storing on a failed probe is the silent negative the
+    // whole flag exists to prevent.
+    [Fact]
+    public async Task ValidateCredentialsAsync_ProvesNothing_WhenTheTokenCannotBeVerified()
+    {
+        var handler = new MockHttpMessageHandler();
+        RespondWithZones(handler,
+            """{"success":true,"errors":[],"result":[],"result_info":{"page":1,"total_pages":1}}""");
+        handler.When(HttpMethod.Get, $"{Api}/accounts*").Throw(new HttpRequestException("nope"));
+        handler.When(HttpMethod.Get, $"{Api}/user/tokens/verify")
+            .Respond(HttpStatusCode.Forbidden, "application/json", """{"success":false,"errors":[]}""");
+
+        var check = await Provider(handler).ValidateCredentialsAsync(Credentials, CancellationToken.None);
+
+        Assert.Equal(DnsCredentialVerdict.NoZonesVisible, check.Verdict);
+        Assert.False(check.CredentialsProven);
+        Assert.False(check.IsStorable);
+    }
+
     // Neither of these says anything about the token, so neither may be treated as a verdict on it.
     [Fact]
     public async Task ValidateCredentialsAsync_TreatsRateLimitingAsInconclusive()

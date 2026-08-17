@@ -297,6 +297,74 @@ public class PorkbunDnsProviderTests
         Assert.Contains("no domains in this Porkbun account", check.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    // The same empty listing means two different things, and only one of them is worth spending
+    // money on. Sandbox keys address a separate, always-empty account, so "buy or transfer a
+    // domain first" is advice to buy a real domain that the test account will still never show.
+    [Fact]
+    public async Task ValidateCredentialsAsync_SaysTheAccountIsTheSandboxOne_WhenSandboxKeysSeeNoDomains()
+    {
+        var handler = new MockHttpMessageHandler();
+        RespondPingOk(handler, sandbox: true);
+        RespondOk(handler, "domain/listAll", DomainList());
+        var sandboxKeys = new ProviderCredentials(
+            PorkbunCredentialStorage.Serialize("pk1_sb_abc", "sk1_sb_def"));
+
+        var check = await Provider(handler).ValidateCredentialsAsync(sandboxKeys, CancellationToken.None);
+
+        Assert.Equal(DnsCredentialVerdict.NoZonesVisible, check.Verdict);
+        Assert.Contains("test mode", check.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Buy or transfer", check.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // An empty account is not a broken key pair, and /ping has already said so. Without this the
+    // connection is refused, and buying the account's first domain becomes unreachable.
+    [Fact]
+    public async Task ValidateCredentialsAsync_ProvesTheKeys_WhenTheAccountIsMerelyEmpty()
+    {
+        var handler = new MockHttpMessageHandler();
+        RespondPingOk(handler);
+        RespondOk(handler, "domain/listAll", DomainList());
+
+        var check = await Provider(handler).ValidateCredentialsAsync(Credentials, CancellationToken.None);
+
+        Assert.Equal(DnsCredentialVerdict.NoZonesVisible, check.Verdict);
+        Assert.True(check.CredentialsProven);
+        Assert.True(check.IsStorable);
+        // Still not usable for DNS — there is no zone to write into yet.
+        Assert.False(check.IsUsable);
+    }
+
+    // Keys Porkbun refuses are proven wrong, not proven right.
+    [Fact]
+    public async Task ValidateCredentialsAsync_ProvesNothing_WhenTheKeysAreRejected()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Post, $"{Api}/ping").Respond(
+            HttpStatusCode.OK, "application/json",
+            """{"status":"ERROR","message":"Invalid API key. (002)"}""");
+
+        var check = await Provider(handler).ValidateCredentialsAsync(Credentials, CancellationToken.None);
+
+        Assert.False(check.CredentialsProven);
+        Assert.False(check.IsStorable);
+    }
+
+    // Porkbun answers this itself on /ping, which beats reading the prefix: a key that does not
+    // follow the naming convention would otherwise be reported as a live account by mistake.
+    [Fact]
+    public async Task ValidateCredentialsAsync_BelievesPorkbunOverThePrefix_WhenPingSaysSandbox()
+    {
+        var handler = new MockHttpMessageHandler();
+        RespondPingOk(handler, sandbox: true);
+        RespondOk(handler, "domain/listAll", DomainList(Domain("example.com")));
+
+        // Keys with no sandbox prefix at all — only /ping knows.
+        var check = await Provider(handler).ValidateCredentialsAsync(Credentials, CancellationToken.None);
+
+        Assert.Equal(DnsCredentialVerdict.Ok, check.Verdict);
+        Assert.Contains("test mode", check.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // Neither of these says anything about the keys.
     [Fact]
     public async Task ValidateCredentialsAsync_TreatsRateLimitingAsInconclusive()

@@ -134,7 +134,11 @@ public sealed class DnsController : ControllerBase
                 "dns_provider_unknown", $"'{providerName}' is not a DNS provider DeployAI supports.");
 
         var check = await provider.ValidateCredentialsAsync(credentials, cancellationToken);
-        if (!check.IsUsable)
+
+        // Storable rather than usable: an account holding no domains is not a broken credential,
+        // and refusing it made buying a domain unreachable for the only user who needs to — the
+        // registrar connection was refused for having nothing registered through it yet.
+        if (!check.IsStorable)
         {
             throw new DeployAIException(VerdictToErrorCode(check.Verdict), check.Message);
         }
@@ -276,10 +280,11 @@ public sealed class DnsController : ControllerBase
         var check = await provider.ValidateCredentialsAsync(token, cancellationToken);
 
         // Only a conclusive answer may change the stored verdict. A rate-limit or a network blip
-        // must not mark a working connection broken.
-        if (check.IsConclusive && credential.IsValid != check.IsUsable)
+        // must not mark a working connection broken — and neither may an empty account, which is
+        // the same answer the connection was stored on and would otherwise be undone on sight.
+        if (check.IsConclusive && credential.IsValid != check.IsStorable)
         {
-            credential.IsValid = check.IsUsable;
+            credential.IsValid = check.IsStorable;
             credential.LastValidatedAt = DateTimeOffset.UtcNow;
             credential.ExpiresAt = check.TokenExpiresOn ?? credential.ExpiresAt;
             await _db.SaveChangesAsync(cancellationToken);

@@ -196,6 +196,8 @@ public class DnsControllerTests
     [InlineData(DnsCredentialVerdict.Malformed, "dns_token_malformed")]
     [InlineData(DnsCredentialVerdict.Rejected, "dns_token_rejected")]
     [InlineData(DnsCredentialVerdict.CannotListZones, "dns_token_cannot_list_zones")]
+    // Unproven: the provider could not confirm the credential itself, so an empty list may just as
+    // easily be a credential that cannot see the domains that are there.
     [InlineData(DnsCredentialVerdict.NoZonesVisible, "dns_no_zones_visible")]
     public async Task CreateConnection_PersistsNothing_WhenTheTokenIsRefused(
         DnsCredentialVerdict verdict, string expectedCode)
@@ -207,6 +209,41 @@ public class DnsControllerTests
 
         Assert.Equal(expectedCode, ex.ErrorCode);
         Assert.Empty(harness.Db.ProviderCredentials.Where(c => c.Kind == CredentialKind.Dns));
+    }
+
+    // The deadlock this closes: buying a domain needs a stored registrar connection, and the
+    // connection was refused for having no domains registered yet — so the one user who most needs
+    // to buy a domain, the one who owns none, could never reach the feature.
+    [Fact]
+    public async Task CreateConnection_StoresAnEmptyAccount_WhenTheProviderProvedTheCredential()
+    {
+        var harness = CreateHarness(new DnsCredentialCheck(
+            DnsCredentialVerdict.NoZonesVisible, "These keys work, but the account holds no domains.",
+            [], CredentialsProven: true));
+
+        var result = await harness.Controller.CreateConnection(
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None);
+
+        Assert.IsType<CreatedResult>(result);
+        var stored = harness.Db.ProviderCredentials.Single(c => c.Kind == CredentialKind.Dns);
+        Assert.True(stored.IsValid);
+    }
+
+    // Re-reading a stored empty account must not decide the credential went bad. It is the same
+    // answer it was stored on, and marking it invalid would undo the fix on the next page load.
+    [Fact]
+    public async Task ListZones_LeavesAProvenEmptyAccountValid_RatherThanMarkingItBroken()
+    {
+        var harness = CreateHarness(new DnsCredentialCheck(
+            DnsCredentialVerdict.NoZonesVisible, "no domains yet", [], CredentialsProven: true));
+
+        await harness.Controller.CreateConnection(
+            new DnsController.CreateDnsConnectionRequest(Fields(Token)), CancellationToken.None);
+        var stored = harness.Db.ProviderCredentials.Single(c => c.Kind == CredentialKind.Dns);
+
+        await harness.Controller.ListZones(stored.Id, CancellationToken.None);
+
+        Assert.True(harness.Db.ProviderCredentials.Single(c => c.Kind == CredentialKind.Dns).IsValid);
     }
 
     // "We could not check" is not "your token is bad", and must not be reported as one.

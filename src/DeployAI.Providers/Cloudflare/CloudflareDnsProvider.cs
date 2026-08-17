@@ -100,9 +100,15 @@ public sealed class CloudflareDnsProvider : IDnsZoneProvider
             // an empty result is a distinct outcome and not a success.
             if (zones.Count == 0)
             {
-                return Refuse(
+                // The message below lists three causes because this call cannot tell them apart.
+                // token/verify can, for the only part that matters to storage: whether the token
+                // itself is good. An empty account with a working token is worth keeping; a token
+                // that cannot be verified is not.
+                return new DnsCredentialCheck(
                     DnsCredentialVerdict.NoZonesVisible,
-                    await DescribeEmptyZoneListAsync(credentials, cancellationToken));
+                    await DescribeEmptyZoneListAsync(credentials, cancellationToken),
+                    [],
+                    CredentialsProven: await TokenAuthenticatesAsync(credentials, cancellationToken));
             }
 
             return new DnsCredentialCheck(
@@ -182,6 +188,31 @@ public sealed class CloudflareDnsProvider : IDnsZoneProvider
     /// entirely valid. Treating that as a problem would reject the kind of token Cloudflare
     /// recommends — so a failure here means "no expiry known", never "bad token".
     /// </remarks>
+    /// <summary>
+    /// Whether Cloudflare confirms the token authenticates, whatever it happens to be scoped to see.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the zone listing, this asks about the token rather than about the account, so it
+    /// separates "nothing is there" from "this cannot see what is there" — which the empty list
+    /// alone never can. Anything other than an active confirmation is treated as unproven: could
+    /// not check is not the same as checked and fine, and this is the flag that decides whether a
+    /// credential gets stored.
+    /// </remarks>
+    private async Task<bool> TokenAuthenticatesAsync(
+        ProviderCredentials credentials, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, credentials, "user/tokens/verify");
+            var result = await SendAsync<CloudflareTokenStatus>(request, cancellationToken);
+            return string.Equals(result.Value?.Status, "active", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
     private async Task<DateTimeOffset?> TryReadExpiryAsync(
         ProviderCredentials credentials, CancellationToken cancellationToken)
     {
