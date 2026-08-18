@@ -158,6 +158,24 @@ public sealed class SslStreamCertificateInspector : ICertificateInspector
         return label.Length > 0 && !label.Contains('.');
     }
 
+    /// <summary>
+    /// The DNS names a certificate covers, read from the SAN extension's ASN.1 rather than from its
+    /// rendered text.
+    /// </summary>
+    /// <remarks>
+    /// <c>X509Extension.Format</c> is platform-dependent, and the difference is silent. On Windows it
+    /// renders <c>DNS Name=app.example.com</c> lines, which parse; on Linux it renders something else
+    /// entirely, so splitting on '=' returned an empty list and every certificate looked as though it
+    /// covered no names at all. Since <see cref="CoversHostname"/> decides
+    /// <see cref="CertificateOutcome.HostnameMismatch"/>, that meant a perfectly good certificate —
+    /// one covering the host through SAN rather than a legacy common name, which is how every modern
+    /// certificate is issued — was reported as a mismatch anywhere this ran on Linux. Which is
+    /// everywhere it runs in production.
+    /// <para>
+    /// <see cref="X509SubjectAlternativeNameExtension"/> parses the extension itself and gives the
+    /// same answer on every platform.
+    /// </para>
+    /// </remarks>
     private static IEnumerable<string> ReadSubjectAlternativeNames(X509Certificate2 certificate)
     {
         foreach (var extension in certificate.Extensions)
@@ -167,14 +185,12 @@ public sealed class SslStreamCertificateInspector : ICertificateInspector
                 continue;
             }
 
-            foreach (var line in extension.Format(multiLine: true).Split(
-                         ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            var subjectAlternativeNames =
+                new X509SubjectAlternativeNameExtension(extension.RawData, extension.Critical);
+
+            foreach (var name in subjectAlternativeNames.EnumerateDnsNames())
             {
-                var separator = line.IndexOf('=');
-                if (separator > 0)
-                {
-                    yield return line[(separator + 1)..].Trim();
-                }
+                yield return name;
             }
         }
     }
