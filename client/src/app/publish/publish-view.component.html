@@ -229,12 +229,13 @@
       </section>
     }
 
-    @if (store.deployment(); as deployment) {
-      @if (domainTargetId(); as targetId) {
-        <section class="summary">
-          <app-domain-panel [projectId]="deployment.projectId" [deployTargetId]="targetId" />
-        </section>
-      }
+    @if (store.deployment()) {
+      <section class="summary">
+        <button type="button" class="live-deploy__troubleshoot-link" (click)="openDomains()">
+          Manage domains
+          <app-ui-icon name="arrow-right" size="sm" statusClass="accent" />
+        </button>
+      </section>
     }
 
     @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {

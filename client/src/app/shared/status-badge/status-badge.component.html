@@ -2,12 +2,16 @@
   class="badge"
   [class]="statusClass"
   [class.badge--dot]="showDot"
+  [class.badge--dot-label]="showDot && dotWithLabel"
   [attr.title]="label"
-  [attr.aria-label]="showDot ? label : null"
+  [attr.aria-label]="showDot && !dotWithLabel ? label : null"
   [attr.role]="isLive ? 'status' : null"
   [attr.aria-live]="isLive ? 'polite' : null">
   @if (showDot) {
     <span class="badge__dot" aria-hidden="true"></span>
+    @if (dotWithLabel) {
+      <span class="badge__dot-label">{{ label }}</span>
+    }
   } @else {
     @if (statusClass !== 'live') {
       <app-ui-icon [name]="iconName" size="sm" [statusClass]="iconStatusClass" />

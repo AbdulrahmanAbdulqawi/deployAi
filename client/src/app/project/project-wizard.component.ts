@@ -107,35 +107,39 @@ export class ProjectWizardComponent implements OnInit {
       return [
         { num: 1, label: 'Repository' },
         { num: 2, label: 'Branch' },
-        { num: 3, label: 'What to deploy' },
-        { num: 4, label: 'Hosting' },
-        { num: 5, label: 'Review' }
+        { num: 3, label: 'Parts' },
+        { num: 4, label: 'Destination' },
+        { num: 5, label: 'Confirm' }
       ];
     }
     return [
       { num: 1, label: 'Repository' },
       { num: 2, label: 'Branch' },
-      { num: 3, label: 'Deploy' }
+      { num: 3, label: 'Confirm' }
     ];
   });
 
-  stepFillPercent(): number {
-    const total = this.stepTotal();
-    if (total <= 1) {
-      return 0;
+  /**
+   * Cosmetic only: the underlying flow is 3 or 5 real steps (`step`/`stepTotal`), each a distinct
+   * decision — this just maps the current one onto a fixed 4-segment progress bar so the wizard
+   * reads as a short, predictable flow. Step routing and detection logic are untouched.
+   */
+  readonly displaySegmentCount = 4;
+
+  displaySegment(): number {
+    const current = this.step();
+    if (this.stepTotal() === 3) {
+      if (current === 1) return 1;
+      if (current === 2) return 2;
+      return 4;
     }
-    return ((this.step() - 1) / (total - 1)) * 100;
+    if (current <= 2) return current;
+    if (current <= 4) return 3;
+    return 4;
   }
 
-  stepState(stepNum: number): 'complete' | 'active' | 'pending' {
-    const current = this.step();
-    if (stepNum < current) {
-      return 'complete';
-    }
-    if (stepNum === current) {
-      return 'active';
-    }
-    return 'pending';
+  currentStepLabel(): string {
+    return this.wizardSteps().find(s => s.num === this.step())?.label ?? '';
   }
 
   introTitle(): string {

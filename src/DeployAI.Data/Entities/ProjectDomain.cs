@@ -4,10 +4,13 @@ namespace DeployAI.Data.Entities;
 
 /// <summary>Where a domain came from, which decides who is responsible for its DNS.</summary>
 /// <remarks>
-/// Serialized by name because the client switches on the name. Nothing configures enum-as-string
-/// globally in this API, so without the attribute this crosses the wire as an integer, every
-/// client comparison misses, and the UI silently renders whatever its default branch says — which
-/// is how a domain waiting on DNS came out labelled "Removed".
+/// Serialized by name because the client switches on the name. The API now configures enum-as-string
+/// globally (see <c>Program.cs</c>), so this attribute is no longer what carries the guarantee over
+/// the wire — it is kept because it also covers direct <c>JsonSerializer.Serialize</c> calls that
+/// never pass through MVC, such as <see cref="ProjectDomain.ObservationsJson"/>. Before the global
+/// convention existed, a missing attribute meant the value crossed as an integer, every client
+/// comparison missed, and the UI rendered its default branch — which is how a domain waiting on DNS
+/// came out labelled "Removed".
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DomainSource

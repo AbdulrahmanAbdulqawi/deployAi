@@ -166,6 +166,33 @@ the one actually answering queries.
   never touched for a domain that did not resolve. What is still unproven is everything past that
   point: assignment, the routing deploy, and issuance. Only a padlock proves those.
 
+## Closed: a live domain is re-checked (2026-08-17)
+
+A domain was driven hard towards `Active` and then never looked at again, so a certificate that
+failed to renew or a record someone deleted went unnoticed until a user hit the site and got a
+browser warning. Everything needed to notice already existed — `ICertificateInspector` and
+`IDnsResolver` — and simply stopped being called once the reconciler was satisfied.
+
+The fleet sweep now re-runs both against every `Active` domain, hourly, reusing those same two
+services rather than growing a second opinion about what a healthy domain looks like. A certificate
+inside its last 14 days warns before it lapses, which is the case the reconciler could never catch
+by construction: it only ever ran while a domain was still on its way up.
+
+Deliberately scoped to `Active` only. Everything earlier in the lifecycle belongs to
+`DomainReconciliationJob`, which is advancing it on its own backoff ladder, and two loops driving one
+row would race each other through the state machine.
+
+Certificate outcomes keep the split the four-state model already established: unreachable is
+inconclusive, not a failed certificate. `CheckReachableAsync` reporting a TLS failure as
+"redeploy_server" is unchanged and remains open above.
+
+**Also closed: enum-as-string.** A global `JsonStringEnumConverter` is configured once in
+`Program.cs`. The existing per-enum `[JsonConverter]` attributes stay — they also cover direct
+`JsonSerializer.Serialize` calls that never pass through MVC, such as `ObservationsJson` — but they
+are no longer what carries the guarantee over the wire. The guard is a test asserting the converter is
+configured, rather than asserting one enum's output, so a new enum inherits the convention without
+anyone remembering anything.
+
 ## Non-goals
 
 - **Not a DNS host.** DeployAI writes records into an account the user already owns and can revoke.

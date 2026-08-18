@@ -1,0 +1,119 @@
+.overview {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.overview__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 900px) {
+  .overview__grid {
+    grid-template-columns: 2fr 1fr;
+  }
+
+  .overview__preview {
+    grid-row: span 2;
+  }
+}
+
+.overview__card,
+.overview__preview {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.overview__preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.overview__muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.overview__url-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+  border: 1px solid var(--border-default);
+}
+
+.overview__url-actions {
+  display: flex;
+  gap: var(--space-2);
+
+  button,
+  a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+  }
+}
+
+.overview__preview-box {
+  flex: 1;
+  min-height: 12rem;
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.overview__action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  transition: color var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    color: var(--brand-indigo);
+  }
+
+  &--danger {
+    color: var(--status-danger);
+
+    &:hover {
+      color: var(--status-danger);
+      opacity: 0.85;
+    }
+  }
+}
+
+.overview__connected-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  padding: var(--space-1) 0;
+}
+
+.overview__connected-status {
+  color: var(--status-success);
+  font-weight: 600;
+}
+
+.overview-skeleton {
+  height: 20rem;
+  border-radius: var(--radius-lg);
+}

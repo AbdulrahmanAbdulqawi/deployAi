@@ -1,3 +1,5 @@
+@use '../../styles/surfaces';
+
 .wizard {
   max-width: 50rem;
   margin: 0 auto;
@@ -84,15 +86,13 @@
 }
 
 .wizard__option {
+  @include surfaces.tile-surface;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
   text-align: left;
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border-faint);
-  border-radius: var(--radius-md);
-  background: var(--surface-interactive);
   color: var(--text-primary);
   cursor: pointer;
   transition: border-color var(--motion-fast) var(--motion-ease);
@@ -121,13 +121,11 @@
 }
 
 .wizard__mode {
+  @include surfaces.tile-surface;
   display: grid;
   gap: var(--space-1);
   text-align: left;
   padding: var(--space-4);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--surface-interactive);
   color: var(--text-primary);
   cursor: pointer;
   transition: border-color var(--motion-fast) var(--motion-ease);
@@ -156,12 +154,10 @@
 }
 
 .wizard__host-block {
+  @include surfaces.tile-surface;
   display: grid;
   gap: var(--space-4);
   padding: var(--space-4);
-  border: 1px solid var(--border-faint);
-  border-radius: var(--radius-md);
-  background: var(--surface-interactive);
 }
 
 .wizard__host-title {
@@ -337,6 +333,7 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
   cursor: pointer;
+  transition: background var(--motion-fast) var(--motion-ease);
 
   &:hover {
     background: rgba(255, 255, 255, 0.12);

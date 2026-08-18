@@ -1,223 +1,178 @@
 .shell {
+  display: flex;
   min-height: 100vh;
   position: relative;
+
+  --sidebar-width: 14rem;
+  --sidebar-width-collapsed: 4.5rem;
 }
 
-.topbar {
-  position: fixed;
+.sidebar {
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
+  align-self: flex-start;
+  flex: none;
+  width: var(--sidebar-width);
+  height: 100vh;
   z-index: 50;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: space-between;
-  gap: var(--space-4);
-  height: 4rem;
-  padding: 0 var(--space-8);
-  background: color-mix(in srgb, var(--surface-page) 40%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-default);
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-4);
+  background: #fafafa;
+  border-right: 1px solid var(--border-default);
+  overflow-y: auto;
+  transition: width var(--motion-normal) var(--motion-ease);
 }
 
-.topbar__start {
+.shell--collapsed .sidebar {
+  width: var(--sidebar-width-collapsed);
+}
+
+.sidebar__top,
+.sidebar__bottom {
   display: flex;
-  align-items: center;
-  gap: var(--space-8);
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .brand {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   text-decoration: none;
+  padding: var(--space-1) var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.brand__mark {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-md);
+  background: var(--brand-bar-gradient, var(--brand-indigo));
+}
+
+.brand__label {
+  font-weight: 700;
   font-size: var(--font-size-headline-sm);
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
-/*
- * Shown at every width. This was hidden below 768px with no replacement — no menu, no drawer — so
- * on a phone there was no way to reach Settings or sign out at all; the only route in was typing
- * the URL. Two links fit comfortably at 375px, they just need to be tighter than on desktop.
- */
 nav {
   display: flex;
-  gap: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
-nav a {
+nav a,
+.collapse-toggle,
+.sign-out-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 500;
-  font-size: 1rem;
-  padding: var(--space-1) 0;
-  border-bottom: 2px solid transparent;
+  font-size: var(--font-size-md);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
   transition:
     color var(--motion-fast) var(--motion-ease),
-    border-color var(--motion-fast) var(--motion-ease);
+    background var(--motion-fast) var(--motion-ease);
 }
 
-nav a:hover {
+nav a:hover,
+.collapse-toggle:hover,
+.sign-out-btn:hover {
   color: var(--brand-indigo);
+  background: var(--surface-interactive);
 }
 
 nav a.active {
   color: var(--brand-indigo);
   font-weight: 700;
-  border-bottom-color: var(--brand-indigo);
+  background: var(--status-accent-bg);
 }
 
-.topbar__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
+.nav-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.appearance-link {
-  display: none;
-  color: var(--text-muted);
-  text-decoration: none;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  transition:
-    color var(--motion-fast) var(--motion-ease),
-    background var(--motion-fast) var(--motion-ease);
-
-  &:hover {
-    color: var(--brand-indigo);
-    background: var(--surface-interactive);
-  }
-
-  &--active {
-    color: var(--brand-indigo);
-    background: var(--surface-subtle);
-  }
-}
-
-.theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border: none;
+.avatar {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: var(--radius-pill);
-  background: transparent;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition:
-    background var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease);
-
-  &:hover {
-    background: var(--surface-interactive);
-    color: var(--brand-indigo);
-  }
+  background: var(--surface-chip);
 }
 
-.sign-out-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 2.5rem;
-  padding: 0 var(--space-3);
-  border: none;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  transition: color var(--motion-fast) var(--motion-ease);
+.sidebar__bottom {
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-4);
+}
 
-  &:hover {
-    color: var(--brand-indigo);
+.shell--collapsed {
+  .brand__label,
+  .nav-label {
+    display: none;
+  }
+
+  .brand {
+    justify-content: center;
+  }
+
+  nav a,
+  .collapse-toggle,
+  .sign-out-btn {
+    justify-content: center;
   }
 }
 
 main {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-width: 0;
   max-width: 90rem;
   margin: 0 auto;
-  padding: 6.5rem var(--space-8) var(--space-8);
-}
-
-@media (min-width: 768px) {
-  nav {
-    gap: var(--space-4);
-  }
-
-  .appearance-link {
-    display: inline-flex;
-  }
+  padding: var(--space-8);
 }
 
 @media (max-width: 640px) {
-  .topbar {
-    padding: 0 var(--space-4);
-  }
-
   main {
-    padding: 5.5rem var(--space-4) var(--space-6);
+    padding: var(--space-4);
   }
 
-  // Everything in the bar has to fit beside the brand on a 375px screen, so the type steps down
-  // rather than anything being dropped — losing a control is what caused this in the first place.
+  // A collapse toggle nobody can reach isn't a control — on a narrow viewport the sidebar stays
+  // an icon rail so Settings and sign-out are always one tap away, the same fix the old topbar
+  // needed when its nav briefly disappeared below 768px with no replacement.
+  .sidebar {
+    width: var(--sidebar-width-collapsed) !important;
+  }
+
+  .brand__label,
+  .nav-label {
+    display: none;
+  }
+
+  .brand {
+    justify-content: center;
+  }
+
   nav a,
+  .collapse-toggle,
   .sign-out-btn {
-    font-size: var(--font-size-sm);
-  }
-
-  .topbar__actions {
-    gap: var(--space-2);
-  }
-
-  .sign-out-btn {
-    padding: 0 var(--space-2);
-  }
-}
-
-[data-theme='light'] .topbar {
-  background: color-mix(in srgb, var(--surface-card) 88%, transparent);
-  border-bottom-color: var(--border-default);
-}
-
-[data-theme='light'] nav a.active {
-  background: var(--status-accent-bg);
-  border-bottom-color: transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-2);
-}
-
-:host-context([data-style='notebook']) {
-  .topbar {
-    padding-right: var(--space-8);
-    padding-left: var(--notebook-content-inset);
-  }
-
-  main {
-    padding-top: 6.5rem;
-    padding-right: var(--space-8);
-    padding-bottom: var(--space-8);
-    padding-left: var(--notebook-content-inset);
-  }
-}
-
-@media (max-width: 640px) {
-  :host-context([data-style='notebook']) {
-    .topbar {
-      padding-right: var(--space-4);
-      padding-left: var(--notebook-content-inset);
-    }
-
-    main {
-      padding-top: 5.5rem;
-      padding-right: var(--space-4);
-      padding-bottom: var(--space-6);
-      padding-left: var(--notebook-content-inset);
-    }
+    justify-content: center;
   }
 }

@@ -9,6 +9,8 @@ import {
   DeploymentLogLine,
   DeploymentVerificationResult,
   DeploymentVerificationScope,
+  FleetCheckHistoryEntry,
+  FleetHealthResponse,
   DeploymentPlan,
   DeploymentPlanPart,
   DeploymentReadinessResult,
@@ -573,6 +575,31 @@ export class ApiService {
 
   verifyDeployment(id: string, scope: DeploymentVerificationScope) {
     return this.http.post<DeploymentVerificationResult>(`/api/deployments/${id}/verify`, {}, { params: { scope } });
+  }
+
+  /** Every project's current check state, read from what the last sweep recorded — no live probing. */
+  getFleetHealth() {
+    return this.http.get<FleetHealthResponse>('/api/fleet/health');
+  }
+
+  /** Re-checks everything now, rather than waiting for the next scheduled sweep. */
+  runFleetSweep() {
+    return this.http.post<{ jobId: string; scope: string }>('/api/fleet/sweep', {});
+  }
+
+  verifyProjectNow(projectId: string) {
+    return this.http.post<{ runId: string; status: string; summary: string }>(
+      `/api/fleet/projects/${projectId}/verify`,
+      {}
+    );
+  }
+
+  getProjectCheckHistory(projectId: string, checkId?: string) {
+    const params = checkId ? { checkId } : undefined;
+    return this.http.get<{ history: FleetCheckHistoryEntry[] }>(
+      `/api/fleet/projects/${projectId}/history`,
+      { params }
+    );
   }
 
   getDeploymentLogs(id: string, target?: string) {

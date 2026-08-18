@@ -87,7 +87,11 @@ public sealed class HealthController : ControllerBase
                     ["deployments"] = await _db.Deployments.CountAsync(cancellationToken),
                     ["deployment_targets"] = await _db.DeploymentTargets.CountAsync(cancellationToken),
                     ["deployment_logs"] = await _db.DeploymentLogs.CountAsync(cancellationToken),
-                    ["refresh_tokens"] = await _db.RefreshTokens.CountAsync(cancellationToken)
+                    ["refresh_tokens"] = await _db.RefreshTokens.CountAsync(cancellationToken),
+                    ["project_verification_runs"] = await _db.ProjectVerificationRuns.CountAsync(cancellationToken),
+                    ["project_verification_check_results"] = await _db.ProjectVerificationCheckResults.CountAsync(cancellationToken),
+                    ["project_check_states"] = await _db.ProjectCheckStates.CountAsync(cancellationToken),
+                    ["target_config_manifests"] = await _db.TargetConfigManifests.CountAsync(cancellationToken)
                 }
             });
         }

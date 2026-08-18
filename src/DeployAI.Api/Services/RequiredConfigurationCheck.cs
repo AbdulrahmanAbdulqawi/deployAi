@@ -96,15 +96,51 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
         _logger = logger;
     }
 
+    /// <summary>
+    /// Runs the check and records what it learned, so the same question can be asked again later
+    /// without re-reading the repository.
+    /// </summary>
+    /// <remarks>
+    /// The capture is a wrapper rather than a step inside the check because the check has several
+    /// exits, and a manifest that is only written on the happy path would leave the sweep unable to
+    /// tell "this target has no required settings" from "the last deploy never got far enough to
+    /// find out" — the same absence confusion this check exists to prevent one level down.
+    /// </remarks>
     public async Task<RequiredConfigurationResult> CheckAsync(
         Project project,
         DeployTarget serverTarget,
         string branch,
         CancellationToken cancellationToken)
     {
+        var capture = new ManifestCapture(project.Id, serverTarget.Id, branch);
+        var result = await EvaluateAsync(project, serverTarget, branch, capture, cancellationToken);
+
+        try
+        {
+            await PersistManifestAsync(capture, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The manifest is for the next sweep's benefit; failing to store it must not fail the
+            // deploy-time answer that was already computed correctly.
+            _logger.LogWarning(
+                ex, "Could not record the configuration manifest for target {TargetId}.", serverTarget.Id);
+        }
+
+        return result;
+    }
+
+    private async Task<RequiredConfigurationResult> EvaluateAsync(
+        Project project,
+        DeployTarget serverTarget,
+        string branch,
+        ManifestCapture capture,
+        CancellationToken cancellationToken)
+    {
         var parts = project.GitHubRepoFullName.Split('/', 2, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 2 || string.IsNullOrWhiteSpace(serverTarget.ProviderProjectId))
         {
+            capture.Blind("this app has no repository or no application recorded");
             return new RequiredConfigurationResult([], Inconclusive: false, null);
         }
 
@@ -118,6 +154,7 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
 
         if (layout.IsInconclusive)
         {
+            capture.Blind($"could not read {project.GitHubRepoFullName}@{branch}");
             return Unknown($"could not read {project.GitHubRepoFullName}@{branch}");
         }
 
@@ -137,6 +174,7 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
 
         if (scan.IsInconclusive)
         {
+            capture.Blind($"found no configuration files under {layout.ProjectDirectory}");
             return Unknown($"found no configuration files under {layout.ProjectDirectory}");
         }
 
@@ -148,10 +186,14 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        capture.Requires(required);
+
         var developmentOnlySections = SectionsOnlyIn(developmentAppsettings, appsettings);
 
         if (required.Count == 0 && developmentOnlySections.Count == 0)
         {
+            // Conclusively nothing required. Recorded as such, so the sweep can distinguish it from a
+            // target whose manifest was never captured.
             return new RequiredConfigurationResult([], Inconclusive: false, null);
         }
 
@@ -167,8 +209,11 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Could not read the target's settings for project {ProjectId}.", project.Id);
+            capture.Blind("could not read what the app already has");
             return Unknown("could not read what the app already has");
         }
+
+        capture.Observed(present);
 
         var have = present.Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var missing = required.Where(key => !have.Contains(key)).OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
@@ -291,4 +336,95 @@ public sealed class RequiredConfigurationCheck : IRequiredConfigurationCheck
         new([], Inconclusive: true,
             $"Could not check the settings this code needs — {reason}. "
             + "If it needs settings the app does not have, it will fail once it starts.");
+
+    /// <summary>
+    /// Writes the manifest for this target, replacing whatever the previous deploy recorded.
+    /// </summary>
+    /// <remarks>
+    /// Replaced rather than appended: the question the sweep asks is "does the running app still have
+    /// what the deployed code needs", and only the most recent deploy defines that. Keeping older
+    /// manifests would invite comparing against code that is no longer running.
+    /// </remarks>
+    private async Task PersistManifestAsync(ManifestCapture capture, CancellationToken cancellationToken)
+    {
+        var manifest = await _db.TargetConfigManifests
+            .FirstOrDefaultAsync(m => m.DeployTargetId == capture.DeployTargetId, cancellationToken);
+
+        if (manifest is null)
+        {
+            manifest = new TargetConfigManifest { DeployTargetId = capture.DeployTargetId };
+            _db.TargetConfigManifests.Add(manifest);
+        }
+
+        manifest.ProjectId = capture.ProjectId;
+        manifest.Branch = capture.Branch;
+        manifest.WasInconclusive = capture.IsBlind;
+        manifest.InconclusiveReason = capture.BlindReason;
+        manifest.CapturedAt = DateTimeOffset.UtcNow;
+        manifest.SetRequiredKeys(capture.RequiredKeys);
+        manifest.SetValueFingerprints(capture.Fingerprints(capture.DeployTargetId));
+
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Accumulates what the check learned on its way through, so every exit records something.
+    /// </summary>
+    private sealed class ManifestCapture
+    {
+        private readonly Dictionary<string, string> _observedValues = new(StringComparer.OrdinalIgnoreCase);
+
+        public ManifestCapture(Guid projectId, Guid deployTargetId, string branch)
+        {
+            ProjectId = projectId;
+            DeployTargetId = deployTargetId;
+            Branch = branch;
+        }
+
+        public Guid ProjectId { get; }
+        public Guid DeployTargetId { get; }
+        public string Branch { get; }
+        public bool IsBlind { get; private set; }
+        public string? BlindReason { get; private set; }
+        public List<string> RequiredKeys { get; } = [];
+
+        /// <summary>The scan did not get far enough to know what the code requires.</summary>
+        public void Blind(string reason)
+        {
+            IsBlind = true;
+            BlindReason = reason;
+        }
+
+        public void Requires(IEnumerable<string> keys) => RequiredKeys.AddRange(keys);
+
+        /// <summary>
+        /// Records the target's current values for the required keys, so a later change is visible.
+        /// </summary>
+        /// <remarks>
+        /// Values the provider withholds (<c>ValueHidden</c>) are deliberately not recorded. A
+        /// fingerprint of a blank placeholder would match forever and report "unchanged" about a
+        /// value nobody ever read — a check that always passes is worse than no check.
+        /// </remarks>
+        public void Observed(IEnumerable<ProviderEnvVar> present)
+        {
+            var required = RequiredKeys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var variable in present)
+            {
+                if (!required.Contains(variable.Key) || variable.ValueHidden ||
+                    string.IsNullOrEmpty(variable.Value))
+                {
+                    continue;
+                }
+
+                _observedValues[variable.Key] = variable.Value;
+            }
+        }
+
+        public Dictionary<string, string> Fingerprints(Guid deployTargetId) =>
+            _observedValues.ToDictionary(
+                pair => pair.Key,
+                pair => ConfigValueFingerprint.Compute(deployTargetId, pair.Key, pair.Value),
+                StringComparer.OrdinalIgnoreCase);
+    }
 }

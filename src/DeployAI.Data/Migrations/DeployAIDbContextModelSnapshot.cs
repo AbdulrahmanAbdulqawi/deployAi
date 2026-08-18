@@ -351,6 +351,82 @@ namespace DeployAI.Data.Migrations
                     b.ToTable("projects", (string)null);
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectCheckState", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CheckId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<int>("ConsecutiveFailures")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ConsecutiveInconclusive")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("DeployTargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("FirstObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset?>("LastConclusiveAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastConclusiveStatus")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("LastNotifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastNotifiedStatus")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("LastObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SuggestedAction")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("ProjectId", "CheckId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("project_check_states", (string)null);
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.ProjectDomain", b =>
                 {
                     b.Property<Guid>("Id")
@@ -443,6 +519,127 @@ namespace DeployAI.Data.Migrations
                     b.ToTable("project_domains", (string)null);
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectVerificationCheckResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CheckId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("DeployTargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SuggestedAction")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Target")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Url")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RunId");
+
+                    b.HasIndex("ProjectId", "CheckId", "ObservedAt");
+
+                    b.ToTable("project_verification_check_results", (string)null);
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectVerificationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeploymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DurationMs")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FailedChecks")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("InconclusiveChecks")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("PassedChecks")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SkippedChecks")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<bool>("SweepErrored")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("WarningChecks")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "StartedAt");
+
+                    b.ToTable("project_verification_runs", (string)null);
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.ProviderCredential", b =>
                 {
                     b.Property<Guid>("Id")
@@ -517,6 +714,44 @@ namespace DeployAI.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("refresh_tokens", (string)null);
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.TargetConfigManifest", b =>
+                {
+                    b.Property<Guid>("DeployTargetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Branch")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTimeOffset>("CapturedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InconclusiveReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequiredKeysJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ValueFingerprintsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("WasInconclusive")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("DeployTargetId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("target_config_manifests", (string)null);
                 });
 
             modelBuilder.Entity("DeployAI.Data.Entities.User", b =>
@@ -660,6 +895,17 @@ namespace DeployAI.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectCheckState", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.ProjectDomain", b =>
                 {
                     b.HasOne("DeployAI.Data.Entities.DeployTarget", "DeployTarget")
@@ -675,6 +921,28 @@ namespace DeployAI.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("DeployTarget");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectVerificationCheckResult", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.ProjectVerificationRun", "Run")
+                        .WithMany("Results")
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Run");
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectVerificationRun", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Project");
                 });
@@ -701,6 +969,17 @@ namespace DeployAI.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("DeployAI.Data.Entities.TargetConfigManifest", b =>
+                {
+                    b.HasOne("DeployAI.Data.Entities.DeployTarget", "DeployTarget")
+                        .WithOne()
+                        .HasForeignKey("DeployAI.Data.Entities.TargetConfigManifest", "DeployTargetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DeployTarget");
+                });
+
             modelBuilder.Entity("DeployAI.Data.Entities.DeployTarget", b =>
                 {
                     b.Navigation("DeploymentTargets");
@@ -721,6 +1000,11 @@ namespace DeployAI.Data.Migrations
                     b.Navigation("DeployTargets");
 
                     b.Navigation("Deployments");
+                });
+
+            modelBuilder.Entity("DeployAI.Data.Entities.ProjectVerificationRun", b =>
+                {
+                    b.Navigation("Results");
                 });
 
             modelBuilder.Entity("DeployAI.Data.Entities.ProviderCredential", b =>

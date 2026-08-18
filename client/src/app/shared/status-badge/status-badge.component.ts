@@ -15,6 +15,8 @@ export class StatusBadgeComponent {
   @Input() live = false;
   @Input() kind: StatusBadgeKind = 'deployment';
   @Input() labelOverride?: string;
+  /** Shows the plain-text label next to the dot instead of the dot alone. */
+  @Input() dotWithLabel = false;
 
   get label(): string {
     if (this.labelOverride) {

@@ -178,9 +178,23 @@ here, and the doc it links to.
 - The wizard shows nothing different for an inconclusive env scan vs. a genuinely empty one.
 - The required-configuration check warns but never blocks a deploy into a known crash-loop.
 - Nothing flags a setting the app has that no code actually reads.
-- Project status is never revalidated against the provider — a deleted app can still show healthy.
+- ~~Project status is never revalidated against the provider~~ — closed; `IProviderApplicationExistence`
+  asks every sweep, and the first live run found a real deleted app (`yemeni-breeze`) that the dashboard
+  had been reporting as deployed.
 - No divergence warning, and no migration-chain validation, before a deploy.
-- Verification is shallow for everything except object storage.
+- ~~Verification is shallow for everything except object storage~~ — mostly closed; the hourly sweep now
+  also asks whether the app exists and is running, what it is logging, whether its connections work,
+  whether its required settings are still set, and whether its domains still resolve and serve a valid
+  certificate. Every answer is recorded per check with history, and a check that changes its mind emails
+  once. Deploys are still never blocked, by choice.
+- The URL probes still report could-not-reach as `failed` — `ProbeCheckStatus` has no inconclusive, so a
+  TLS failure and a broken app are the same answer to them. Everything above it now distinguishes the two.
+- `runtime.exceptions` is Coolify-only: Railway and Vercel expose no container output, so those targets
+  report skipped rather than a silent pass.
+- One provider error costs a whole family of checks. `DeploymentVerificationService` throws rather than
+  degrading, so an unauthorized Vercel token collapsed all eight live-URL checks on two projects into a
+  single `contributor.live_urls` inconclusive row. Isolated and recorded, but far coarser than it needs
+  to be.
 - Nothing requires a change to arrive with tests; CI runs the suite but doesn't gate on coverage.
 
 ### Database provisioning — [docs/gaps/database-provisioning.md](docs/gaps/database-provisioning.md)
@@ -205,11 +219,13 @@ here, and the doc it links to.
 - ~~The DNS approval flow has no UI~~ — closed; approval is the offered path wherever a provider
   declares `supportsApproval`, with the key form behind "enter keys instead". Round trip completed
   against the live provider: requested, approved, retrieved, validated and stored, nothing pasted.
-- Nothing re-checks a domain once it is live — a failed renewal or a deleted record goes unnoticed.
+- ~~Nothing re-checks a domain once it is live~~ — closed; the sweep re-inspects every `Active` domain's
+  certificate and DNS record, warning while a certificate is inside its last 14 days.
 - The platform wildcard subdomain serves one server; a second needs per-app records.
 - A TLS handshake failure still reports as "redeploy the server", which cannot fix a missing cert.
-- Nothing configures enum-as-string, so any enum on a response DTO silently ships as an integer
-  and every TypeScript comparison misses — needs a convention, not a per-enum attribute.
+- ~~Nothing configures enum-as-string~~ — closed; a global `JsonStringEnumConverter` is configured once in
+  `Program.cs` and guarded by a test that asserts the converter is present rather than any one enum's
+  output, so a new enum inherits it without anyone remembering an attribute.
 
 ### Process — [docs/gaps/process.md](docs/gaps/process.md)
 - ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.

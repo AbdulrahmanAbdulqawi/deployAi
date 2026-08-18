@@ -1,32 +1,44 @@
-<div class="shell">
-  <div class="u-ambient-glow" aria-hidden="true"></div>
-  @if (theme.showOrbDrifters()) {
-    <app-orb-drifters-background />
-  }
-  @if (theme.showOrbSnake()) {
-    <app-orb-snake-background />
-  }
+<div class="shell" [class.shell--collapsed]="sidebarCollapsed()">
+  <aside class="sidebar">
+    <div class="sidebar__top">
+      <a routerLink="/dashboard" class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <span class="brand__label">DeployAI</span>
+      </a>
 
-  <header class="topbar">
-    <div class="topbar__start">
-      <a routerLink="/dashboard" class="brand">DeployAI</a>
-      <nav>
-        <a routerLink="/dashboard" routerLinkActive="active">Apps</a>
-        <a routerLink="/settings" routerLinkActive="active">Settings</a>
+      <nav aria-label="Primary">
+        <a routerLink="/dashboard" routerLinkActive="active" title="Your apps">
+          <app-ui-icon name="folder" size="sm" />
+          <span class="nav-label">Your apps</span>
+        </a>
+        <a routerLink="/fleet" routerLinkActive="active" title="Health">
+          <app-ui-icon name="check" size="sm" />
+          <span class="nav-label">Health</span>
+        </a>
+        <a routerLink="/settings" routerLinkActive="active" title="Settings">
+          <app-ui-icon name="settings" size="sm" />
+          <span class="nav-label">Settings</span>
+        </a>
       </nav>
     </div>
-    <div class="topbar__actions">
-      <a routerLink="/settings/appearance" class="appearance-link" routerLinkActive="appearance-link--active">Appearance</a>
-      <button type="button" class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="theme.mode() === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'">
-        @if (theme.mode() === 'dark') {
-          <app-ui-icon name="sun" size="sm" statusClass="muted" />
-        } @else {
-          <app-ui-icon name="moon" size="sm" statusClass="muted" />
-        }
+
+    <div class="sidebar__bottom">
+      <button
+        type="button"
+        class="collapse-toggle"
+        (click)="toggleSidebar()"
+        [attr.aria-label]="sidebarCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+      >
+        <app-ui-icon [name]="sidebarCollapsed() ? 'arrow-right' : 'arrow-left'" size="sm" statusClass="muted" />
+        <span class="nav-label">Collapse</span>
       </button>
-      <button type="button" class="sign-out-btn u-label-caps" (click)="signOut()">Sign out</button>
+
+      <button type="button" class="sign-out-btn" (click)="signOut()" title="Sign out">
+        <span class="avatar" aria-hidden="true"></span>
+        <span class="nav-label">Sign out</span>
+      </button>
     </div>
-  </header>
+  </aside>
 
   <main>
     <router-outlet />

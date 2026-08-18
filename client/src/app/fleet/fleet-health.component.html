@@ -1,0 +1,112 @@
+<section class="fleet">
+  <header class="fleet__header">
+    <div>
+      <h1>Health</h1>
+      @if (lastSweepAt(); as checkedAt) {
+        <p class="fleet__subtitle">Last checked {{ checkedAt | date: 'medium' }}</p>
+      } @else {
+        <p class="fleet__subtitle">Not checked yet</p>
+      }
+    </div>
+    <button type="button" class="btn btn--primary" (click)="sweepNow()" [disabled]="sweeping()">
+      {{ sweeping() ? 'Starting…' : 'Check everything now' }}
+    </button>
+  </header>
+
+  @if (error(); as message) {
+    <p class="fleet__error">{{ message }}</p>
+  }
+
+  @if (!loading() && projects().length > 0) {
+    <div class="fleet__summary">
+      <span class="fleet__count fleet__count--danger">{{ totalFailing() }} needing attention</span>
+      <!-- Deliberately its own number: an app nobody could reach is not an app known to be broken,
+           and folding the two together is what turns a provider outage into a false alarm. -->
+      <span class="fleet__count fleet__count--muted">{{ totalUncheckable() }} couldn't be checked</span>
+    </div>
+  }
+
+  @if (loading()) {
+    <p class="fleet__empty">Loading…</p>
+  } @else if (projects().length === 0) {
+    <p class="fleet__empty">No apps yet. Publish one and it will show up here.</p>
+  } @else {
+    <ul class="fleet__list">
+      @for (project of projects(); track trackProject($index, project)) {
+        <li class="fleet__project">
+          <button type="button" class="fleet__row" (click)="toggle(project.projectId)">
+            <app-ui-icon [name]="projectStatusIcon(project.status)" [statusClass]="projectStatusClass(project.status)" />
+            <span class="fleet__name">{{ project.name }}</span>
+            <span class="fleet__status">{{ projectStatusLabel(project.status) }}</span>
+            <span class="fleet__tallies">
+              <span class="tally tally--success">{{ project.passed }}</span>
+              @if (project.failed > 0) {
+                <span class="tally tally--danger">{{ project.failed }}</span>
+              }
+              @if (project.warning > 0) {
+                <span class="tally tally--warning">{{ project.warning }}</span>
+              }
+              @if (project.inconclusive > 0) {
+                <span class="tally tally--muted" title="Checks DeployAI could not run">
+                  {{ project.inconclusive }}?
+                </span>
+              }
+            </span>
+          </button>
+
+          @if (project.summary) {
+            <p class="fleet__summary-line">{{ project.summary }}</p>
+          }
+
+          @if (isExpanded(project.projectId)) {
+            <ul class="checks">
+              @for (check of project.checks; track trackCheck($index, check)) {
+                <li class="checks__item checks__item--{{ checkStatusClass(check.status) }}">
+                  <app-ui-icon [name]="checkStatusIcon(check.status)" [statusClass]="checkStatusClass(check.status)" />
+                  <div class="checks__body">
+                    <p class="checks__label">
+                      {{ check.label }}
+                      <span class="checks__status">{{ checkStatusLabel(check.status) }}</span>
+                    </p>
+                    <p class="checks__message">{{ check.message }}</p>
+
+                    @if (showsChangedAt(check)) {
+                      <p class="checks__meta">
+                        Since {{ check.statusChangedAt | date: 'medium' }}
+                        @if (check.consecutiveFailures > 1) {
+                          · {{ check.consecutiveFailures }} checks in a row
+                        }
+                      </p>
+                    }
+
+                    <!-- When DeployAI cannot see, it says what it last actually knew rather than
+                         leaving the impression that nothing was ever established. -->
+                    @if (check.status === 'inconclusive') {
+                      <p class="checks__meta">
+                        @if (blindFor(check) > 1) {
+                          Unable to check for {{ blindFor(check) }} runs.
+                        }
+                        @if (check.lastConclusiveStatus) {
+                          Last conclusive answer: {{ checkStatusLabel(check.lastConclusiveStatus) }}
+                          on {{ check.lastConclusiveAt | date: 'medium' }}.
+                        } @else {
+                          This check has never completed.
+                        }
+                      </p>
+                    }
+
+                    @if (check.url) {
+                      <a class="checks__link" [href]="check.url" target="_blank" rel="noopener">
+                        {{ check.url }}
+                      </a>
+                    }
+                  </div>
+                </li>
+              }
+            </ul>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

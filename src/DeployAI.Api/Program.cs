@@ -2,6 +2,7 @@ using System.Text;
 using DeployAI.Api.Hubs;
 using DeployAI.Api.Middleware;
 using DeployAI.Api.Services;
+using DeployAI.Api.Services.Checks;
 using DeployAI.Api.Services.DeploymentTemplates;
 using DeployAI.Core.Deployments;
 using DeployAI.Data;
@@ -22,7 +23,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<AppOptions>(builder.Configuration.GetSection(AppOptions.SectionName));
 var appOptions = builder.Configuration.GetSection(AppOptions.SectionName).Get<AppOptions>() ?? new AppOptions();
 
-builder.Services.AddControllers();
+// Enums ship as their names, not their integers, for every response DTO. Written once as a
+// convention rather than per-enum [JsonConverter] attributes: an enum shipped as an integer is
+// invisible until a TypeScript comparison silently misses, which is how a DNS-pending domain came to
+// be labelled "Removed" in the domains panel. A rule that depends on remembering an attribute on each
+// new enum is one someone will eventually not remember.
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -89,6 +98,26 @@ builder.Services.AddRequestTimeouts(options =>
 });
 builder.Services.AddScoped<EnvironmentDriftCheckJob>();
 builder.Services.AddScoped<ProjectHealthMonitorJob>();
+
+builder.Services.Configure<FleetVerificationOptions>(
+    builder.Configuration.GetSection(FleetVerificationOptions.SectionName));
+// Singleton, because it owns the concurrency and must not hold a scoped DbContext; the per-project
+// work it hands out is scoped, one scope per project.
+builder.Services.AddSingleton<IFleetVerificationService, FleetVerificationService>();
+builder.Services.AddScoped<IProjectSweepRunner, ProjectSweepRunner>();
+builder.Services.AddScoped<IProjectVerificationService, ProjectVerificationService>();
+builder.Services.AddScoped<IProjectVerificationRecorder, ProjectVerificationRecorder>();
+builder.Services.AddScoped<IFleetHealthNotificationService, FleetHealthNotificationService>();
+// Each contributor is one family of checks. Adding a kind of check is a registration here, not an
+// edit to a method that every other check also lives in.
+builder.Services.AddScoped<IProjectCheckContributor, DeploymentUrlChecks>();
+builder.Services.AddScoped<IProjectCheckContributor, ProviderExistenceCheck>();
+builder.Services.AddScoped<IProjectCheckContributor, ProviderConnectionCheck>();
+builder.Services.AddScoped<IProjectCheckContributor, RuntimeExceptionVerificationCheck>();
+builder.Services.AddScoped<IProjectCheckContributor, DomainHealthCheck>();
+builder.Services.AddScoped<IProjectCheckContributor, ConfigurationCheck>();
+// Singleton: the point of the cache is to be shared across the sweep's per-project scopes.
+builder.Services.AddSingleton<IProviderCredentialValidationCache, ProviderCredentialValidationCache>();
 builder.Services.AddScoped<IGitHubWebhookRegistrationService, GitHubWebhookRegistrationService>();
 builder.Services.AddScoped<IGitHubWebhookHandler, GitHubWebhookHandler>();
 builder.Services.AddScoped<IDeploymentNotificationService, DeploymentNotificationService>();
@@ -169,8 +198,16 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy =>
     {
-        policy.WithOrigins(appOptions.FrontendUrl)
-            .AllowAnyHeader()
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.SetIsOriginAllowed(DevCorsOriginPolicy.IsLocalDevOrigin);
+        }
+        else
+        {
+            policy.WithOrigins(appOptions.FrontendUrl);
+        }
+
+        policy.AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
     });

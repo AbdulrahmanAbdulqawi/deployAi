@@ -158,6 +158,7 @@
   font-size: var(--font-size-sm);
   text-decoration: underline;
   cursor: pointer;
+  transition: color var(--motion-fast) var(--motion-ease);
 
   &:hover {
     color: var(--text-secondary);

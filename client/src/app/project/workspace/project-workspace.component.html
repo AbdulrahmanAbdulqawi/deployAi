@@ -1,0 +1,48 @@
+@if (context.project(); as project) {
+  <section class="workspace">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <button type="button" class="breadcrumb__link" (click)="goToProjects()">
+        <app-ui-icon name="arrow-left" size="sm" statusClass="muted" />
+        Your apps
+      </button>
+      <span class="breadcrumb__sep" aria-hidden="true">/</span>
+      <span class="breadcrumb__current" aria-current="page">{{ project.name }}</span>
+    </nav>
+
+    @if (context.coolifyBranchMismatch(); as branchWarning) {
+      <div class="workspace__notice" role="status">{{ branchWarning }}</div>
+    }
+
+    <header class="workspace__header">
+      <div class="workspace__heading">
+        <h1 class="u-headline-md">{{ project.name }}</h1>
+        <app-status-badge [status]="context.overallStatus()" kind="deployment" />
+      </div>
+      <div class="workspace__actions">
+        @if (context.liveUrls()[0]; as primary) {
+          <a class="workspace__visit" [href]="primary.url" target="_blank" rel="noopener">
+            <app-ui-button variant="secondary" icon="external">Visit site</app-ui-button>
+          </a>
+        }
+        <app-ui-button
+          variant="primary"
+          icon="rocket"
+          [disabled]="context.publishing()"
+          [loading]="context.publishing()"
+          (click)="publish()">
+          Publish update
+        </app-ui-button>
+      </div>
+    </header>
+
+    <app-ui-tab-bar [items]="tabs" ariaLabel="Project sections" />
+
+    <router-outlet />
+  </section>
+} @else {
+  <section class="workspace">
+    <div class="u-skeleton workspace-skeleton__breadcrumb"></div>
+    <div class="u-skeleton workspace-skeleton__header"></div>
+    <div class="u-skeleton workspace-skeleton__tabs"></div>
+  </section>
+}

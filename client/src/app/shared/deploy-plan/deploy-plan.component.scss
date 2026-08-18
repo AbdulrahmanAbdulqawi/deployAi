@@ -1,3 +1,5 @@
+@use '../../../styles/surfaces';
+
 .plan-card {
   position: relative;
   display: grid;
@@ -144,6 +146,7 @@
   font-weight: 500;
   cursor: pointer;
   padding: var(--space-1);
+  transition: color var(--motion-fast) var(--motion-ease);
 
   &:hover {
     color: var(--text-primary);
@@ -224,13 +227,11 @@
 }
 
 .plan-card__choice {
+  @include surfaces.tile-surface;
   display: grid;
   gap: var(--space-1);
   text-align: left;
   padding: var(--space-4);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--surface-interactive);
   color: var(--text-primary);
   cursor: pointer;
   transition: border-color var(--motion-fast) var(--motion-ease);

@@ -1,5 +1,3 @@
-import { ThemeStyle } from '../services/theme.service';
-
 export type AppLogoId =
   | 'rocket'
   | 'globe'
@@ -37,8 +35,8 @@ export const APP_LOGOS: AppLogoDefinition[] = [
   { id: 'cloud', label: 'Cloud' },
 ];
 
-export function appLogoAssetUrl(logoKey: string, style: ThemeStyle): string {
-  return `/app-logos/${style}/${logoKey}.svg`;
+export function appLogoAssetUrl(logoKey: string): string {
+  return `/app-logos/default/${logoKey}.svg`;
 }
 
 export function isAppLogoId(value: string | null | undefined): value is AppLogoId {

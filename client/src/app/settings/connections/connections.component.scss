@@ -81,20 +81,20 @@
 }
 
 .provider-card__icon--vercel {
-  background: #000;
-  color: #fff;
+  background: var(--black);
+  color: var(--white);
   font-weight: 700;
   font-size: 1.125rem;
 }
 
 .provider-card__icon--railway {
-  background: #0b0d19;
+  background: var(--provider-railway-bg);
   color: var(--provider-railway);
 }
 
 .provider-card__icon--coolify {
-  background: #1a2e1a;
-  color: #5cdb5c;
+  background: var(--provider-coolify-bg);
+  color: var(--provider-coolify-fg);
 }
 
 .import-candidates {
@@ -105,8 +105,8 @@
 }
 
 .provider-card__icon--storage {
-  background: #1a2333;
-  color: #7aa7ff;
+  background: var(--provider-storage-bg);
+  color: var(--provider-storage-fg);
   font-weight: 700;
   font-size: 0.9rem;
 }

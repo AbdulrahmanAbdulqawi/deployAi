@@ -1,6 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { StatusBadgeComponent } from '../status-badge/status-badge.component';
-import { plainTargetSummary } from '../../core/utils/target-config';
 import { ProjectSummary } from '../../core/models/api.models';
 import { ButtonComponent } from '../ui/button/button.component';
 import { AppLogoComponent } from '../app-logo/app-logo.component';
@@ -20,10 +19,6 @@ export class ProjectCardComponent {
   @Output() open = new EventEmitter<string>();
   @Output() fix = new EventEmitter<string>();
 
-  get targetSummary(): string {
-    return plainTargetSummary(this.project.targets);
-  }
-
   get isDeploying(): boolean {
     return this.publishing || this.project.latestDeployment?.status === 'in_progress';
   }
@@ -36,20 +31,12 @@ export class ProjectCardComponent {
     return isAppLogoId(this.project.logoKey);
   }
 
-  orbTone(): string {
-    const status = this.project.latestDeployment?.status;
-    switch (status) {
-      case 'success':
-        return 'success';
-      case 'failed':
-        return 'failed';
-      case 'in_progress':
-        return 'working';
-      case 'partial':
-        return 'attention';
-      default:
-        return 'idle';
+  get updatedLabel(): string | null {
+    const when = this.project.latestDeployment?.completedAt;
+    if (!when) {
+      return null;
     }
+    return `Updated ${this.relativeTime(when)}`;
   }
 
   onCardClick(): void {
@@ -68,5 +55,26 @@ export class ProjectCardComponent {
     }
 
     this.fix.emit(this.project.id);
+  }
+
+  private relativeTime(value: string): string {
+    const then = new Date(value).getTime();
+    const seconds = Math.round((Date.now() - then) / 1000);
+    if (seconds < 60) {
+      return 'just now';
+    }
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+    const days = Math.round(hours / 24);
+    if (days < 30) {
+      return `${days}d ago`;
+    }
+    return new Date(value).toLocaleDateString();
   }
 }

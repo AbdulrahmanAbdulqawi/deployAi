@@ -1,3 +1,5 @@
+@use '../../../styles/surfaces';
+
 .buy {
   display: flex;
   flex-direction: column;
@@ -129,13 +131,12 @@
 }
 
 .buy__confirm {
+  @include surfaces.card-surface;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
-  border: 1px solid var(--status-accent);
-  border-radius: var(--radius-lg);
-  background: var(--surface-card);
+  border-color: var(--status-accent);
 }
 
 .buy__confirm-title {

@@ -9,18 +9,6 @@
   overflow: hidden;
 }
 
-:host-context([data-style='notebook']) .login {
-  padding-right: var(--space-8);
-  padding-left: var(--notebook-content-inset);
-}
-
-@media (max-width: 640px) {
-  :host-context([data-style='notebook']) .login {
-    padding-right: var(--space-4);
-    padding-left: var(--notebook-content-inset);
-  }
-}
-
 .login__glow {
   position: absolute;
   inset: 0;

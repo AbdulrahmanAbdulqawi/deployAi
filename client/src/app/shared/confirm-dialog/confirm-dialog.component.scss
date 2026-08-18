@@ -53,20 +53,6 @@
   border-color: color-mix(in srgb, var(--status-danger) 30%, transparent);
 }
 
-[data-theme='dark'] .dialog--destructive {
-  background: color-mix(in srgb, #dc2626 18%, var(--surface-card));
-  border-color: color-mix(in srgb, #dc2626 45%, transparent);
-}
-
-[data-theme='dark'] .dialog--destructive .dialog__icon {
-  background: color-mix(in srgb, #dc2626 22%, transparent);
-  border-color: color-mix(in srgb, #dc2626 45%, transparent);
-}
-
-[data-theme='dark'] .dialog--destructive .dialog__icon app-ui-icon {
-  color: #fca5a5;
-}
-
 .dialog__body {
   min-width: 0;
 }

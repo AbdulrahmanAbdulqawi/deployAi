@@ -1,6 +1,5 @@
-import { Component, Input, computed, inject, model } from '@angular/core';
+import { Component, Input, computed, model } from '@angular/core';
 import { APP_LOGOS } from '../../core/constants/app-logos';
-import { ThemeService } from '../../core/services/theme.service';
 import { AppLogoComponent } from '../app-logo/app-logo.component';
 import { IconComponent } from '../ui/icon/icon.component';
 
@@ -12,14 +11,10 @@ import { IconComponent } from '../ui/icon/icon.component';
   styleUrl: './app-logo-picker.component.scss',
 })
 export class AppLogoPickerComponent {
-  private readonly theme = inject(ThemeService);
-
   readonly selectedLogoKey = model<string | null>(null);
   @Input() compact = false;
 
   readonly options = computed(() => APP_LOGOS);
-
-  readonly themeStyle = computed(() => this.theme.style());
 
   isSelected(id: string): boolean {
     return this.selectedLogoKey() === id;

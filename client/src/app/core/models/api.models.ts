@@ -361,7 +361,10 @@ export enum ProjectHealthStatus {
   Healthy = 'healthy',
   Degraded = 'degraded',
   Down = 'down',
-  Unknown = 'unknown'
+  /** Never checked — the absence of a run, not the result of one. */
+  Unknown = 'unknown',
+  /** Checked, and nothing was learned: every check that applied could not be run. */
+  Inconclusive = 'inconclusive'
 }
 
 export interface ProjectHealthState {
@@ -371,6 +374,54 @@ export interface ProjectHealthState {
   totalChecks: number;
   summary?: string;
   deploymentId?: string;
+}
+
+/** Where one check on one project stands, and how it got there. */
+export interface FleetCheckState {
+  checkId: string;
+  label: string;
+  target: 'website' | 'server' | 'connection' | 'provider' | 'runtime' | 'domain' | 'configuration' | 'project';
+  status: VerificationCheckStatus;
+  message: string;
+  url?: string | null;
+  suggestedAction?: string | null;
+  /** The last answer that was actually about the app — never inconclusive, never skipped. */
+  lastConclusiveStatus?: VerificationCheckStatus | null;
+  lastConclusiveAt?: string | null;
+  /** Moves only on a conclusive change, so "unchanged for weeks" means what it says. */
+  statusChangedAt: string;
+  lastObservedAt: string;
+  consecutiveFailures: number;
+  consecutiveInconclusive: number;
+  deployTargetId?: string | null;
+}
+
+export interface FleetProjectHealth {
+  projectId: string;
+  name: string;
+  logoKey?: string | null;
+  status: ProjectHealthStatus;
+  lastCheckedAt?: string | null;
+  summary?: string | null;
+  passed: number;
+  failed: number;
+  warning: number;
+  inconclusive: number;
+  skipped: number;
+  checks: FleetCheckState[];
+}
+
+export interface FleetHealthResponse {
+  lastSweepAt?: string | null;
+  projects: FleetProjectHealth[];
+}
+
+export interface FleetCheckHistoryEntry {
+  checkId: string;
+  label: string;
+  status: VerificationCheckStatus;
+  message: string;
+  observedAt: string;
 }
 
 export interface NotificationPreferencesResponse {
@@ -530,7 +581,12 @@ export interface DeploymentDetail {
 }
 
 export type DeploymentVerificationScope = 'website' | 'server' | 'both';
-export type VerificationCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
+/**
+ * `skipped` means the check does not apply here; `inconclusive` means it applies and could not be
+ * run. They must render differently — showing "couldn't reach Coolify" in the same red as a real
+ * failure is what makes a monitor untrustworthy in both directions.
+ */
+export type VerificationCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped' | 'inconclusive';
 export type VerificationSuggestedAction =
   | 'reconnect'
   | 'redeploy_website'

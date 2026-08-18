@@ -34,6 +34,11 @@ export class ProjectHealthBannerComponent {
         return 'Needs attention';
       case ProjectHealthStatus.Down:
         return 'Down';
+      // Distinct from Unknown, which means no check has ever run. This one means DeployAI checked
+      // and could not see — and it fell into "Unknown" before, so an app the platform had entirely
+      // lost sight of looked exactly like one it had never looked at. The summary carries the reason.
+      case ProjectHealthStatus.Inconclusive:
+        return "Couldn't check";
       default:
         return 'Unknown';
     }

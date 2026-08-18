@@ -136,6 +136,19 @@ public sealed class ProviderRuntimeLogsFactory : IProviderRuntimeLogsFactory
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderApplicationExistenceFactory : IProviderApplicationExistenceFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderApplicationExistence> _providers;
+
+    public ProviderApplicationExistenceFactory(IEnumerable<IProviderApplicationExistence> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderApplicationExistence? GetApplicationExistence(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ServerAddressProviderFactory : IServerAddressProviderFactory
 {
     private readonly IReadOnlyDictionary<string, IServerAddressProvider> _providers;
@@ -233,6 +246,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<Vercel.VercelProvider>();
         services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
         services.AddHttpClient(RailwayClient.ClientName, client =>
         {
             client.BaseAddress = new Uri(Railway.RailwayGraphQlClientFactory.GraphQlEndpoint);
@@ -243,6 +257,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddHttpClient<Coolify.CoolifyProvider>();
@@ -255,6 +270,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderLifecycleOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderRuntimeLogs>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IServerAddressProvider>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IApplicationDomainAssignment>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         // Object storage is a separate capability: registered only as IObjectStorageProvider,
@@ -268,6 +284,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
         services.AddSingleton<IProviderRuntimeLogsFactory, ProviderRuntimeLogsFactory>();
+        services.AddSingleton<IProviderApplicationExistenceFactory, ProviderApplicationExistenceFactory>();
         services.AddSingleton<IProviderLifecycleOperationsFactory, ProviderLifecycleOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();
         services.AddSingleton<IServerAddressProviderFactory, ServerAddressProviderFactory>();
