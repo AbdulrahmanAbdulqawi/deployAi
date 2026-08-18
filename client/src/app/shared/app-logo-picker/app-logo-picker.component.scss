@@ -71,22 +71,11 @@
   height: 2.75rem;
   border-radius: 50%;
   overflow: hidden;
-}
-
-.logo-picker__orb[data-style='default'] {
   background:
     radial-gradient(circle at 32% 28%, #ffffff 0%, #eef2ff 28%, #c7d2fe 58%, #818cf8 100%);
   box-shadow:
     inset -0.25rem -0.3rem 0.55rem rgba(79, 70, 229, 0.22),
     inset 0.25rem 0.3rem 0.45rem rgba(255, 255, 255, 0.65);
-}
-
-.logo-picker__orb[data-style='notebook'] {
-  background:
-    radial-gradient(circle at 32% 28%, #fffdf9 0%, #f5f1ea 30%, #ddd4c7 62%, #b8aa98 100%);
-  box-shadow:
-    inset -0.25rem -0.3rem 0.55rem rgba(120, 113, 108, 0.18),
-    inset 0.25rem 0.3rem 0.45rem rgba(255, 255, 255, 0.55);
 }
 
 .logo-picker__orb-highlight {
@@ -119,17 +108,6 @@
   position: absolute;
   top: 0.35rem;
   right: 0.35rem;
-}
-
-:host-context([data-theme='dark']) {
-  .logo-picker__orb[data-style='default'] {
-    background:
-      radial-gradient(circle at 32% 28%, #dbeafe 0%, #6366f1 30%, #4338ca 62%, #1e1b4b 100%);
-  }
-
-  .logo-picker__orb-highlight {
-    background: rgba(255, 255, 255, 0.35);
-  }
 }
 
 @media (max-width: 640px) {

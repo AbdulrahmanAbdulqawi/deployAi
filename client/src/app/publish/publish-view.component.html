@@ -229,6 +229,15 @@
       </section>
     }
 
+    @if (store.deployment()) {
+      <section class="summary">
+        <button type="button" class="live-deploy__troubleshoot-link" (click)="openDomains()">
+          Manage domains
+          <app-ui-icon name="arrow-right" size="sm" statusClass="accent" />
+        </button>
+      </section>
+    }
+
     @if (store.overallStatus() !== 'success' && environmentSync()?.driftDetected) {
       <p class="notice notice--warning">Your site and app need to be reconnected so they can communicate.</p>
     }

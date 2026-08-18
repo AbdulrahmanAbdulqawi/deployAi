@@ -1,0 +1,97 @@
+@if (context.project(); as project) {
+  <div class="overview">
+    <app-environment-drift-banner
+      [projectId]="context.projectId()!"
+      [hasSplitOrigin]="context.hasSplitOrigin()" />
+
+    @if (project.health) {
+      <app-project-health-banner [health]="project.health" />
+    }
+
+    @if (aiSetup.enabled()) {
+      <app-readiness-scorecard
+        [projectId]="context.projectId()!"
+        [readiness]="context.deploymentReadiness()"
+        [loading]="context.loadingDeploymentReadiness()" />
+    } @else {
+      <app-deployment-status-strip
+        [projectId]="context.projectId()!"
+        [readiness]="context.deploymentReadiness()"
+        [aiSetupEnabled]="aiSetup.enabled()"
+        [loading]="context.loadingDeploymentReadiness()" />
+    }
+
+    <div class="overview__grid">
+      <section class="u-card overview__preview">
+        <div class="overview__preview-head">
+          <span class="u-title-lg">Site preview</span>
+          @if (context.lastDeployedLabel(); as when) {
+            <span class="overview__muted">Updated {{ when }}</span>
+          }
+        </div>
+
+        @if (context.liveUrls()[0]; as primary) {
+          <div class="overview__url-chip">
+            <span class="u-code-sm">{{ displayUrl(primary.url) }}</span>
+            <div class="overview__url-actions">
+              <button type="button" (click)="copyUrl(primary.url)" aria-label="Copy link">
+                <app-ui-icon name="copy" size="sm" statusClass="muted" />
+              </button>
+              <a [href]="primary.url" target="_blank" rel="noopener" aria-label="Open site">
+                <app-ui-icon name="external" size="sm" statusClass="accent" />
+              </a>
+            </div>
+          </div>
+        }
+
+        <div class="overview__preview-box">Live site preview</div>
+      </section>
+
+      <section class="u-card overview__card">
+        <div class="u-title-lg">Quick actions</div>
+        <a routerLink="../activity" class="overview__action">
+          <app-ui-icon name="clock" size="sm" statusClass="muted" />
+          See recent activity
+        </a>
+        <a routerLink="../domains" class="overview__action">
+          <app-ui-icon name="globe" size="sm" statusClass="muted" />
+          Add a domain
+        </a>
+        <a routerLink="../troubleshoot" class="overview__action overview__action--danger">
+          <app-ui-icon name="alert" size="sm" statusClass="danger" />
+          Fix a problem
+        </a>
+      </section>
+
+      <section class="u-card overview__card">
+        <div class="u-title-lg">What's connected</div>
+        @for (item of connectedItems(); track item.label) {
+          <div class="overview__connected-row">
+            <span>{{ item.label }}</span>
+            <span class="overview__connected-status">{{ item.status }}</span>
+          </div>
+        } @empty {
+          <p class="overview__muted">Nothing connected yet.</p>
+        }
+      </section>
+
+      <section class="u-card overview__card">
+        <div class="u-title-lg">Custom domain</div>
+        <p class="overview__muted">Connect an address like mystorefront.com instead of the default.</p>
+        <a routerLink="../domains">
+          <app-ui-button variant="secondary">Connect domain</app-ui-button>
+        </a>
+      </section>
+
+      <section class="u-card overview__card">
+        <div class="u-title-lg">App settings</div>
+        <p class="overview__muted">Manage settings, services, and the danger zone.</p>
+        <a routerLink="../settings">
+          <app-ui-button variant="secondary">Open settings</app-ui-button>
+        </a>
+      </section>
+    </div>
+  </div>
+} @else {
+  <div class="u-skeleton overview-skeleton"></div>
+}

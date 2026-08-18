@@ -1,0 +1,182 @@
+.fleet {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  &__subtitle,
+  &__summary-line,
+  &__empty {
+    margin: 0.25rem 0 0;
+    color: var(--text-muted, #6b7280);
+    font-size: 0.875rem;
+  }
+
+  &__error {
+    margin: 0;
+    color: var(--danger, #b91c1c);
+  }
+
+  &__summary {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+  }
+
+  &__count--danger {
+    color: var(--danger, #b91c1c);
+  }
+
+  &__count--muted {
+    color: var(--text-muted, #6b7280);
+  }
+
+  &__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  &__project {
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+  }
+
+  &__name {
+    font-weight: 600;
+  }
+
+  &__status {
+    color: var(--text-muted, #6b7280);
+    font-size: 0.875rem;
+  }
+
+  &__tallies {
+    margin-left: auto;
+    display: flex;
+    gap: 0.375rem;
+  }
+}
+
+.tally {
+  min-width: 1.5rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  text-align: center;
+
+  &--success {
+    background: var(--success-bg, #ecfdf5);
+    color: var(--success, #047857);
+  }
+
+  &--danger {
+    background: var(--danger-bg, #fef2f2);
+    color: var(--danger, #b91c1c);
+  }
+
+  &--warning {
+    background: var(--warning-bg, #fffbeb);
+    color: var(--warning, #b45309);
+  }
+
+  // Inconclusive counts are grey, never red. "DeployAI could not look" is not a verdict about the
+  // app, and colouring it like one turns every provider blip into a reported outage.
+  &--muted {
+    background: var(--muted-bg, #f3f4f6);
+    color: var(--text-muted, #6b7280);
+  }
+}
+
+.checks {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  &__item {
+    display: flex;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid var(--border, #e5e7eb);
+    border-radius: 0.25rem;
+    background: var(--surface-subtle, #fafafa);
+
+    &--danger {
+      border-left-color: var(--danger, #b91c1c);
+    }
+
+    &--warning {
+      border-left-color: var(--warning, #b45309);
+    }
+
+    &--success {
+      border-left-color: var(--success, #047857);
+    }
+
+    // Muted covers both "doesn't apply" and "couldn't check": neither is a claim about the app.
+    &--muted {
+      border-left-color: var(--border, #e5e7eb);
+    }
+  }
+
+  &__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  &__label {
+    margin: 0;
+    font-weight: 500;
+  }
+
+  &__status {
+    margin-left: 0.5rem;
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--text-muted, #6b7280);
+  }
+
+  &__message,
+  &__meta {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted, #6b7280);
+  }
+
+  &__meta {
+    font-size: 0.75rem;
+  }
+
+  &__link {
+    font-size: 0.75rem;
+    word-break: break-all;
+  }
+}

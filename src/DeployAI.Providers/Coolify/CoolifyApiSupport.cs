@@ -30,14 +30,51 @@ internal static class CoolifyApiSupport
     /// </summary>
     internal static string? TryBuildSslipDomain(string instanceUrl, string applicationUuid)
     {
-        if (!Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri) ||
-            !System.Net.IPAddress.TryParse(uri.Host, out var address) ||
+        var address = TryReadInstanceAddress(instanceUrl);
+        return address is null ? null : $"http://{applicationUuid}.{address}.sslip.io";
+    }
+
+    /// <summary>
+    /// The IPv4 address a Coolify instance is reached at, or null when it is addressed by hostname.
+    /// A weaker answer than the server's own <c>ip</c> field — it is the address of the control
+    /// plane, which is only the address of the workload because every instance DeployAI has
+    /// deployed through runs both on one box. Used as a fallback when the servers API cannot say.
+    /// </summary>
+    internal static string? TryReadInstanceAddress(string instanceUrl) =>
+        Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri)
+            ? TryReadPublicAddress(uri.Host)
+            : null;
+
+    /// <summary>
+    /// The address if it is one a stranger's DNS record could point at, and null otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Coolify reports its own localhost server's <c>ip</c> as <c>host.docker.internal</c>, and a
+    /// live instance returned exactly that. Passing it through told the user to point an A record
+    /// at a Docker hostname, and left the DNS check comparing real resolved addresses against a
+    /// string no record could ever match — so a domain configured perfectly would have waited out
+    /// its deadline and then been reported as the user's mistake. Loopback and private ranges fail
+    /// the same way, and a certificate authority cannot reach any of them either.
+    /// </remarks>
+    internal static string? TryReadPublicAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            !System.Net.IPAddress.TryParse(value.Trim(), out var address) ||
             address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
         {
             return null;
         }
 
-        return $"http://{applicationUuid}.{address}.sslip.io";
+        var octets = address.GetAddressBytes();
+        var isPrivate =
+            System.Net.IPAddress.IsLoopback(address) ||
+            octets[0] == 10 ||
+            (octets[0] == 172 && octets[1] >= 16 && octets[1] <= 31) ||
+            (octets[0] == 192 && octets[1] == 168) ||
+            (octets[0] == 169 && octets[1] == 254) ||
+            octets[0] == 0;
+
+        return isPrivate ? null : address.ToString();
     }
 
     internal static string? ParseErrorMessage(string? responseBody)

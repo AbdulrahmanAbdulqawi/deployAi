@@ -9,6 +9,8 @@ import {
   DeploymentLogLine,
   DeploymentVerificationResult,
   DeploymentVerificationScope,
+  FleetCheckHistoryEntry,
+  FleetHealthResponse,
   DeploymentPlan,
   DeploymentPlanPart,
   DeploymentReadinessResult,
@@ -26,6 +28,17 @@ import {
   EnvironmentSyncResult,
   EnvironmentSyncState,
   ProjectDetail,
+  ProjectDomain,
+  DomainOptions,
+  DnsConnectionSummary,
+  DnsAuthorizationPoll,
+  DnsAuthorizationStart,
+  DnsConnectionDetail,
+  DnsDisconnectImpact,
+  DnsProviderInfo,
+  DnsZone,
+  DomainSearchResult,
+  DomainPurchaseResult,
   NotificationPreferencesResponse,
   ProjectServicesResponse,
   ProjectServiceStatus,
@@ -351,6 +364,11 @@ export class ApiService {
        */
       composeFileLocation?: string | null;
       domainServiceName?: string | null;
+      /**
+       * The domain the user asked for. Persisted with the target rather than only sent at create,
+       * because a compose app cannot be given a domain until its first deploy has happened.
+       */
+      customDomain?: string | null;
       composeServerDirectory?: string | null;
       /** Where the api's Docker build actually runs from, when that differs from its own source directory. */
       composeServerRootDirectory?: string | null;
@@ -383,6 +401,112 @@ export class ApiService {
 
   deleteProject(id: string) {
     return this.http.delete(`/api/projects/${id}`);
+  }
+
+  /** The DNS providers that can be connected, each describing the inputs it needs. */
+  listDnsProviders() {
+    return this.http.get<{ providers: DnsProviderInfo[] }>('/api/dns/providers');
+  }
+
+  listDnsConnections() {
+    return this.http.get<{ connections: DnsConnectionSummary[] }>('/api/dns/connections');
+  }
+
+  /** Validates the credentials against the provider and only stores them if they work. */
+  createDnsConnection(payload: {
+    fields: Record<string, string>;
+    providerName?: string;
+    label?: string;
+  }) {
+    return this.http.post<DnsConnectionDetail>('/api/dns/connections', payload);
+  }
+
+  /**
+   * Asks the provider for access and returns the link the account holder has to approve.
+   *
+   * The verifier that makes the later poll safe stays on the server and is deliberately absent
+   * from this response — holding it here would put it in the browser, which is the one place it
+   * must never be.
+   */
+  beginDnsAuthorization(payload: { providerName: string; label?: string }) {
+    return this.http.post<DnsAuthorizationStart>('/api/dns/authorizations', payload);
+  }
+
+  /**
+   * Asks whether the approval has happened yet.
+   *
+   * The connection is stored by the server on the first successful poll, because the secret is
+   * returned exactly once — so an `Approved` response has already been persisted and there is
+   * nothing for the caller to save.
+   */
+  pollDnsAuthorization(requestToken: string, payload: { providerName: string; label?: string }) {
+    return this.http.post<DnsAuthorizationPoll>(
+      `/api/dns/authorizations/${requestToken}/poll`,
+      payload
+    );
+  }
+
+  /** Re-read from the provider every time — a zone waiting on its registrar becomes usable later. */
+  listDnsZones(connectionId: string) {
+    return this.http.get<{ zones: DnsZone[]; connection: DnsConnectionSummary; message: string }>(
+      `/api/dns/connections/${connectionId}/zones`
+    );
+  }
+
+  /** What disconnecting would do, in plain words, before anything is done. */
+  getDnsDisconnectImpact(connectionId: string) {
+    return this.http.get<DnsDisconnectImpact>(`/api/dns/connections/${connectionId}/impact`);
+  }
+
+  deleteDnsConnection(connectionId: string) {
+    return this.http.delete(`/api/dns/connections/${connectionId}`);
+  }
+
+  /**
+   * Prices a domain and records the quote. Spends nothing, but the registrar allows only one check
+   * every ten seconds — so this is called on a deliberate search, never on a keystroke.
+   */
+  searchDomains(projectId: string, payload: { name: string; deployTargetId?: string }) {
+    return this.http.post<{ results: DomainSearchResult[] }>(
+      `/api/projects/${projectId}/domains/search`,
+      payload
+    );
+  }
+
+  /** Spends real money. Takes the quote id, so the price is the server's word rather than ours. */
+  purchaseDomain(projectId: string, payload: { quoteId: string; agreeToTerms: boolean }) {
+    return this.http.post<DomainPurchaseResult>(
+      `/api/projects/${projectId}/domains/purchase`,
+      payload
+    );
+  }
+
+  getDomains(projectId: string) {
+    return this.http.get<ProjectDomain[]>(`/api/projects/${projectId}/domains`);
+  }
+
+  /**
+   * Names the project could use without the user configuring anything: one under DeployAI's own
+   * zone, plus any zones their connected DNS accounts can write to.
+   */
+  getDomainOptions(projectId: string) {
+    return this.http.get<DomainOptions>(`/api/projects/${projectId}/domains/options`);
+  }
+
+  attachDomain(projectId: string, payload: { deployTargetId: string; domain: string }) {
+    return this.http.post<ProjectDomain>(`/api/projects/${projectId}/domains`, payload);
+  }
+
+  /** Starts the checks over. The button a domain needs after ending up unverifiable. */
+  recheckDomain(projectId: string, domainId: string) {
+    return this.http.post<ProjectDomain>(
+      `/api/projects/${projectId}/domains/${domainId}/recheck`,
+      {}
+    );
+  }
+
+  removeDomain(projectId: string, domainId: string) {
+    return this.http.delete(`/api/projects/${projectId}/domains/${domainId}`);
   }
 
   provisionRailwayDatabases(projectId: string, payload: { postgres: boolean; redis: boolean }) {
@@ -451,6 +575,31 @@ export class ApiService {
 
   verifyDeployment(id: string, scope: DeploymentVerificationScope) {
     return this.http.post<DeploymentVerificationResult>(`/api/deployments/${id}/verify`, {}, { params: { scope } });
+  }
+
+  /** Every project's current check state, read from what the last sweep recorded — no live probing. */
+  getFleetHealth() {
+    return this.http.get<FleetHealthResponse>('/api/fleet/health');
+  }
+
+  /** Re-checks everything now, rather than waiting for the next scheduled sweep. */
+  runFleetSweep() {
+    return this.http.post<{ jobId: string; scope: string }>('/api/fleet/sweep', {});
+  }
+
+  verifyProjectNow(projectId: string) {
+    return this.http.post<{ runId: string; status: string; summary: string }>(
+      `/api/fleet/projects/${projectId}/verify`,
+      {}
+    );
+  }
+
+  getProjectCheckHistory(projectId: string, checkId?: string) {
+    const params = checkId ? { checkId } : undefined;
+    return this.http.get<{ history: FleetCheckHistoryEntry[] }>(
+      `/api/fleet/projects/${projectId}/history`,
+      { params }
+    );
   }
 
   getDeploymentLogs(id: string, target?: string) {

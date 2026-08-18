@@ -1,8 +1,24 @@
 <section class="dashboard">
+  <div class="top-row">
+    @if (store.hasProjects()) {
+      <div class="search-row">
+        <app-ui-input
+          type="search"
+          placeholder="Search your apps…"
+          [ngModel]="search()"
+          (ngModelChange)="search.set($event)"
+        />
+      </div>
+    } @else {
+      <span></span>
+    }
+    <span class="avatar" aria-hidden="true"></span>
+  </div>
+
   <div class="header">
     <div class="header__copy">
-      <h1 class="u-display-lg u-brand-text">Apps</h1>
-      <p class="header__subtitle">Manage and monitor your active deployments.</p>
+      <h1 class="u-display-lg u-brand-text">Your apps</h1>
+      <p class="header__subtitle">A calm view of what's live and what needs attention.</p>
     </div>
     @if (store.hasProjects() || store.loading()) {
       <app-ui-button class="dashboard__add-btn" variant="primary" icon="plus" (click)="createProject()">Add app</app-ui-button>
@@ -31,9 +47,13 @@
       actionLabel="Add app"
       [actionClick]="createProject.bind(this)"
     />
+  } @else if (noSearchMatches()) {
+    <div class="u-card error-state">
+      <p>No apps match "{{ search() }}".</p>
+    </div>
   } @else {
     <div class="grid">
-      @for (project of store.projects(); track project.id) {
+      @for (project of filteredProjects(); track project.id) {
         <app-project-card
           [project]="project"
           [publishing]="store.deployingProjectId() === project.id"

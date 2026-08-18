@@ -831,8 +831,10 @@ public sealed class DeploymentJobRunner
                 // (Coolify rejects it before the first deploy), so its top-level fqdn stays empty
                 // forever unless something assigns one -- which is what made Mirqab look deployed
                 // while Traefik had no route for it at all: docker_compose_domains, not fqdn, is
-                // what the proxy reads for a compose app's routing. Passing domain: null lets the
-                // provider derive its own default rather than reading back a field nothing writes.
+                // what the proxy reads for a compose app's routing. A null domain lets the provider
+                // derive its own default rather than reading back a field nothing writes; a domain
+                // the user actually asked for wins over that default, and used to be discarded
+                // because nothing persisted it that far.
                 // Idempotent, so it runs on every deploy rather than once -- a domain lost to a
                 // labels reset heals on the next redeploy instead of staying broken until noticed.
                 var currentConfig = DeployTargetConfig.Parse(deployTarget.ConfigJson);
@@ -844,7 +846,7 @@ public sealed class DeploymentJobRunner
                         var assignedDomain = await composeDomainAssignment.AssignComposeDomainAsync(
                             credentials,
                             deployTarget.ProviderProjectId!,
-                            domain: null,
+                            ResolveComposeDomain(currentConfig),
                             currentConfig.DomainServiceName,
                             cancellationToken);
 
@@ -1242,6 +1244,40 @@ public sealed class DeploymentJobRunner
     internal static bool ShouldAssignComposeDomain(string providerName, DeployTargetConfig config) =>
         string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase) &&
         config.IsComposeTarget;
+
+    /// <summary>
+    /// The domain to attach on this deploy: the one the user asked for, or null to let the provider
+    /// derive its sslip.io default. Null means "no preference", never "leave the domain alone" —
+    /// the assignment runs on every deploy either way.
+    /// </summary>
+    /// <remarks>
+    /// The scheme is always http:// while nothing verifies DNS. Coolify's domain assignment runs
+    /// every scheme-less value through NormalizeUrl, which upgrades it to https://, and an https://
+    /// FQDN makes Traefik start an ACME challenge the moment it lands. Against a domain whose A
+    /// record does not point at the server yet that challenge fails, spends one of Let's Encrypt's
+    /// five failed validations per hour, and leaves Traefik serving its own self-signed certificate
+    /// — while the deploy still reports success, so nobody looks. Sending the scheme explicitly
+    /// keeps that upgrade from happening by accident. The switch to https:// belongs with the DNS
+    /// check that earns it, not with the persistence fix that made a custom domain reachable here
+    /// at all.
+    /// </remarks>
+    internal static string? ResolveComposeDomain(DeployTargetConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(config.CustomDomain))
+        {
+            return null;
+        }
+
+        var host = config.CustomDomain.Trim();
+        var scheme = host.IndexOf("://", StringComparison.Ordinal);
+        if (scheme >= 0)
+        {
+            host = host[(scheme + 3)..];
+        }
+
+        host = host.Trim('/');
+        return host.Length == 0 ? null : $"http://{host}";
+    }
 
     private async Task<string?> ResolveGitHubCommitShaAsync(
         Project project,

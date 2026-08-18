@@ -1,0 +1,136 @@
+<section class="domains">
+  <header class="domains__header">
+    <h3 class="domains__title">Your address</h3>
+    <p class="domains__subtitle">
+      Use a domain you own. We'll point it at your app and set up the padlock — you don't need to
+      touch anything else.
+    </p>
+  </header>
+
+  @if (error()) {
+    <p class="domains__error" role="alert">{{ error() }}</p>
+  }
+
+  <div class="domains__add">
+    <label class="domains__field">
+      <span class="u-visually-hidden">Domain</span>
+      <input
+        type="text"
+        [(ngModel)]="typedDomain"
+        (keyup.enter)="add()"
+        placeholder="shop.example.com"
+        [disabled]="busy()" />
+    </label>
+    <button type="button" class="domains__primary" (click)="add()" [disabled]="busy()">
+      {{ busy() ? 'Adding…' : 'Add domain' }}
+    </button>
+  </div>
+
+  @if (options()?.suggestedSubdomain; as suggested) {
+    <p class="domains__suggestion">
+      Don't have one yet? Use
+      <button type="button" class="domains__link" (click)="useSuggested()">{{ suggested }}</button>
+      — it works straight away, with nothing to set up.
+    </p>
+  }
+
+  @if (canWriteRecords()) {
+    <p class="domains__note">
+      Your DNS account is connected, so we'll point the domain for you.
+    </p>
+  } @else if (zonesAreKnown()) {
+    <!--
+      Shown rather than tucked into a disclosure. This is the moment the offer pays off — the user
+      is one step from being handed a record to copy into someone else's dashboard — and behind a
+      summary reading "rather not touch DNS yourself?" it was a footnote beside the very work it
+      removes, found only by someone curious enough to open it. Whoever does not open it does the
+      work by hand, which is the outcome the product exists to prevent.
+
+      Gated on the answer having arrived, not merely on there being no zones yet: rendered while
+      the lookup is still in flight, it appears in full and then vanishes for every user who
+      already has an account connected.
+    -->
+    <section class="domains__connect-offer">
+      <p class="domains__connect-lead">
+        Connect your DNS account and DeployAI will point your domain for you — nothing to copy, and
+        no dashboard to open.
+      </p>
+      <app-dns-connect [compact]="false" (connected)="onDnsConnected()" />
+    </section>
+  }
+
+  <details class="domains__connect">
+    <summary>Need a domain?</summary>
+    <app-domain-buy
+      [projectId]="projectId"
+      [deployTargetId]="deployTargetId"
+      (bought)="onDomainBought()" />
+  </details>
+
+  <ul class="domains__list">
+    @for (domain of domains(); track trackById($index, domain)) {
+      <li class="domain" [attr.data-tone]="presentation(domain.status).tone">
+        <div class="domain__row">
+          <div class="domain__identity">
+            <span class="domain__name">{{ domain.hostname }}</span>
+            @if (domain.isPrimary) {
+              <span class="domain__badge">Main</span>
+            }
+          </div>
+          <span class="domain__status">{{ presentation(domain.status).label }}</span>
+        </div>
+
+        <p class="domain__message">{{ domain.statusMessage }}</p>
+
+        <!--
+          Only shown while the user still has something to do about it. A name under our own zone,
+          or one we wrote the record for, never needs these.
+        -->
+        @if (showsInstruction(domain)) {
+          <div class="domain__instruction">
+            <p class="domain__instruction-lead">Add this at your domain provider:</p>
+            <dl class="domain__record">
+              <div><dt>Type</dt><dd>{{ domain.instruction!.type }}</dd></div>
+              <div><dt>Name</dt><dd>{{ domain.instruction!.name }}</dd></div>
+              <div>
+                <dt>Points to</dt>
+                <dd>
+                  <code>{{ domain.instruction!.value }}</code>
+                  <button
+                    type="button"
+                    class="domain__copy"
+                    (click)="copy(domain.instruction!.value)">
+                    {{ copied() === domain.instruction!.value ? 'Copied' : 'Copy' }}
+                  </button>
+                </dd>
+              </div>
+            </dl>
+            <p class="domain__hint">{{ domain.instruction!.hint }}</p>
+          </div>
+        }
+
+        @if (domain.certificateNotAfter) {
+          <p class="domain__certificate">
+            Certificate from {{ domain.certificateIssuer }}, valid until
+            {{ domain.certificateNotAfter | date: 'mediumDate' }}
+          </p>
+        }
+
+        <div class="domain__actions">
+          @if (isSettled(domain)) {
+            <button type="button" class="domain__action" (click)="recheck(domain)">
+              Check again
+            </button>
+          }
+          <button type="button" class="domain__action domain__action--quiet" (click)="remove(domain)">
+            Remove
+          </button>
+        </div>
+      </li>
+    } @empty {
+      <li class="domains__empty">
+        No domain yet — your app is on the temporary address your server generated.
+      </li>
+    }
+  </ul>
+</section>

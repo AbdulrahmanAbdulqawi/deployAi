@@ -1,0 +1,32 @@
+@if (hasAny()) {
+  <div class="dns-connect__zones">
+    @if (accountName(); as account) {
+      <p class="dns-connect__account">Connected to the <strong>{{ account }}</strong> account.</p>
+    }
+
+    @if (ready().length) {
+      <p class="dns-connect__group-title">Ready to use</p>
+      <ul class="dns-connect__list">
+        @for (zone of ready(); track zone.id) {
+          <li class="dns-connect__zone dns-connect__zone--ready">{{ zone.name }}</li>
+        }
+      </ul>
+    }
+
+    <!--
+      Shown rather than hidden: a domain that is listed but unusable is the case most needing
+      explanation, and each reason has a different fix.
+    -->
+    @if (needsAttention().length) {
+      <p class="dns-connect__group-title">Needs attention</p>
+      <ul class="dns-connect__list">
+        @for (zone of needsAttention(); track zone.id) {
+          <li class="dns-connect__zone">
+            <span class="dns-connect__zone-name">{{ zone.name }}</span>
+            <span class="dns-connect__zone-why">{{ zone.usabilityMessage }}</span>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+}

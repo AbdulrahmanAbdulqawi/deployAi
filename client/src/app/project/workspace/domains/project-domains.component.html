@@ -1,0 +1,9 @@
+@if (context.projectId(); as projectId) {
+  @if (deployTargetId(); as targetId) {
+    <section class="domains">
+      <app-domain-panel [projectId]="projectId" [deployTargetId]="targetId" />
+    </section>
+  } @else {
+    <p class="domains__empty">This app doesn't have a deployable target yet.</p>
+  }
+}

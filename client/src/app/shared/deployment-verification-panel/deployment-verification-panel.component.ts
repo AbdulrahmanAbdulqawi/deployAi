@@ -241,6 +241,9 @@ export class DeploymentVerificationPanelComponent {
         return 'danger';
       case 'warning':
         return 'warning';
+      // 'inconclusive' falls through to muted deliberately: DeployAI not being able to look is not
+      // evidence against the app, and colouring it like a failure would make every provider blip
+      // read as an outage.
       default:
         return 'muted';
     }
@@ -256,6 +259,8 @@ export class DeploymentVerificationPanelComponent {
         return 'Warning';
       case 'skipped':
         return 'Skipped';
+      case 'inconclusive':
+        return "Couldn't check";
       default:
         return status;
     }
@@ -268,7 +273,15 @@ export class DeploymentVerificationPanelComponent {
   }
 
   canActOnCheck(check: DeploymentVerificationCheck): boolean {
-    if (!check.suggestedAction || check.status === 'passed' || check.status === 'skipped') {
+    // 'inconclusive' is excluded for a different reason than the others: there is nothing to fix.
+    // Offering "Redeploy API" for "DeployAI couldn't reach Coolify" invites a user to act on a
+    // finding that says nothing about their app — the confident-wrong-answer shape.
+    if (
+      !check.suggestedAction ||
+      check.status === 'passed' ||
+      check.status === 'skipped' ||
+      check.status === 'inconclusive'
+    ) {
       return false;
     }
 

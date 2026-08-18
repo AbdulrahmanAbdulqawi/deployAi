@@ -32,21 +32,21 @@
 }
 
 .working {
-  background: rgba(76, 215, 246, 0.1);
-  color: var(--brand-cyan);
-  border-color: rgba(76, 215, 246, 0.2);
+  background: var(--status-accent-bg);
+  color: var(--status-accent);
+  border-color: color-mix(in srgb, var(--status-accent) 35%, transparent);
 }
 
 .failed {
-  background: rgba(255, 180, 171, 0.12);
+  background: var(--status-danger-bg);
   color: var(--status-danger);
-  border-color: rgba(255, 180, 171, 0.3);
+  border-color: var(--status-danger-border);
 }
 
 .attention {
-  background: rgba(252, 211, 77, 0.12);
+  background: var(--status-warning-bg);
   color: var(--status-warning);
-  border-color: rgba(252, 211, 77, 0.3);
+  border-color: var(--status-warning-border);
 }
 
 .idle {
@@ -66,6 +66,10 @@
   }
 }
 
+.badge--dot-label {
+  gap: var(--space-2);
+}
+
 .badge__dot {
   width: 0.625rem;
   height: 0.625rem;
@@ -73,6 +77,13 @@
   background: currentColor;
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
   flex-shrink: 0;
+}
+
+.badge__dot-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .badge--dot.live .badge__dot,

@@ -1,118 +1,31 @@
-using System.Text.Json;
-using DeployAI.Data;
 using DeployAI.Data.Entities;
-using DeployAI.Infrastructure.Options;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace DeployAI.Api.Services;
 
-/// <summary>A project's overall live health, derived from its most recent scheduled verification run's pass rate.</summary>
-public enum ProjectHealthStatus
-{
-    Healthy,
-    Degraded,
-    Down,
-    Unknown
-}
+// ProjectHealthStatus and ProjectHealthState moved to DeployAI.Core.Deployments so the Data layer can
+// use the same vocabulary as the entities that now persist it.
 
-/// <summary>A project's last recorded health check result, persisted as JSON on <c>Project.HealthJson</c>.</summary>
-public sealed class ProjectHealthState
-{
-    public DateTimeOffset LastCheckedAt { get; set; }
-    public ProjectHealthStatus Status { get; set; } = ProjectHealthStatus.Unknown;
-    public int PassedChecks { get; set; }
-    public int TotalChecks { get; set; }
-    public string? Summary { get; set; }
-    public Guid? DeploymentId { get; set; }
-
-    /// <summary>Parses a project's stored health-state JSON, returning null if none is stored yet.</summary>
-    public static ProjectHealthState? Parse(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return null;
-        }
-
-        return JsonSerializer.Deserialize<ProjectHealthState>(json);
-    }
-
-    public string ToJson() => JsonSerializer.Serialize(this);
-}
-
-/// <summary>Scheduled job that periodically runs live verification against every project's latest deployment and persists the resulting health status.</summary>
+/// <summary>Scheduled job that re-verifies every deployed project and records what it found.</summary>
+/// <remarks>
+/// The class name and the recurring-job id are deliberately unchanged: Hangfire persists the job's
+/// type name in Postgres, so renaming this type orphans the schedule already stored there and the
+/// sweep silently stops running. The work moved to <see cref="IFleetVerificationService"/>; only the
+/// entry point stayed.
+/// </remarks>
 public sealed class ProjectHealthMonitorJob
 {
-    private readonly DeployAIDbContext _db;
-    private readonly IDeploymentVerificationService _verificationService;
-    private readonly AppOptions _appOptions;
+    private readonly IFleetVerificationService _fleet;
 
-    public ProjectHealthMonitorJob(
-        DeployAIDbContext db,
-        IDeploymentVerificationService verificationService,
-        IOptions<AppOptions> appOptions)
+    public ProjectHealthMonitorJob(IFleetVerificationService fleet)
     {
-        _db = db;
-        _verificationService = verificationService;
-        _appOptions = appOptions.Value;
+        _fleet = fleet;
     }
 
-    /// <summary>Entry point invoked on schedule: verifies every project's latest deployment and updates its stored health state.</summary>
-    public async Task RunAsync(CancellationToken cancellationToken)
-    {
-        var projectIds = await _db.Projects
-            .AsNoTracking()
-            .Where(p => p.DeployTargets.Any())
-            .Select(p => p.Id)
-            .ToListAsync(cancellationToken);
+    /// <summary>Entry point invoked on schedule: sweeps every project.</summary>
+    public Task RunAsync(CancellationToken cancellationToken) =>
+        _fleet.SweepAsync(userId: null, VerificationRunTriggers.Scheduled, cancellationToken);
 
-        foreach (var projectId in projectIds)
-        {
-            await CheckProjectAsync(projectId, cancellationToken);
-        }
-    }
-
-    private async Task CheckProjectAsync(Guid projectId, CancellationToken cancellationToken)
-    {
-        var latestDeployment = await _db.Deployments
-            .AsNoTracking()
-            .Where(d => d.ProjectId == projectId && d.Status == DeploymentStatuses.Success)
-            .OrderByDescending(d => d.CreatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (latestDeployment is null)
-        {
-            return;
-        }
-
-        var project = await _db.Projects.FirstAsync(p => p.Id == projectId, cancellationToken);
-        var result = await _verificationService.VerifyAsync(
-            latestDeployment.Id,
-            DeploymentVerificationScope.Both,
-            cancellationToken);
-
-        var passed = result.Checks.Count(c => c.Status == "passed");
-        var total = result.Checks.Count;
-        var failed = result.Checks.Count(c => c.Status == "failed");
-
-        var status = failed switch
-        {
-            0 when passed > 0 => ProjectHealthStatus.Healthy,
-            0 => ProjectHealthStatus.Unknown,
-            var count when count == total => ProjectHealthStatus.Down,
-            _ => ProjectHealthStatus.Degraded
-        };
-
-        project.HealthJson = new ProjectHealthState
-        {
-            LastCheckedAt = DateTimeOffset.UtcNow,
-            Status = status,
-            PassedChecks = passed,
-            TotalChecks = total,
-            Summary = result.Success ? "All checks passed." : $"{failed} of {total} checks failed.",
-            DeploymentId = latestDeployment.Id
-        }.ToJson();
-        project.UpdatedAt = DateTimeOffset.UtcNow;
-        await _db.SaveChangesAsync(cancellationToken);
-    }
+    /// <summary>Entry point for an on-demand sweep of one user's projects.</summary>
+    public Task RunForUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        _fleet.SweepAsync(userId, VerificationRunTriggers.Manual, cancellationToken);
 }

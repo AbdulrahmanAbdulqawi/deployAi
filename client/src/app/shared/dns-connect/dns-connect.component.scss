@@ -1,0 +1,189 @@
+.dns-connect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.dns-connect__help {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+
+  p {
+    margin: 0 0 var(--space-2);
+  }
+}
+
+.dns-connect__aside {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+}
+
+.dns-connect__steps {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dns-connect__field {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: 28rem;
+}
+
+/*
+ * Warning rather than danger, deliberately. Every message that lands here describes a token that
+ * needs adjusting — a permission to add, a scope to widen, a value to re-copy. None of them is a
+ * failure the user should read as alarming, and the red treatment made a two-click fix look like
+ * something had broken.
+ */
+.dns-connect__error {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.dns-connect__zones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.dns-connect__account {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.dns-connect__group-title {
+  margin: var(--space-2) 0 0;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.dns-connect__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.dns-connect__zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.dns-connect__zone--ready {
+  border-color: var(--status-success);
+  color: var(--text-primary);
+}
+
+.dns-connect__zone-name {
+  font-weight: 600;
+}
+
+.dns-connect__zone-why {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/*
+ * The approval path. Stacked rather than laid out in a row: the primary button and the
+ * "enter keys instead" fallback are not peers, and side by side they read as two equal choices —
+ * which is the decision this flow exists to stop the user having to make.
+ */
+.dns-connect__approval {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.dns-connect__approval-lead {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.dns-connect__approval-status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-width: 34rem;
+}
+
+.dns-connect__approval-link {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+
+  a {
+    color: var(--status-accent);
+  }
+}
+
+/* A quieter way out, not a second primary action. */
+.dns-connect__alternative {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--motion-ease);
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+}
+
+.dns-connect__providers {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.dns-connect__provider {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.dns-connect__provider--active {
+  border-color: var(--status-accent);
+  color: var(--text-primary);
+  font-weight: 600;
+}

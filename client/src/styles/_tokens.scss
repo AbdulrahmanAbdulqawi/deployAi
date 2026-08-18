@@ -10,21 +10,7 @@
   --neutral-700: #2a2a2a;
   --neutral-600: #404040;
 
-  --terminal-bg: #0d1117;
-  --terminal-header: #161b22;
-  --terminal-border: #30363d;
-  --terminal-fg: #e6edf3;
-  --terminal-muted: #7d8590;
-  --terminal-error: #ff7b72;
-  --terminal-warn: #d29922;
-  --terminal-success: #3fb950;
-  --terminal-stage: #79c0ff;
-  --terminal-live: #3fb950;
-}
-
-:root,
-[data-theme='light'] {
-  --surface-page: #f1f5f9;
+  --surface-page: #f7f8fa;
   --surface-card: #f9fafb;
   --surface-raised: #f9fafb;
   --surface-popover: #f9fafb;
@@ -46,14 +32,15 @@
   --status-danger: #dc2626;
   --status-danger-bg: #fef2f2;
   --status-danger-border: #fecaca;
+  --status-danger-strong: #b91c1c;
   --status-warning: #d97706;
   --status-warning-bg: #fffbeb;
   --status-warning-border: #fde68a;
 
-  --btn-primary-bg: #2563eb;
-  --btn-primary-hover: #1d4ed8;
+  --btn-primary-bg: #18181b;
+  --btn-primary-hover: #27272a;
   --btn-primary-text: var(--white);
-  --btn-primary-border: #2563eb;
+  --btn-primary-border: #18181b;
 
   --btn-secondary-bg: #f9fafb;
   --btn-secondary-text: #111827;
@@ -74,22 +61,26 @@
 
   --brand-text-gradient: linear-gradient(135deg, #4f46e5 0%, #2563eb 45%, #0891b2 100%);
   --brand-bar-gradient: linear-gradient(90deg, #4f46e5, #2563eb, #06b6d4);
-  --btn-primary-gradient: linear-gradient(135deg, #4f46e5 0%, #2563eb 52%, #0891b2 100%);
-  --btn-primary-hover-gradient: linear-gradient(135deg, #4338ca 0%, #1d4ed8 52%, #0e7490 100%);
+  --btn-primary-gradient: #18181b;
+  --btn-primary-hover-gradient: #27272a;
   --btn-success-gradient: linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);
   --btn-success-hover-gradient: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%);
-  --page-bg:
-    radial-gradient(ellipse 90% 60% at 8% -15%, rgba(79, 70, 229, 0.08), transparent 55%),
-    radial-gradient(ellipse 70% 50% at 95% 0%, rgba(6, 182, 212, 0.06), transparent 50%),
-    radial-gradient(ellipse 50% 40% at 50% 100%, rgba(37, 99, 235, 0.04), transparent 60%),
-    var(--surface-page);
+  --page-bg: var(--surface-page);
   --border-accent: rgba(79, 70, 229, 0.35);
   --glow-accent: 0 8px 28px rgba(37, 99, 235, 0.18);
   --shadow-card-hover: none;
   --provider-vercel: var(--black);
   --provider-railway: #853bce;
 
-  --border-default: #e5e7eb;
+  // Dark logo-tile backgrounds for provider/service badges — deliberately dark regardless of
+  // page theme, since they're brand chrome (Railway/Coolify dashboards, S3-style storage icon).
+  --provider-railway-bg: #0b0d19;
+  --provider-coolify-bg: #1a2e1a;
+  --provider-coolify-fg: #5cdb5c;
+  --provider-storage-bg: #1a2333;
+  --provider-storage-fg: #7aa7ff;
+
+  --border-default: #ececec;
   --border-strong: #d1d5db;
   --border-dashed: #d1d5db;
   --border-subtle: #f1f5f9;
@@ -154,100 +145,4 @@
   --terminal-success: #1a7f37;
   --terminal-stage: #0969da;
   --terminal-live: #1a7f37;
-}
-
-[data-theme='dark'] {
-  --surface-page: #0b1326;
-  --surface-card: #171f33;
-  --surface-raised: #222a3d;
-  --surface-popover: #222a3d;
-  --surface-subtle: #131b2e;
-  --surface-inset: #060e20;
-  --surface-chip: #2d3449;
-
-  --text-primary: #dae2fd;
-  --text-secondary: #c7c4d7;
-  --text-muted: #908fa0;
-  --text-on-accent: #060e20;
-  --text-link: #c0c1ff;
-
-  --status-success: #34d399;
-  --status-success-bg: rgba(16, 185, 129, 0.1);
-  --status-accent: #c0c1ff;
-  --status-accent-bg: rgba(128, 131, 255, 0.12);
-  --status-accent-strong: #8083ff;
-  --status-danger: #ffb4ab;
-  --status-danger-bg: rgba(255, 180, 171, 0.12);
-  --status-danger-border: rgba(255, 180, 171, 0.3);
-  --status-warning: #fcd34d;
-  --status-warning-bg: rgba(252, 211, 77, 0.12);
-  --status-warning-border: rgba(252, 211, 77, 0.3);
-
-  --btn-primary-bg: #8083ff;
-  --btn-primary-hover: #6366f1;
-  --btn-primary-text: #060e20;
-  --btn-primary-border: transparent;
-
-  --btn-secondary-bg: #222a3d;
-  --btn-secondary-text: #dae2fd;
-  --btn-secondary-border: rgba(255, 255, 255, 0.14);
-  --btn-secondary-hover: #2d3449;
-  --btn-secondary-icon: #c0c1ff;
-
-  --btn-success-bg: #059669;
-  --btn-success-hover: #047857;
-  --btn-success-text: var(--white);
-  --btn-success-border: #059669;
-
-  --brand-indigo: #c0c1ff;
-  --brand-blue: #8083ff;
-  --brand-cyan: #4cd7f6;
-  --brand-violet: #d0bcff;
-  --brand-emerald: #34d399;
-
-  --brand-text-gradient: linear-gradient(135deg, #c0c1ff 0%, #4cd7f6 50%, #a078ff 100%);
-  --brand-bar-gradient: linear-gradient(90deg, #8083ff, #4cd7f6, #a078ff);
-  --btn-primary-gradient: linear-gradient(135deg, #8083ff 0%, #4cd7f6 100%);
-  --btn-primary-hover-gradient: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
-  --btn-success-gradient: linear-gradient(135deg, #047857 0%, #059669 55%, #34d399 100%);
-  --btn-success-hover-gradient: linear-gradient(135deg, #065f46 0%, #047857 55%, #10b981 100%);
-  --page-bg:
-    radial-gradient(circle at 50% -20%, rgba(192, 193, 255, 0.15), transparent 60%),
-    radial-gradient(ellipse 65% 45% at 100% 0%, rgba(76, 215, 246, 0.08), transparent 50%),
-    #0b1326;
-  --border-accent: rgba(192, 193, 255, 0.35);
-  --glow-accent: 0 4px 12px rgba(128, 131, 255, 0.2);
-  --shadow-card-hover: none;
-  --provider-vercel: var(--white);
-  --provider-railway: #c084fc;
-
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --border-dashed: rgba(255, 255, 255, 0.12);
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-faint: rgba(255, 255, 255, 0.08);
-
-  --surface-hover: rgba(255, 255, 255, 0.03);
-  --surface-interactive: rgba(255, 255, 255, 0.05);
-
-  --backdrop: rgba(6, 14, 32, 0.82);
-
-  --focus-ring: 0 0 0 3px rgba(192, 193, 255, 0.35);
-  --shadow-raised: none;
-  --shadow-overlay: 0 12px 40px rgba(0, 0, 0, 0.72);
-
-  --control-height: 40px;
-  --font-size-xl: 1.875rem;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
-
-  --terminal-bg: #060e20;
-  --terminal-header: #131b2e;
-  --terminal-border: rgba(255, 255, 255, 0.1);
-  --terminal-fg: #dae2fd;
-  --terminal-muted: #908fa0;
-  --terminal-error: #ffb4ab;
-  --terminal-warn: #fcd34d;
-  --terminal-success: #34d399;
-  --terminal-stage: #4cd7f6;
-  --terminal-live: #34d399;
 }

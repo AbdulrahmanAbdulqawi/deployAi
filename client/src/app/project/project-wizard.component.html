@@ -1,22 +1,11 @@
 <section class="wizard">
-  <div class="wizard-stepper" role="status" [attr.aria-label]="'Step ' + step() + ' of ' + stepTotal()">
-    <div class="wizard-stepper__track" aria-hidden="true"></div>
-    <div class="wizard-stepper__fill" [style.width.%]="stepFillPercent()" aria-hidden="true"></div>
-    @for (wizardStep of wizardSteps(); track wizardStep.num) {
-      <div
-        class="wizard-stepper__step"
-        [class.wizard-stepper__step--complete]="stepState(wizardStep.num) === 'complete'"
-        [class.wizard-stepper__step--active]="stepState(wizardStep.num) === 'active'">
-        <div class="wizard-stepper__node">
-          @if (stepState(wizardStep.num) === 'complete') {
-            <app-ui-icon name="check" size="sm" />
-          } @else {
-            {{ wizardStep.num }}
-          }
-        </div>
-        <span class="wizard-stepper__label">{{ wizardStep.label }}</span>
-      </div>
-    }
+  <div class="wizard-stepper" role="status" [attr.aria-label]="'Step ' + step() + ' of ' + stepTotal() + ' — ' + currentStepLabel()">
+    <div class="wizard-stepper__segments" aria-hidden="true">
+      @for (segment of [1, 2, 3, 4]; track segment) {
+        <div class="wizard-stepper__segment" [class.wizard-stepper__segment--filled]="segment <= displaySegment()"></div>
+      }
+    </div>
+    <span class="wizard-stepper__caption">Step {{ step() }} of {{ stepTotal() }} — {{ currentStepLabel() }}</span>
   </div>
 
   <header class="wizard__intro">

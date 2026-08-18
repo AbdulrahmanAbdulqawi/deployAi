@@ -1,29 +1,33 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
-import { ThemeService } from '../../core/services/theme.service';
 import { IconComponent } from '../ui/icon/icon.component';
-import { OrbSnakeBackgroundComponent } from '../orb-snake-background/orb-snake-background.component';
-import { OrbDriftersBackgroundComponent } from '../orb-drifters-background/orb-drifters-background.component';
+
+const SIDEBAR_COLLAPSED_KEY = 'deployai-sidebar-collapsed';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, OrbSnakeBackgroundComponent, OrbDriftersBackgroundComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent],
   templateUrl: './app-shell.component.html',
   styleUrl: './app-shell.component.scss'
 })
 export class AppShellComponent {
-  constructor(
-    private readonly auth: AuthService,
-    readonly theme: ThemeService
-  ) {}
+  readonly sidebarCollapsed = signal<boolean>(this.readStoredSidebarCollapsed());
+
+  constructor(private readonly auth: AuthService) {}
 
   signOut(): void {
     this.auth.logout();
   }
 
-  toggleTheme(): void {
-    this.theme.toggle();
+  toggleSidebar(): void {
+    const next = !this.sidebarCollapsed();
+    this.sidebarCollapsed.set(next);
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? 'true' : 'false');
+  }
+
+  private readStoredSidebarCollapsed(): boolean {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
   }
 }

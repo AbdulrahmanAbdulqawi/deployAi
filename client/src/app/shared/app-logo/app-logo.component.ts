@@ -1,6 +1,5 @@
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { appLogoAssetUrl, isAppLogoId } from '../../core/constants/app-logos';
-import { ThemeService } from '../../core/services/theme.service';
 
 @Component({
   selector: 'app-app-logo',
@@ -14,11 +13,8 @@ import { ThemeService } from '../../core/services/theme.service';
   },
 })
 export class AppLogoComponent {
-  private readonly theme = inject(ThemeService);
-
   readonly logoKey = input<string | null | undefined>();
   readonly variant = input<'orb' | 'picker'>('orb');
-  readonly styleOverride = input<'default' | 'notebook' | undefined>();
 
   readonly src = computed(() => {
     const key = this.logoKey();
@@ -26,7 +22,6 @@ export class AppLogoComponent {
       return null;
     }
 
-    const style = this.styleOverride() ?? this.theme.style();
-    return appLogoAssetUrl(key, style);
+    return appLogoAssetUrl(key);
   });
 }

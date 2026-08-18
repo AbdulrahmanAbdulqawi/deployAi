@@ -1,0 +1,112 @@
+<section class="history">
+  <header class="history__header">
+    <div class="history__header-copy">
+      <h1 class="u-headline-md">Activity</h1>
+      <p class="history__intro u-text-secondary">
+        Past deploys for this app. Open any run to review logs and status.
+      </p>
+    </div>
+    @if (!loading() && deployments().length > 0) {
+      <div class="history__search u-glass-panel">
+        <app-ui-icon name="search" size="sm" statusClass="muted" />
+        <input
+          type="search"
+          class="history__search-input"
+          placeholder="Search branch or commit…"
+          [value]="searchQuery()"
+          (input)="onSearch($event)"
+        />
+      </div>
+    }
+  </header>
+
+  @if (!loading() && deployments().length > 0) {
+    <section class="history__overview" aria-label="Deployment summary">
+      <div class="history__stats">
+        <div class="history__stat u-glass-panel">
+          <span class="history__stat-value">{{ deployments().length }}</span>
+          <span class="history__stat-label u-label-caps">Total deploys</span>
+        </div>
+        <div class="history__stat u-glass-panel">
+          <span class="history__stat-value">{{ successRate() }}%</span>
+          <span class="history__stat-label u-label-caps">Success rate</span>
+        </div>
+        <div class="history__stat u-glass-panel">
+          <span class="history__stat-value">{{ lastDeployRelative() }}</span>
+          <span class="history__stat-label u-label-caps">Last deploy</span>
+        </div>
+      </div>
+    </section>
+  }
+
+  @if (loading()) {
+    <div class="history__list">
+      <div class="u-skeleton history__skeleton-row"></div>
+      <div class="u-skeleton history__skeleton-row"></div>
+      <div class="u-skeleton history__skeleton-row"></div>
+    </div>
+  } @else if (filteredDeployments().length === 0) {
+    <app-empty-state [title]="searchQuery() ? 'No matching deploys' : 'No deploys yet'" />
+  } @else {
+    <div class="history__groups">
+      @for (group of groupedDeployments(); track group.key) {
+        <section class="history__group">
+          <h2 class="section__label u-label-caps">{{ group.label }}</h2>
+          <div class="history__list">
+            @for (item of group.items; track item.id) {
+              <button
+                type="button"
+                class="history__row u-glass-panel"
+                (click)="open(item.id)">
+                <span class="history__row-icon" [class]="'history__row-icon--' + item.status" aria-hidden="true">
+                  <app-ui-icon [name]="statusIcon(item.status)" size="sm" [statusClass]="statusIconClass(item.status)" />
+                </span>
+                <div class="history__row-body">
+                  <h3 class="history__branch u-title-lg">{{ item.branch }}</h3>
+                  @if (item.gitCommitMessage) {
+                    <p class="history__commit u-text-secondary">{{ item.gitCommitMessage }}</p>
+                  }
+                  <div class="history__row-meta">
+                    <span [title]="formatWhen(item.completedAt || item.startedAt)">
+                      {{ relativeTime(item.completedAt || item.startedAt) }}
+                    </span>
+                    @if (formatDuration(item.durationSeconds); as dur) {
+                      <span class="history__row-sep" aria-hidden="true">·</span>
+                      <span>{{ dur }}</span>
+                    }
+                    @if (item.gitCommitSha) {
+                      <span class="history__sha u-code-sm">{{ item.gitCommitSha.slice(0, 7) }}</span>
+                    }
+                    @if (item.triggeredBy === 'webhook') {
+                      <span class="history__auto u-code-sm">Auto</span>
+                    }
+                    @for (target of item.targets; track target.providerName) {
+                      <span class="history__provider u-code-sm">{{ providerLabel(target.providerName) }}</span>
+                    }
+                  </div>
+                </div>
+                <div class="history__row-end">
+                  @if (canRestore(item)) {
+                    <app-ui-button
+                      variant="secondary"
+                      icon="refresh"
+                      [disabled]="isRestoring(item.id)"
+                      [loading]="isRestoring(item.id)"
+                      (click)="restoreDeployment(item, $event)">
+                      {{ isRestoring(item.id) ? 'Restoring…' : 'Restore' }}
+                    </app-ui-button>
+                  }
+                  <app-status-badge
+                    [status]="item.status"
+                    kind="deployment"
+                    [labelOverride]="statusLabel(item.status)" />
+                  <app-ui-icon name="arrow-right" size="sm" statusClass="muted" class="history__row-arrow" />
+                </div>
+              </button>
+            }
+          </div>
+        </section>
+      }
+    </div>
+  }
+</section>

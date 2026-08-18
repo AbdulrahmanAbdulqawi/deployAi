@@ -86,3 +86,71 @@ thousand errors an hour deploys as quietly as one that logged none.
 
 CI runs the suite but does not fail a PR that adds behaviour without covering it, so the testing
 rule in `CLAUDE.md`'s Standing Rules rests on discipline alone.
+
+## Closed: the fleet sweep (2026-08-17)
+
+Verification used to be computed and thrown away. The hourly `ProjectHealthMonitorJob` ran the eight
+URL checks, reduced them to a pass count on `Project.HealthJson`, and discarded the detail — so the
+only question anyone actually asks, *"was this working yesterday?"*, had no answer anywhere.
+
+Three tables now hold it: `project_verification_runs` (one per project per sweep),
+`project_verification_check_results` (the history, indexed by project + check + time), and
+`project_check_states` (the current picture and the notification ledger). `Project.HealthJson`
+survives as a derived cache so the project list and health banner still render without a join.
+
+**Two bugs were found in the old sweep and were watched failing before being fixed.** It looped with
+no try/catch, so one unreachable provider abandoned every project ordered after it; and it returned
+silently for any project without a `success` deployment, so the projects most likely to be broken
+were the ones it never looked at. Neither recurring job had a single test, which is why both
+survived. `EnvironmentDriftCheckJob` had the identical shape and moved onto the same isolated,
+scope-per-project runner — fixing one and leaving the other is the mistake this repository's own
+rules warn about.
+
+**What the sweep asks now**, beyond the URL probes: whether the provider still has the application
+(`provider.application_exists`), whether the connection still works (`provider.connection`), what the
+app itself is logging (`runtime.exceptions`, promoted from a deploy-log line into a verdict), whether
+the settings the deployed code declares are still set (`config.required`) and still hold the values
+the last deploy saw (`config.drift`), and whether every `Active` domain still resolves and serves a
+valid certificate (`domain.certificate`, `domain.dns`).
+
+The configuration checks cost no GitHub calls. `RequiredConfigurationCheck` already worked out which
+settings the code declares with no value of its own, and now records that in
+`target_config_manifests` — including, deliberately, when the scan was inconclusive, so a blind read
+cannot harden into a confident "nothing is required". The sweep compares the manifest against one
+provider listing. Values are stored only as per-target HMAC fingerprints: drift needs "changed", not
+"changed to what", and a monitoring table is no place for anyone's secrets.
+
+**A fifth status carries the whole thing.** `VerificationCheckStatus.Inconclusive` is the absence rule
+made into a type, and `CheckLedgerTransitions` is what keeps it honest: an inconclusive observation
+never moves `LastConclusiveStatus`, never moves `StatusChangedAt`, and never touches the notification
+ledger. Without that, a network blip mid-outage sends "recovered" when nothing recovered, and
+announces the same outage twice when it clears.
+
+### What the first live run found
+
+Run against the real fleet on 2026-08-17, three projects, no seeded data:
+
+- **`yemeni-breeze` — Failed: "The application this app deploys to no longer exists on Coolify."**
+  This is the gap itself, caught on the first sweep by an application that had genuinely been deleted
+  while the dashboard went on reporting the project as deployed. No deliberate breakage was needed.
+- **`Mirqab` — Failed: "exists on coolify but is not running (exited:unhealthy)."** A container Coolify
+  had given up restarting. Present and dead is a different answer from absent, and both are failures.
+- **Both then reported `runtime.exceptions` as inconclusive**, naming *"Application not found"* and
+  *"Application is not running"* — not the clean-log pass that an empty finding list would otherwise
+  have produced. That distinction is the entire point of the type.
+- **`yemenConnect` rolled up Healthy with an inconclusive named in its summary** — *"5 of 6 checks
+  passed; 1 could not be checked"* — rather than the inconclusive silently counting as a pass.
+- **The ledger held**: `provider.application_exists` notified once and stayed silent across the next
+  two sweeps while still failing; every inconclusive row kept an empty `LastConclusiveStatus` and an
+  empty `LastNotifiedStatus`; and checks blind for three consecutive runs raised nothing, because they
+  had never concluded anything to go blind from.
+- **Two bugs the live run exposed.** The connection check asked the *deployment* provider factory about
+  a Hetzner object-storage credential — storage and DNS are deliberately not deployment providers — and
+  reported the resulting nothing as "could not reach hetzner-storage", a permanent inconclusive row no
+  action would ever clear. Fixed, with a test. And an unauthorized Vercel token made
+  `DeploymentVerificationService` throw, collapsing all eight live-URL checks on two projects into one
+  coarse `contributor.live_urls` inconclusive; the isolation worked, but the granularity is now its own
+  recorded gap.
+
+**What remains**: the sweep records, surfaces and notifies, but still never blocks a deploy — chosen
+deliberately, since a false positive would lock a user out of the one action that might fix things.

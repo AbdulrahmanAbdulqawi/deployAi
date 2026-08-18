@@ -2,7 +2,16 @@ import { Component, OnInit, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../../core/services/api.service';
-import { CredentialSummary, ProviderName, StorageConnectionSummary } from '../../core/models/api.models';
+import {
+  CredentialSummary,
+  DnsConnectionSummary,
+  DnsZone,
+  ProviderName,
+  StorageConnectionSummary
+} from '../../core/models/api.models';
+import { DnsConnectComponent } from '../../shared/dns-connect/dns-connect.component';
+import { DnsZoneListComponent } from '../../shared/dns-connect/dns-zone-list.component';
+import { DatePipe } from '@angular/common';
 import { ConnectionsStore } from '../../core/stores/connections.store';
 import { ButtonComponent } from '../../shared/ui/button/button.component';
 import { InputComponent } from '../../shared/ui/input/input.component';
@@ -15,7 +24,15 @@ type ProviderKey = ProviderName.Vercel | ProviderName.Railway | ProviderName.Coo
 @Component({
   selector: 'app-connections',
   standalone: true,
-  imports: [FormsModule, ButtonComponent, InputComponent, StatusBadgeComponent],
+  imports: [
+    FormsModule,
+    ButtonComponent,
+    InputComponent,
+    StatusBadgeComponent,
+    DnsConnectComponent,
+    DnsZoneListComponent,
+    DatePipe
+  ],
   templateUrl: './connections.component.html',
   styleUrl: './connections.component.scss'
 })
@@ -32,6 +49,10 @@ export class ConnectionsComponent implements OnInit {
   readonly showAdvancedStorage = signal(false);
   readonly savingStorage = signal(false);
   readonly storageConnections = signal<StorageConnectionSummary[]>([]);
+  readonly dnsConnections = signal<DnsConnectionSummary[]>([]);
+  readonly dnsZones = signal<Record<string, DnsZone[]>>({});
+  readonly loadingDnsZones = signal(false);
+  readonly showDnsForm = signal(false);
   readonly showImportPanel = signal(false);
   readonly importCandidates = signal<{ id: string; name: string }[]>([]);
   readonly loadingImportCandidates = signal(false);
@@ -100,6 +121,7 @@ export class ConnectionsComponent implements OnInit {
 
     this.store.load();
     this.loadStorageConnections();
+    this.loadDnsConnections();
   }
 
   loadStorageConnections(): void {
@@ -109,8 +131,102 @@ export class ConnectionsComponent implements OnInit {
     });
   }
 
+  loadDnsConnections(): void {
+    this.api.listDnsConnections().subscribe({
+      next: (response) => {
+        this.dnsConnections.set(response.connections);
+        this.loadDnsZones();
+      },
+      error: () => this.dnsConnections.set([])
+    });
+  }
+
+  /**
+   * Re-read from the provider rather than remembered from the moment of connecting. A domain whose
+   * registrar had not delegated yet becomes usable an hour later, and a remembered list would go
+   * on saying it is not ready long after it is.
+   *
+   * Keyed by connection: reading only the first one meant a second account's domains were simply
+   * invisible, with nothing saying so.
+   */
+  loadDnsZones(): void {
+    const connections = this.dnsConnections();
+    if (!connections.length) {
+      this.dnsZones.set({});
+      return;
+    }
+
+    this.loadingDnsZones.set(true);
+    let outstanding = connections.length;
+
+    for (const connection of connections) {
+      this.api.listDnsZones(connection.id).subscribe({
+        next: (response) => {
+          this.dnsZones.update(current => ({ ...current, [connection.id]: response.zones }));
+          // A stored connection's validity may have changed since it was last looked at.
+          this.dnsConnections.update(all =>
+            all.map(c => (c.id === response.connection.id ? response.connection : c))
+          );
+          if (--outstanding === 0) this.loadingDnsZones.set(false);
+        },
+        error: () => {
+          this.dnsZones.update(current => ({ ...current, [connection.id]: [] }));
+          if (--outstanding === 0) this.loadingDnsZones.set(false);
+        }
+      });
+    }
+  }
+
+  zonesFor(connectionId: string): DnsZone[] {
+    return this.dnsZones()[connectionId] ?? [];
+  }
+
   toggleStorageForm(): void {
     this.showAdvancedStorage.update(open => !open);
+  }
+
+  toggleDnsForm(): void {
+    this.showDnsForm.update(open => !open);
+  }
+
+  onDnsConnected(): void {
+    this.showDnsForm.set(false);
+    this.loadDnsConnections();
+    this.toast.success('DNS account connected.');
+  }
+
+  /**
+   * Asks before removing, and says what will happen to each domain first — some keep working with
+   * their DNS handed back to the user, others have the record DeployAI added tidied up. Guessing
+   * which is which is exactly what the confirmation exists to avoid.
+   */
+  async removeDns(connection: DnsConnectionSummary): Promise<void> {
+    const impact = await new Promise<string>((resolve) => {
+      this.api.getDnsDisconnectImpact(connection.id).subscribe({
+        next: (result) => resolve(result.summary),
+        error: () => resolve('')
+      });
+    });
+
+    const confirmed = await this.confirm.ask({
+      title: `Remove ${connection.label}?`,
+      message: impact || 'DeployAI will stop managing DNS for this account.',
+      confirmLabel: 'Remove',
+      destructive: true
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.api.deleteDnsConnection(connection.id).subscribe({
+      next: () => {
+        this.toast.success(`${connection.displayName} disconnected.`);
+        this.loadDnsConnections();
+      },
+      error: (err) =>
+        this.toast.error(err?.error?.error?.message ?? 'Could not remove that connection.')
+    });
   }
 
   /**

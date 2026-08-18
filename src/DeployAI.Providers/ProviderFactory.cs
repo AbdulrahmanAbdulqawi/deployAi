@@ -1,3 +1,4 @@
+using DeployAI.Core.Domains;
 using DeployAI.Core.Providers;
 using DeployAI.Providers.Railway.GraphQL;
 using Microsoft.Extensions.DependencyInjection;
@@ -135,6 +136,75 @@ public sealed class ProviderRuntimeLogsFactory : IProviderRuntimeLogsFactory
         _providers.TryGetValue(providerName, out var provider) ? provider : null;
 }
 
+public sealed class ProviderApplicationExistenceFactory : IProviderApplicationExistenceFactory
+{
+    private readonly IReadOnlyDictionary<string, IProviderApplicationExistence> _providers;
+
+    public ProviderApplicationExistenceFactory(IEnumerable<IProviderApplicationExistence> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IProviderApplicationExistence? GetApplicationExistence(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
+public sealed class ServerAddressProviderFactory : IServerAddressProviderFactory
+{
+    private readonly IReadOnlyDictionary<string, IServerAddressProvider> _providers;
+
+    public ServerAddressProviderFactory(IEnumerable<IServerAddressProvider> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IServerAddressProvider? GetServerAddressProvider(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
+public sealed class DnsZoneProviderFactory : IDnsZoneProviderFactory
+{
+    private readonly IReadOnlyDictionary<string, IDnsZoneProvider> _providers;
+
+    public DnsZoneProviderFactory(IEnumerable<IDnsZoneProvider> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IDnsZoneProvider? GetZoneProvider(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+
+    public IReadOnlyList<IDnsZoneProvider> All => _providers.Values.ToList();
+}
+
+public sealed class DomainRegistrarFactory : IDomainRegistrarFactory
+{
+    private readonly IReadOnlyDictionary<string, IDomainRegistrar> _registrars;
+
+    public DomainRegistrarFactory(IEnumerable<IDomainRegistrar> registrars)
+    {
+        _registrars = registrars.ToDictionary(r => r.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IDomainRegistrar? GetRegistrar(string providerName) =>
+        _registrars.TryGetValue(providerName, out var registrar) ? registrar : null;
+
+    public IReadOnlyList<IDomainRegistrar> All => _registrars.Values.ToList();
+}
+
+public sealed class ApplicationDomainAssignmentFactory : IApplicationDomainAssignmentFactory
+{
+    private readonly IReadOnlyDictionary<string, IApplicationDomainAssignment> _providers;
+
+    public ApplicationDomainAssignmentFactory(IEnumerable<IApplicationDomainAssignment> providers)
+    {
+        _providers = providers.ToDictionary(p => p.ProviderName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public IApplicationDomainAssignment? GetDomainAssignment(string providerName) =>
+        _providers.TryGetValue(providerName, out var provider) ? provider : null;
+}
+
 public sealed class ProviderDataServiceInspectionFactory : IProviderDataServiceInspectionFactory
 {
     private readonly IReadOnlyDictionary<string, IProviderDataServiceInspection> _providers;
@@ -176,6 +246,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<Vercel.VercelProvider>();
         services.AddSingleton<IDeploymentProvider>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Vercel.VercelProvider>());
         services.AddHttpClient(RailwayClient.ClientName, client =>
         {
             client.BaseAddress = new Uri(Railway.RailwayGraphQlClientFactory.GraphQlEndpoint);
@@ -186,6 +257,7 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderManagement>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDatabaseProvisioning>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Railway.RailwayProvider>());
         services.AddSingleton<IProviderDataServiceInspection>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddHttpClient<Coolify.CoolifyProvider>();
@@ -198,6 +270,9 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderServiceOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderLifecycleOperations>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         services.AddSingleton<IProviderRuntimeLogs>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IProviderApplicationExistence>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IServerAddressProvider>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
+        services.AddSingleton<IApplicationDomainAssignment>(sp => sp.GetRequiredService<Coolify.CoolifyProvider>());
         // Object storage is a separate capability: registered only as IObjectStorageProvider,
         // never as IDeploymentProvider, so it stays out of deploy-target pickers.
         // No AddHttpClient — the AWS SDK manages its own transport.
@@ -209,8 +284,31 @@ public static class ProviderDependencyInjection
         services.AddSingleton<IProviderDatabaseProvisioningFactory, ProviderDatabaseProvisioningFactory>();
         services.AddSingleton<IProviderServiceOperationsFactory, ProviderServiceOperationsFactory>();
         services.AddSingleton<IProviderRuntimeLogsFactory, ProviderRuntimeLogsFactory>();
+        services.AddSingleton<IProviderApplicationExistenceFactory, ProviderApplicationExistenceFactory>();
         services.AddSingleton<IProviderLifecycleOperationsFactory, ProviderLifecycleOperationsFactory>();
         services.AddSingleton<IProviderDataServiceInspectionFactory, ProviderDataServiceInspectionFactory>();
+        services.AddSingleton<IServerAddressProviderFactory, ServerAddressProviderFactory>();
+        services.AddSingleton<IApplicationDomainAssignmentFactory, ApplicationDomainAssignmentFactory>();
+        // DNS is its own capability, registered only as IDnsZoneProvider so a DNS account never
+        // appears in a deploy-target picker — the same separation object storage already has.
+        services.AddHttpClient<Cloudflare.CloudflareDnsProvider>();
+        services.AddSingleton<Cloudflare.CloudflareDnsProvider>();
+        services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Cloudflare.CloudflareDnsProvider>());
+        services.AddHttpClient<Porkbun.PorkbunDnsProvider>();
+        services.AddSingleton<Porkbun.PorkbunDnsProvider>();
+        services.AddSingleton<IDnsZoneProvider>(sp => sp.GetRequiredService<Porkbun.PorkbunDnsProvider>());
+        // The approval flow is optional per provider: Cloudflare has none, so it is registered
+        // only for Porkbun and the paste path remains the fallback everywhere.
+        services.AddHttpClient<Porkbun.PorkbunAuthorizationFlow>();
+        services.AddSingleton<IDnsAuthorizationFlow>(sp =>
+            sp.GetRequiredService<Porkbun.PorkbunAuthorizationFlow>());
+        services.AddSingleton<IDnsZoneProviderFactory, DnsZoneProviderFactory>();
+        // Buying is a separate capability from hosting DNS: Cloudflare hosts but cannot register,
+        // so only providers that can actually sell a domain appear here.
+        services.AddHttpClient<Porkbun.PorkbunRegistrar>();
+        services.AddSingleton<Porkbun.PorkbunRegistrar>();
+        services.AddSingleton<IDomainRegistrar>(sp => sp.GetRequiredService<Porkbun.PorkbunRegistrar>());
+        services.AddSingleton<IDomainRegistrarFactory, DomainRegistrarFactory>();
         services.AddSingleton<IProviderFactory, ProviderFactory>();
         services.AddSingleton<IProviderManagementFactory, ProviderManagementFactory>();
         return services;

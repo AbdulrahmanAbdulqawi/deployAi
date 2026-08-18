@@ -46,84 +46,34 @@ section > h2,
 
 .wizard-stepper {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: relative;
-  margin: 0 0 var(--space-8);
-  padding: 0 var(--space-2);
-}
-
-.wizard-stepper__track {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 1rem;
-  height: 2px;
-  background: var(--border-default);
-  z-index: 0;
-}
-
-.wizard-stepper__fill {
-  position: absolute;
-  left: 0;
-  top: 1rem;
-  height: 2px;
-  background: var(--brand-indigo);
-  z-index: 0;
-  transition: width var(--motion-normal) var(--motion-ease);
-}
-
-.wizard-stepper__step {
-  display: flex;
   flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-8);
+}
+
+.wizard-stepper__segments {
+  display: flex;
   align-items: center;
   gap: var(--space-2);
-  z-index: 1;
+}
+
+.wizard-stepper__segment {
   flex: 1;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--border-default);
+  transition: background var(--motion-normal) var(--motion-ease);
 }
 
-.wizard-stepper__node {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  border: 2px solid var(--border-default);
-  background: var(--surface-card);
-  color: var(--text-muted);
-}
-
-.wizard-stepper__step--complete .wizard-stepper__node {
+.wizard-stepper__segment--filled {
   background: var(--brand-indigo);
-  border-color: var(--brand-indigo);
-  color: var(--surface-inset);
 }
 
-.wizard-stepper__step--active .wizard-stepper__node {
-  border-color: var(--brand-indigo);
-  color: var(--brand-indigo);
-}
-
-.wizard-stepper__label {
+.wizard-stepper__caption {
   font-size: 0.75rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
   color: var(--text-muted);
-  text-align: center;
-}
-
-.wizard-stepper__step--complete .wizard-stepper__label,
-.wizard-stepper__step--active .wizard-stepper__label {
-  color: var(--text-primary);
-}
-
-.wizard-stepper__step--complete .wizard-stepper__label {
-  color: var(--brand-indigo);
 }
 
 .steps__track {
@@ -212,13 +162,7 @@ textarea {
   }
 }
 
-.primary,
-.secondary,
-.danger,
-.danger-btn,
-.mode-btn,
-.option,
-.deployment-choice {
+.secondary {
   min-height: var(--control-height);
   font-weight: 500;
   font-size: var(--font-size-base);
@@ -227,26 +171,6 @@ textarea {
     background var(--motion-fast) var(--motion-ease),
     border-color var(--motion-fast) var(--motion-ease),
     color var(--motion-fast) var(--motion-ease);
-}
-
-.primary {
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  background: var(--btn-primary-gradient);
-  color: var(--btn-primary-text);
-
-  &:hover:not(:disabled) {
-    background: var(--btn-primary-hover-gradient);
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-}
-
-.secondary {
   border: 1px solid var(--btn-secondary-border);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-4);
@@ -260,19 +184,6 @@ textarea {
   &:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-  }
-}
-
-.danger,
-.danger-btn {
-  border: 1px solid var(--status-danger-border);
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  background: var(--surface-card);
-  color: var(--status-danger);
-
-  &:hover:not(:disabled) {
-    background: var(--status-danger-bg);
   }
 }
 
@@ -293,95 +204,31 @@ textarea {
   }
 }
 
-.options {
-  display: grid;
+.btn.btn--ghost {
+  display: inline-flex;
+  align-items: center;
   gap: var(--space-2);
-  max-height: 280px;
-  overflow: auto;
-}
-
-.option,
-.deployment-choice {
-  text-align: left;
-  border: 1px solid var(--border-default);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-card);
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  min-height: auto;
+  transition:
+    color var(--motion-fast) var(--motion-ease),
+    background var(--motion-fast) var(--motion-ease);
 
   &:hover:not(:disabled) {
-    border-color: var(--status-accent);
-  }
-
-  &.selected {
-    border-color: var(--border-accent);
-    background: linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--brand-indigo) 8%, var(--surface-card)),
-      var(--status-accent-bg)
-    );
-    color: var(--text-primary);
-    box-shadow: var(--glow-accent);
-  }
-}
-
-.option.selected,
-.deployment-choice.selected {
-  color: var(--text-primary);
-}
-
-.deployment-choice {
-  display: grid;
-  gap: var(--space-1);
-
-  span {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    font-weight: 400;
-  }
-
-  &.selected span {
-    color: var(--status-accent-strong);
-  }
-}
-
-.mode-toggle {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.mode-btn {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  padding: var(--space-1) var(--space-3);
-  min-height: var(--control-height);
-  font-size: var(--font-size-sm);
-  background: var(--surface-card);
-  color: var(--text-secondary);
-
-  &.active {
-    border-color: var(--status-accent);
+    color: var(--brand-indigo);
     background: var(--status-accent-bg);
-    color: var(--status-accent-strong);
   }
-}
 
-.callout {
-  display: grid;
-  gap: var(--space-4);
-  padding: var(--space-4);
-  border-radius: var(--radius-md);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--brand-indigo) 10%, var(--surface-card)),
-    var(--status-accent-bg)
-  );
-  border: 1px solid var(--border-accent);
-
-  p {
-    margin: 0;
-    color: var(--status-accent-strong);
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 }
 
@@ -408,7 +255,6 @@ textarea {
     align-items: stretch;
   }
 
-  .primary,
   .secondary {
     width: 100%;
   }

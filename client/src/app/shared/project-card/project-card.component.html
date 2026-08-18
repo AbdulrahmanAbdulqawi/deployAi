@@ -6,55 +6,49 @@
   (click)="onCardClick()"
   (keydown.enter)="onCardClick()"
   (keydown.space)="$event.preventDefault(); onCardClick()">
-  <div class="project-card__orb-stage" aria-hidden="true">
-    <div class="project-card__orb" [class]="'project-card__orb--' + orbTone()">
-      <span class="project-card__orb-highlight"></span>
-      @if (hasLogo) {
-        <span class="project-card__orb-logo">
-          <app-app-logo [logoKey]="project.logoKey ?? null" variant="orb" />
-        </span>
-      }
-      @if (isDeploying) {
-        <span class="project-card__orb-ring"></span>
-      }
-    </div>
-    <span class="project-card__orb-shadow"></span>
+  <div class="project-card__icon">
+    @if (hasLogo) {
+      <app-app-logo [logoKey]="project.logoKey ?? null" variant="picker" />
+    }
   </div>
 
   <div class="project-card__body">
-    <div class="project-card__title">
-      <h3 class="u-title-lg">{{ project.name }}</h3>
-      <div class="project-card__badge">
-        @if (project.latestDeployment) {
-          <app-status-badge [status]="project.latestDeployment.status" [live]="project.latestDeployment.status === 'in_progress'" />
-        } @else {
-          <app-status-badge status="idle" />
-        }
-      </div>
-      <p class="project-card__repo">
-        <span class="u-code-sm">{{ project.githubRepoFullName }}</span>
-      </p>
+    <h3 class="project-card__title">{{ project.name }}</h3>
+
+    <div class="project-card__status">
+      @if (project.latestDeployment) {
+        <app-status-badge
+          [status]="project.latestDeployment.status"
+          [live]="project.latestDeployment.status === 'in_progress'"
+          [dotWithLabel]="true" />
+      } @else {
+        <app-status-badge status="idle" [dotWithLabel]="true" />
+      }
     </div>
 
-    <div class="project-card__footer">
-      <div class="project-card__actions">
-        @if (canFix) {
-          <app-ui-button
-            variant="secondary"
-            icon="code"
-            (click)="onFixClick($event)">
-            Fix
-          </app-ui-button>
-        }
+    @if (updatedLabel) {
+      <p class="project-card__updated">{{ updatedLabel }}</p>
+    }
+  </div>
+
+  <div class="project-card__footer">
+    <div class="project-card__actions">
+      @if (canFix) {
         <app-ui-button
           variant="secondary"
-          [disabled]="publishing"
-          [loading]="publishing"
-          icon="upload"
-          (click)="onPublishClick($event)">
-          Publish
+          icon="code"
+          (click)="onFixClick($event)">
+          Fix
         </app-ui-button>
-      </div>
+      }
+      <app-ui-button
+        variant="secondary"
+        [disabled]="publishing"
+        [loading]="publishing"
+        icon="upload"
+        (click)="onPublishClick($event)">
+        Publish
+      </app-ui-button>
     </div>
   </div>
 </article>

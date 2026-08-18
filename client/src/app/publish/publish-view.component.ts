@@ -35,7 +35,7 @@ import type { OperationProgressMode } from '../shared/operation-progress/operati
   styleUrl: './publish-view.component.scss'
 })
 export class PublishViewComponent implements OnInit, OnDestroy {
-  readonly showDetails = signal(true);
+  readonly showDetails = signal(false);
   readonly expandedTargets = signal<Record<string, boolean>>({});
   readonly redeployingTargets = signal<Record<string, boolean>>({});
   readonly syncingUrls = signal(false);
@@ -127,6 +127,14 @@ export class PublishViewComponent implements OnInit, OnDestroy {
       ['/projects', deployment.projectId, 'troubleshoot'],
       { queryParams: { deploymentId: deployment.id } }
     );
+  }
+
+  openDomains(): void {
+    const deployment = this.store.deployment();
+    if (!deployment) {
+      return;
+    }
+    void this.router.navigate(['/projects', deployment.projectId, 'domains']);
   }
 
   roleLabel(providerName: string): string {

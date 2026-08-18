@@ -1,0 +1,5 @@
+<nav class="tab-bar" [attr.aria-label]="ariaLabel">
+  @for (item of items; track item.path) {
+    <a [routerLink]="item.path" routerLinkActive="active">{{ item.label }}</a>
+  }
+</nav>

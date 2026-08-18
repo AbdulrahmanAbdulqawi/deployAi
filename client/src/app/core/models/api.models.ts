@@ -95,6 +95,189 @@ export interface DeploymentPlan {
   clarifyingQuestion?: ClarifyingQuestion;
 }
 
+/** Where a domain came from, which decides who is responsible for its DNS. */
+export enum DomainSource {
+  UserProvided = 'UserProvided',
+  PlatformSubdomain = 'PlatformSubdomain',
+  ManagedZone = 'ManagedZone',
+  Registrar = 'Registrar',
+}
+
+/**
+ * How far a domain has got towards serving HTTPS. The two `Unverifiable` states are deliberately
+ * not failures: they mean nothing could be checked, which is ours to retry rather than the user's
+ * to fix, and rendering them as errors would tell someone their DNS is broken on no evidence.
+ */
+export enum DomainStatus {
+  Pending = 'Pending',
+  DnsPending = 'DnsPending',
+  DnsVerified = 'DnsVerified',
+  Assigned = 'Assigned',
+  CertificatePending = 'CertificatePending',
+  Active = 'Active',
+  DnsFailed = 'DnsFailed',
+  DnsUnverifiable = 'DnsUnverifiable',
+  CertificateFailed = 'CertificateFailed',
+  CertificateUnverifiable = 'CertificateUnverifiable',
+  Conflicted = 'Conflicted',
+  Retired = 'Retired',
+}
+
+/** The record to create when DeployAI cannot write it. Always an A record. */
+export interface DnsRecordInstruction {
+  type: string;
+  name: string;
+  value: string;
+  hint: string;
+}
+
+export interface ProjectDomain {
+  id: string;
+  deployTargetId: string;
+  hostname: string;
+  displayHostname: string;
+  source: DomainSource;
+  status: DomainStatus;
+  isPrimary: boolean;
+  statusMessage: string;
+  expectedAddress: string | null;
+  instruction: DnsRecordInstruction | null;
+  certificateIssuer: string | null;
+  certificateNotAfter: string | null;
+  lastCheckedAt: string | null;
+}
+
+/**
+ * Whether records written into a zone would actually take effect. `NotAuthoritative` is the one
+ * that looks healthiest and is not — a partial or secondary zone reports itself active while
+ * Cloudflare is not the authority for the names in it.
+ */
+export enum DnsZoneUsability {
+  Unknown = 'Unknown',
+  Ready = 'Ready',
+  NotDelegated = 'NotDelegated',
+  NotAuthoritative = 'NotAuthoritative',
+  ReadOnly = 'ReadOnly',
+}
+
+export interface DnsZone {
+  id: string;
+  name: string;
+  /** Null when unknown, which is the honest answer before anything has tried to write. */
+  canWrite: boolean | null;
+  usability: DnsZoneUsability;
+  /** Always populated: what is wrong and what to do about it, for someone who has never set up DNS. */
+  usabilityMessage: string;
+  accountName: string | null;
+}
+
+/**
+ * One input a DNS provider needs to be connected. Described by the server rather than hardcoded,
+ * because providers disagree about shape — one bearer token, or a key and a secret.
+ */
+export interface DnsCredentialField {
+  key: string;
+  label: string;
+  /** Mask it, and drop it from memory once stored. */
+  secret: boolean;
+  placeholder: string | null;
+}
+
+export interface DnsProviderInfo {
+  name: string;
+  displayName: string;
+  fields: DnsCredentialField[];
+  /**
+   * Whether this provider can hand over credentials through an approval flow. Declared by the
+   * server rather than known here, so registering a flow never means remembering to edit the UI.
+   */
+  supportsApproval: boolean;
+}
+
+/** Where an approval request has got to. Sent as a string — the enum carries a converter. */
+export enum DnsAuthorizationState {
+  Pending = 'Pending',
+  Approved = 'Approved',
+  Denied = 'Denied',
+  Expired = 'Expired',
+  Unreachable = 'Unreachable',
+}
+
+export interface DnsAuthorizationStart {
+  requestToken: string;
+  approvalUrl: string;
+  expiresAt: string;
+}
+
+export interface DnsAuthorizationPoll {
+  state: DnsAuthorizationState;
+  message: string;
+  connection: DnsConnectionDetail | null;
+}
+
+export enum DomainAvailability {
+  Unknown = 'Unknown',
+  Available = 'Available',
+  Taken = 'Taken',
+  Unsupported = 'Unsupported',
+}
+
+/**
+ * A priced search result. `quoteId` is what a purchase is made against — never an amount, so
+ * nothing can ask to be charged a figure that was not displayed.
+ */
+export interface DomainSearchResult {
+  hostname: string;
+  availability: DomainAvailability;
+  message: string;
+  quoteId: string | null;
+  firstYearCents: number | null;
+  /** What it costs every year after. The figure people are surprised by. */
+  renewalCents: number | null;
+  isFirstYearPromotional: boolean;
+  isPremium: boolean;
+  /** Priced against a sandbox account, where no money is real. */
+  isSandbox: boolean;
+  quoteExpiresAt: string | null;
+}
+
+export interface DomainPurchaseResult {
+  succeeded: boolean;
+  hostname: string;
+  message: string;
+  chargedCents: number | null;
+  orderId: string | null;
+  domainId: string | null;
+}
+
+export interface DnsConnectionSummary {
+  id: string;
+  providerName: string;
+  displayName: string;
+  label: string;
+  isValid: boolean;
+  lastValidatedAt: string | null;
+  /** Null means no expiry is known — not that it never expires. */
+  expiresAt: string | null;
+}
+
+export interface DnsConnectionDetail {
+  connection: DnsConnectionSummary;
+  zones: DnsZone[];
+}
+
+export interface DnsDisconnectImpact {
+  dependentCount: number;
+  keepWorking: string[];
+  willBeReleased: string[];
+  summary: string;
+}
+
+export interface DomainOptions {
+  suggestedSubdomain: string | null;
+  zones: DnsZone[];
+}
+
 export enum DeploymentPlanKind {
   Default = 'default',
   CoolifyFullStack = 'coolify-fullstack',
@@ -178,7 +361,10 @@ export enum ProjectHealthStatus {
   Healthy = 'healthy',
   Degraded = 'degraded',
   Down = 'down',
-  Unknown = 'unknown'
+  /** Never checked — the absence of a run, not the result of one. */
+  Unknown = 'unknown',
+  /** Checked, and nothing was learned: every check that applied could not be run. */
+  Inconclusive = 'inconclusive'
 }
 
 export interface ProjectHealthState {
@@ -188,6 +374,54 @@ export interface ProjectHealthState {
   totalChecks: number;
   summary?: string;
   deploymentId?: string;
+}
+
+/** Where one check on one project stands, and how it got there. */
+export interface FleetCheckState {
+  checkId: string;
+  label: string;
+  target: 'website' | 'server' | 'connection' | 'provider' | 'runtime' | 'domain' | 'configuration' | 'project';
+  status: VerificationCheckStatus;
+  message: string;
+  url?: string | null;
+  suggestedAction?: string | null;
+  /** The last answer that was actually about the app — never inconclusive, never skipped. */
+  lastConclusiveStatus?: VerificationCheckStatus | null;
+  lastConclusiveAt?: string | null;
+  /** Moves only on a conclusive change, so "unchanged for weeks" means what it says. */
+  statusChangedAt: string;
+  lastObservedAt: string;
+  consecutiveFailures: number;
+  consecutiveInconclusive: number;
+  deployTargetId?: string | null;
+}
+
+export interface FleetProjectHealth {
+  projectId: string;
+  name: string;
+  logoKey?: string | null;
+  status: ProjectHealthStatus;
+  lastCheckedAt?: string | null;
+  summary?: string | null;
+  passed: number;
+  failed: number;
+  warning: number;
+  inconclusive: number;
+  skipped: number;
+  checks: FleetCheckState[];
+}
+
+export interface FleetHealthResponse {
+  lastSweepAt?: string | null;
+  projects: FleetProjectHealth[];
+}
+
+export interface FleetCheckHistoryEntry {
+  checkId: string;
+  label: string;
+  status: VerificationCheckStatus;
+  message: string;
+  observedAt: string;
 }
 
 export interface NotificationPreferencesResponse {
@@ -347,7 +581,12 @@ export interface DeploymentDetail {
 }
 
 export type DeploymentVerificationScope = 'website' | 'server' | 'both';
-export type VerificationCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
+/**
+ * `skipped` means the check does not apply here; `inconclusive` means it applies and could not be
+ * run. They must render differently — showing "couldn't reach Coolify" in the same red as a real
+ * failure is what makes a monitor untrustworthy in both directions.
+ */
+export type VerificationCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped' | 'inconclusive';
 export type VerificationSuggestedAction =
   | 'reconnect'
   | 'redeploy_website'

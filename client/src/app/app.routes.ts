@@ -23,6 +23,10 @@ export const routes: Routes = [
         loadComponent: () => import('./dashboard/dashboard.component').then(m => m.DashboardComponent)
       },
       {
+        path: 'fleet',
+        loadComponent: () => import('./fleet/fleet-health.component').then(m => m.FleetHealthComponent)
+      },
+      {
         path: 'settings',
         loadComponent: () => import('./settings/settings-shell.component').then(m => m.SettingsShellComponent),
         children: [
@@ -42,10 +46,6 @@ export const routes: Routes = [
           {
             path: 'account',
             loadComponent: () => import('./settings/account/account.component').then(m => m.AccountComponent)
-          },
-          {
-            path: 'appearance',
-            loadComponent: () => import('./settings/appearance/appearance.component').then(m => m.AppearanceComponent)
           }
         ]
       },
@@ -54,24 +54,35 @@ export const routes: Routes = [
         loadComponent: () => import('./project/project-wizard.component').then(m => m.ProjectWizardComponent)
       },
       {
-        path: 'projects/:id/edit',
-        loadComponent: () => import('./project/project-edit.component').then(m => m.ProjectEditComponent)
-      },
-      {
-        path: 'projects/:id/history',
-        loadComponent: () => import('./history/history.component').then(m => m.HistoryComponent)
-      },
-      {
-        path: 'projects/:id/troubleshoot',
-        loadComponent: () => import('./project/project-troubleshoot.component').then(m => m.ProjectTroubleshootComponent)
-      },
-      {
         path: 'projects/:projectId/deploy/:deploymentId',
         loadComponent: () => import('./publish/publish-view.component').then(m => m.PublishViewComponent)
       },
       {
         path: 'projects/:id',
-        loadComponent: () => import('./project/project-detail.component').then(m => m.ProjectDetailComponent)
+        loadComponent: () => import('./project/workspace/project-workspace.component').then(m => m.ProjectWorkspaceComponent),
+        children: [
+          { path: '', pathMatch: 'full', redirectTo: 'overview' },
+          {
+            path: 'overview',
+            loadComponent: () => import('./project/workspace/overview/project-overview.component').then(m => m.ProjectOverviewComponent)
+          },
+          {
+            path: 'activity',
+            loadComponent: () => import('./project/workspace/activity/project-activity.component').then(m => m.ProjectActivityComponent)
+          },
+          {
+            path: 'domains',
+            loadComponent: () => import('./project/workspace/domains/project-domains.component').then(m => m.ProjectDomainsComponent)
+          },
+          {
+            path: 'troubleshoot',
+            loadComponent: () => import('./project/workspace/troubleshoot/project-troubleshoot-tab.component').then(m => m.ProjectTroubleshootTabComponent)
+          },
+          {
+            path: 'settings',
+            loadComponent: () => import('./project/workspace/settings/project-settings.component').then(m => m.ProjectSettingsComponent)
+          }
+        ]
       },
       {
         path: 'publish/:id',

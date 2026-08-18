@@ -1,0 +1,180 @@
+@use '../../../styles/surfaces';
+
+.buy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.buy__lead {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.buy__search {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.buy__field {
+  flex: 1 1 14rem;
+
+  input {
+    width: 100%;
+    padding: var(--space-3);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    color: var(--text-primary);
+    font: inherit;
+  }
+}
+
+.buy__go,
+.buy__primary {
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--status-accent);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+.buy__cancel {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Amber, not red: a name being taken is the commonest outcome of a search, not a fault. */
+.buy__error {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.buy__bought {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--status-success);
+  border-radius: var(--radius-md);
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  font-size: 0.875rem;
+}
+
+.buy__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-inset);
+
+  &[data-available='true'] {
+    border-color: var(--status-success);
+  }
+}
+
+.buy__result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.buy__name {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.buy__badge {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--status-warning-bg);
+  color: var(--status-warning);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.buy__message,
+.buy__terms,
+.buy__warn {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.buy__warn {
+  color: var(--status-warning);
+}
+
+.buy__confirm {
+  @include surfaces.card-surface;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-color: var(--status-accent);
+}
+
+.buy__confirm-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Both figures side by side and the same size, so the renewal cannot be skimmed past. */
+.buy__prices {
+  margin: 0;
+  display: flex;
+  gap: var(--space-6);
+
+  div {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  dt {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
+.buy__confirm-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}

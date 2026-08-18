@@ -1,7 +1,9 @@
 using DeployAI.Core.Deployments.Adapters;
+using DeployAI.Core.Domains;
 using DeployAI.Core.Security;
 using DeployAI.Infrastructure.Adapters;
 using DeployAI.Infrastructure.Auth;
+using DeployAI.Infrastructure.Dns;
 using DeployAI.Infrastructure.Email;
 using DeployAI.Infrastructure.GitHub;
 using DeployAI.Infrastructure.Vercel;
@@ -46,6 +48,12 @@ public static class DependencyInjection
         services.AddScoped<IServerBuildProfileDiscovery, ServerBuildProfileDiscovery>();
         services.AddScoped<IWebsiteBuildProfileDiscovery, WebsiteBuildProfileDiscovery>();
         services.AddScoped<IRepositoryClassifier, RepositoryClassifier>();
+
+        // The two probes a domain is proved with: where the name points, and what certificate the
+        // name is served. Both report an invalid or absent answer rather than throwing, so a
+        // caller can tell "could not check" from "checked, and it is wrong".
+        services.AddSingleton<IDnsResolver, DnsClientResolver>();
+        services.AddSingleton<ICertificateInspector, SslStreamCertificateInspector>();
 
         // Framework adapters: everything framework-specific lives behind IFrameworkAdapter, so
         // adding a stack is one class plus one line here — shapes/planner/generators unchanged.

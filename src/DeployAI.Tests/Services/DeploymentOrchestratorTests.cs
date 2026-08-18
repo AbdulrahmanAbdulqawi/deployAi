@@ -430,6 +430,50 @@ public class DeploymentOrchestratorTests
         Assert.Equal(expected, result);
     }
 
+    // The wizard shows its domain field only on compose plans, and a compose app is exactly the
+    // one that cannot be given a domain at creation -- so the typed value had to survive until the
+    // post-deploy hook, and nothing persisted it. Every compose app therefore came up on sslip.io
+    // no matter what its owner asked for, with no error to say so.
+    [Fact]
+    public void ResolveComposeDomain_UsesTheDomainTheUserTyped_NotSslip()
+    {
+        var config = DeployTargetConfig.Parse(
+            """
+            {"role":"website","composeFileLocation":"docker-compose.coolify.yml","customDomain":"breeze.example.com"}
+            """);
+
+        Assert.Equal("http://breeze.example.com", DeploymentJobRunner.ResolveComposeDomain(config));
+    }
+
+    // Coolify upgrades a scheme-less domain to https:// on the way in, and an https:// FQDN makes
+    // Traefik attempt an ACME challenge immediately. Nothing checks DNS yet, so that challenge
+    // would fail against a domain not yet pointed here, spend one of Let's Encrypt's five failed
+    // validations an hour, and leave a self-signed certificate behind a green deploy. Until the
+    // DNS gate exists, the scheme is stated rather than inferred.
+    [Theory]
+    [InlineData("breeze.example.com")]
+    [InlineData("http://breeze.example.com")]
+    [InlineData("https://breeze.example.com")]
+    [InlineData("  breeze.example.com/  ")]
+    public void ResolveComposeDomain_KeepsTheHttpScheme_SoNoCertificateIsRequestedBeforeDnsIsChecked(
+        string typed)
+    {
+        var config = new DeployTargetConfig { CustomDomain = typed };
+
+        Assert.Equal("http://breeze.example.com", DeploymentJobRunner.ResolveComposeDomain(config));
+    }
+
+    // Null is what lets the provider fall back to its own sslip.io convention, so "the user typed
+    // nothing" has to stay distinguishable from "the user typed something".
+    [Theory]
+    [InlineData("""{"role":"website","composeFileLocation":"c.yml"}""")]
+    [InlineData("""{"role":"website","composeFileLocation":"c.yml","customDomain":""}""")]
+    [InlineData("""{"role":"website","composeFileLocation":"c.yml","customDomain":"   "}""")]
+    public void ResolveComposeDomain_IsNull_WhenNoDomainWasTyped(string configJson)
+    {
+        Assert.Null(DeploymentJobRunner.ResolveComposeDomain(DeployTargetConfig.Parse(configJson)));
+    }
+
     [Fact]
     public async Task TriggerTargetAsync_CreatesSingleTargetDeployment()
     {

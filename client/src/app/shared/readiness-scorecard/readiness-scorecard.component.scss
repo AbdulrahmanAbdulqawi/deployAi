@@ -1,3 +1,5 @@
+@use '../../../styles/surfaces';
+
 .readiness-scorecard {
   display: grid;
   gap: var(--space-4);
@@ -34,7 +36,7 @@
   place-items: center;
   width: 3.5rem;
   height: 3.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 2px solid var(--status-warning-border);
   background: var(--status-warning-bg);
   flex-shrink: 0;
@@ -74,6 +76,7 @@
   text-decoration: none;
   font-weight: 600;
   white-space: nowrap;
+  transition: color var(--motion-fast) var(--motion-ease);
 
   &:hover {
     color: var(--brand-indigo);
@@ -90,14 +93,12 @@
 }
 
 .readiness-scorecard__item {
+  @include surfaces.tile-surface;
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: var(--space-3);
   align-items: start;
   padding: var(--space-3);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-interactive);
 }
 
 .readiness-scorecard__item--failed {
