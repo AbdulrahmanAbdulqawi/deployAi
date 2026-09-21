@@ -423,6 +423,11 @@ here, and the doc it links to. The `curate-project-knowledge` skill is this loop
   `Program.cs` and guarded by a test that asserts the converter is present rather than any one enum's
   output, so a new enum inherits it without anyone remembering an attribute.
 
+### Operator credentials — [docs/gaps/operator-credentials.md](docs/gaps/operator-credentials.md)
+- DeployAI's own provider secrets live in plaintext in a gitignored file, with no store, no validity check and no rotation path — the "nothing pasted" rule is delivered for users' credentials and not for ours.
+- An OAuth *client secret* can never be re-acquired by running the OAuth flow; only a secret store fixes it, not a re-auth.
+- Options bind with no `ValidateOnStart`, so a blank or revoked secret fails at first use inside a feature rather than at boot.
+
 ### Process — [docs/gaps/process.md](docs/gaps/process.md)
 - ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.
 - `README.md` and `docs/00-README.md` describe a Vercel+Railway product still in "planning phase"; nothing keeps them honest as the code moves.

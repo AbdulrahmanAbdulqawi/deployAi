@@ -15,6 +15,7 @@ given gap can follow it standalone.
 | [database-provisioning.md](database-provisioning.md) | Can't create a Coolify project, only .NET gets schema applied, a provisioned Coolify database nothing outside it can reach |
 | [object-storage.md](object-storage.md) | The file-storage layer hand-written per app, and the account-wide credentials handed to every app |
 | [domains-and-certificates.md](domains-and-certificates.md) | The DNS-before-certificate gate, conclusive vs inconclusive checks, the live-domain re-check and the enum-as-string convention (both closed), and what is still open: the single-server wildcard, and a TLS failure still reported as "redeploy the server" |
+| [operator-credentials.md](operator-credentials.md) | DeployAI's own provider secrets: plaintext on disk, no validity check, no rotation path, and why an OAuth client secret cannot be re-acquired by re-authing |
 | [process.md](process.md) | Generated commit messages (closed), the untested-change gap, and top-level docs that drifted from the shipped product |
 
 For the repository-scanning class of gap specifically (which directory in a repo is the app),
