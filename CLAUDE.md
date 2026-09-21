@@ -353,8 +353,12 @@ as `docs/12-repository-scanning.md`. When you close or open a gap, update both: 
 here, and the doc it links to. The `curate-project-knowledge` skill is this loop as a checklist.
 
 ### Provisioning & environment variables — [docs/gaps/provisioning-and-env-vars.md](docs/gaps/provisioning-and-env-vars.md)
-- Duplicate env-var repair only runs on the database-linking path, not every target.
+- ~~Duplicate env-var repair only runs on the database-linking path~~ — closed in `511db92`
+  (`DeploymentOrchestrator` reconciles every target on every deploy); this line outlived the fix by
+  seven weeks, the same way the env-scan bullet did.
 - Env-var upserts still loop one key at a time in two callers instead of batching.
+- A brand-new app is born with duplicate variables — 14 on one created 2026-09-22 — so a second
+  writer exists, and the every-deploy repair is what keeps it invisible.
 - ~~The managed environment store was project-wide~~ — closed; a secret on a website-only project still has nowhere else to go.
 - CORS wiring is a guessed key-name list with nothing checking whether the guess was right.
 - Secrets DeployAI generates exist only in DeployAI's own database, with no export path.
@@ -377,7 +381,12 @@ here, and the doc it links to. The `curate-project-knowledge` skill is this loop
 - ~~Project status is never revalidated against the provider~~ — closed; `IProviderApplicationExistence`
   asks every sweep, and the first live run found a real deleted app (`yemeni-breeze`) that the dashboard
   had been reporting as deployed.
-- No divergence warning, and no migration-chain validation, before a deploy.
+- No divergence warning, and no migration-chain validation, before a deploy. The migration case is
+  no longer hypothetical: a developer database here already collides with the committed chain, and
+  `Program.cs` calls `Migrate()` with no pre-check, so it fails partway through.
+- An app whose every deploy has failed for weeks still reports healthy — it is serving a container
+  built before the repo stopped compiling (`yemeni-breeze`, observed 2026-09-22). "Is it serving"
+  and "can what is in the repo still be deployed" are different questions; only the first is asked.
 - ~~Verification is shallow for everything except object storage~~ — mostly closed; the hourly sweep now
   also asks whether the app exists and is running, what it is logging, whether its connections work,
   whether its required settings are still set, and whether its domains still resolve and serve a valid
@@ -427,6 +436,8 @@ here, and the doc it links to. The `curate-project-knowledge` skill is this loop
 - DeployAI's own provider secrets live in plaintext in a gitignored file, with no store, no validity check and no rotation path — the "nothing pasted" rule is delivered for users' credentials and not for ours.
 - An OAuth *client secret* can never be re-acquired by running the OAuth flow; only a secret store fixes it, not a re-auth.
 - Options bind with no `ValidateOnStart`, so a blank or revoked secret fails at first use inside a feature rather than at boot.
+- A read-only provider token validates green and says CONNECTED — validation only authenticates,
+  it never proves the writes the credential exists to perform. Cost one failed deploy on 2026-09-22.
 
 ### Process — [docs/gaps/process.md](docs/gaps/process.md)
 - ~~Generated commit messages were generic~~ — closed; the real cause was silently-failing no-op detection.

@@ -10,7 +10,14 @@ public sealed record ProviderEnvVar(
     string? Value,
     string Type,
     IReadOnlyList<string> Targets,
-    bool ValueHidden);
+    bool ValueHidden,
+    /// <summary>
+    /// Whether the provider makes this value available to the image build, not only at runtime.
+    /// Read back so a caller can tell that a key it needs at build time exists as runtime-only —
+    /// Coolify cannot promote such a record through an upsert (its update path guards
+    /// <c>is_buildtime</c> with <c>has()</c>), so the caller has to delete and recreate it.
+    /// </summary>
+    bool IsBuildTime = false);
 
 /// <summary>Everything needed to create a new project/application on a provider for a GitHub repo.</summary>
 public sealed record CreateProviderProjectRequest(
@@ -27,6 +34,13 @@ public sealed record CreateProviderProjectRequest(
     string? GitBranch = null,
     bool IsPrivateRepository = false,
     string? CoolifyProjectUuid = null,
+    /// <summary>
+    /// Name of a Coolify project to create the application in, creating the project when no
+    /// project already carries that name. An explicit name is a choice, which is what lets the
+    /// provider create a project on an instance that already has several — without one it
+    /// refuses to guess. Ignored when <see cref="CoolifyProjectUuid"/> is set.
+    /// </summary>
+    string? CoolifyProjectName = null,
     string? CoolifyServerUuid = null,
     string? CoolifyEnvironmentName = null,
     string? CoolifyGithubAppUuid = null,

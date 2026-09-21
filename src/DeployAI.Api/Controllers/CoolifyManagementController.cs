@@ -62,6 +62,26 @@ public sealed class CoolifyManagementController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Everything the Coolify instance runs — projects, environments, applications with their
+    /// build pack, state and domains, databases — in one read. Answering that question used to
+    /// mean opening every page in Coolify's UI by hand.
+    /// </summary>
+    /// <param name="credentialId">A stored Coolify connection owned by the current user.</param>
+    [HttpGet("{credentialId:guid}/coolify/inventory")]
+    public async Task<IActionResult> GetInventory(
+        Guid credentialId,
+        CancellationToken cancellationToken)
+    {
+        var credential = await GetCoolifyCredentialAsync(credentialId, cancellationToken);
+        var token = _encryption.Decrypt(credential.TokenEncrypted);
+        var inventory = await _coolifyProvider.GetInventoryAsync(
+            new ProviderCredentials(token),
+            cancellationToken);
+
+        return Ok(inventory);
+    }
+
     /// <summary>Lists the environments (e.g. production, staging) within a Coolify project.</summary>
     /// <param name="credentialId">A stored Coolify connection owned by the current user.</param>
     /// <param name="projectUuid">The Coolify project's UUID.</param>
@@ -147,16 +167,17 @@ public sealed class CoolifyManagementController : ControllerBase
                 request.StartCommand,
                 request.GitBranch,
                 request.IsPrivateRepository,
-                request.CoolifyProjectUuid,
-                request.CoolifyServerUuid,
-                request.CoolifyEnvironmentName,
-                request.CoolifyGithubAppUuid,
-                buildPack,
-                request.ComposeFileLocation,
-                request.CustomDomain,
-                request.DomainServiceName,
-                exposedPort,
-                request.AutoDeployEnabled),
+                CoolifyProjectUuid: request.CoolifyProjectUuid,
+                CoolifyProjectName: request.CoolifyProjectName,
+                CoolifyServerUuid: request.CoolifyServerUuid,
+                CoolifyEnvironmentName: request.CoolifyEnvironmentName,
+                CoolifyGithubAppUuid: request.CoolifyGithubAppUuid,
+                CoolifyBuildPack: buildPack,
+                ComposeFileLocation: request.ComposeFileLocation,
+                CustomDomain: request.CustomDomain,
+                DomainServiceName: request.DomainServiceName,
+                ExposedPort: exposedPort,
+                AutoDeployEnabled: request.AutoDeployEnabled),
             cancellationToken);
 
         return Ok(new { project });
@@ -273,6 +294,8 @@ public sealed class CoolifyManagementController : ControllerBase
         string? CoolifyGithubAppUuid,
         string? BuildPack,
         string? ComposeFileLocation = null,
+        // A name creates (or reuses, by name) a Coolify project; a uuid picks an existing one.
+        string? CoolifyProjectName = null,
         string? CustomDomain = null,
         string? DomainServiceName = null,
         bool AutoDeployEnabled = false);

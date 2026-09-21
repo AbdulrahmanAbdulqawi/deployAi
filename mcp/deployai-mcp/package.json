@@ -1,0 +1,30 @@
+{
+  "name": "@deployai/mcp",
+  "version": "0.1.0",
+  "description": "DeployAI MCP server — orchestrate deployments, verification, and Claude agents from any MCP client",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "deployai-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  },
+  "private": true
+}

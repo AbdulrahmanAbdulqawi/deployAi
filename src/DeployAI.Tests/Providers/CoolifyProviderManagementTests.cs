@@ -651,4 +651,101 @@ public class CoolifyProviderManagementTests
         Assert.Equal("production", environments[0].Name);
         Assert.Equal("staging", environments[1].Name);
     }
+
+    // ---- Creating a Coolify project by name -----------------------------------------------
+    //
+    // ResolveProjectUuidAsync could only create a project when the instance had none: with
+    // several, it refused to guess and the first deploy into a new project was a manual step in
+    // Coolify's UI (docs/gaps/database-provisioning.md). A name is an explicit choice, so with one
+    // the provider creates the project -- or reuses the one that already carries that name, since
+    // Coolify's POST /projects is not idempotent and a retried wizard step must not make two.
+
+    [Fact]
+    public async Task CreateProjectAsync_CreatesNamedCoolifyProject_WhenSeveralAlreadyExist()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "proj-a", "name": "alpha" }, { "uuid": "proj-b", "name": "beta" }]
+            """);
+        string? projectBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/projects")
+            .With(request => { projectBody = request.Content!.ReadAsStringAsync().Result; return true; })
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "proj-shapes" }""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-shapes/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
+        string? appBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .With(request => { appBody = request.Content!.ReadAsStringAsync().Result; return true; })
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-1" }""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-1", "name": "web" }""");
+
+        var provider = CreateProvider(handler);
+        var project = await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest("web", "acme/web", "angular", CoolifyProjectName: "deployai-shapes"),
+            CancellationToken.None);
+
+        Assert.Equal("app-1", project.Id);
+        Assert.Contains("\"name\":\"deployai-shapes\"", projectBody);
+        Assert.Contains("\"project_uuid\":\"proj-shapes\"", appBody);
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_ReusesTheCoolifyProjectThatAlreadyHasThatName()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "proj-a", "name": "alpha" }, { "uuid": "proj-shapes", "name": "DeployAI-Shapes" }]
+            """);
+        var created = 0;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/projects")
+            .With(_ => { created++; return true; })
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "proj-dup" }""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications")
+            .Respond(HttpStatusCode.OK, "application/json", "[]");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/servers")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "server-1", "name": "localhost" }]""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects/proj-shapes/environments")
+            .Respond(HttpStatusCode.OK, "application/json", """[{ "uuid": "env-1", "name": "production" }]""");
+        string? appBody = null;
+        handler.When(HttpMethod.Post, $"{InstanceUrl}/api/v1/applications/public")
+            .With(request => { appBody = request.Content!.ReadAsStringAsync().Result; return true; })
+            .Respond(HttpStatusCode.Created, "application/json", """{ "uuid": "app-1" }""");
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/applications/app-1")
+            .Respond(HttpStatusCode.OK, "application/json", """{ "uuid": "app-1", "name": "web" }""");
+
+        var provider = CreateProvider(handler);
+        await provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest("web", "acme/web", "angular", CoolifyProjectName: "deployai-shapes"),
+            CancellationToken.None);
+
+        Assert.Equal(0, created);
+        Assert.Contains("\"project_uuid\":\"proj-shapes\"", appBody);
+    }
+
+    [Fact]
+    public async Task CreateProjectAsync_StillRefusesToGuess_WhenSeveralExistAndNothingWasChosen()
+    {
+        var handler = new MockHttpMessageHandler();
+        handler.When(HttpMethod.Get, $"{InstanceUrl}/api/v1/projects")
+            .Respond(HttpStatusCode.OK, "application/json", """
+            [{ "uuid": "proj-a", "name": "alpha" }, { "uuid": "proj-b", "name": "beta" }]
+            """);
+
+        var provider = CreateProvider(handler);
+        var error = await Assert.ThrowsAsync<DeployAIException>(() => provider.CreateProjectAsync(
+            Credentials,
+            new CreateProviderProjectRequest("web", "acme/web", "angular"),
+            CancellationToken.None));
+
+        Assert.Equal("coolify_project_ambiguous", error.ErrorCode);
+    }
 }

@@ -35,6 +35,13 @@ export class DeployPlanComponent {
   /** Projects on the target server. Only surfaced when there is a genuine choice to make. */
   @Input() destinations: { id: string; name: string }[] = [];
   @Input() selectedDestinationId = '';
+  /**
+   * The destination id that means "create a new one". When it is the selected destination the
+   * card asks for the name; without this the recommended path offered the option and then
+   * submitted with no name, which the provider rightly refuses.
+   */
+  @Input() newDestinationId = '';
+  @Input() newDestinationName = '';
   /** Only offered for shapes where the domain has to be attached explicitly. */
   @Input() showDomainField = false;
   @Input() customDomain = '';
@@ -65,6 +72,11 @@ export class DeployPlanComponent {
 
   @Output() customDomainChange = new EventEmitter<string>();
   @Output() destinationChange = new EventEmitter<string>();
+  @Output() newDestinationNameChange = new EventEmitter<string>();
+
+  isCreatingDestination(): boolean {
+    return !!this.newDestinationId && this.selectedDestinationId === this.newDestinationId;
+  }
   @Output() githubAppChange = new EventEmitter<string>();
   @Output() accept = new EventEmitter<void>();
   @Output() override = new EventEmitter<void>();

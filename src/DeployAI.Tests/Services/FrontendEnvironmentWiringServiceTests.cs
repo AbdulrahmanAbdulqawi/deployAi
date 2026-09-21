@@ -24,6 +24,11 @@ public class FrontendEnvironmentWiringServiceTests
 
         var coolifyManagement = new Mock<IProviderManagement>();
         coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        // The wiring reads the existing variables before writing build-time ones; a provider
+        // always answers with a list, so the mock must too.
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(), "app_web", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
 
         var factory = new Mock<IProviderManagementFactory>();
         factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
@@ -1711,4 +1716,86 @@ public class FrontendEnvironmentWiringServiceTests
         return projectId;
     }
 
+    // ---- Build-time API URL on Coolify websites --------------------------------------------
+    //
+    // A static bundle bakes the API URL in at build time, so the variable has to reach the image
+    // build. It used to be written as a plain runtime variable and only became a build-arg because
+    // Coolify defaults is_buildtime to true on create -- never on update. Type it explicitly, and
+    // when a runtime-only record already exists, recreate it: Coolify's update path guards
+    // is_buildtime with has(), so an upsert cannot promote the existing record.
+
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_WritesApiUrlAsBuildTime_WhenTheFrameworkInlinesIt()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedCoolifyDualTargetDeploymentAsync(db);
+        var websiteTarget = await db.DeploymentTargets
+            .Include(t => t.DeployTarget)
+            .FirstAsync(t => t.ProviderName == "coolify" && t.DeployTarget!.ProviderProjectId == "app_web");
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(), "app_web", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(db, factory, new Mock<IProviderServiceOperationsFactory>(), tokens);
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, websiteTarget, CancellationToken.None);
+
+        coolifyManagement.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "app_web",
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "API_URL" && r.Type == ProviderEnvVarTypes.BuildTime),
+            It.IsAny<CancellationToken>()), Times.Once);
+        coolifyManagement.Verify(m => m.DeleteEnvVarAsync(
+            It.IsAny<ProviderCredentials>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_RecreatesARuntimeOnlyRecord_SoTheBuildCanSeeIt()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedCoolifyDualTargetDeploymentAsync(db);
+        var websiteTarget = await db.DeploymentTargets
+            .Include(t => t.DeployTarget)
+            .FirstAsync(t => t.ProviderName == "coolify" && t.DeployTarget!.ProviderProjectId == "app_web");
+
+        var coolifyManagement = new Mock<IProviderManagement>();
+        coolifyManagement.SetupGet(m => m.ProviderName).Returns("coolify");
+        coolifyManagement.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(), "app_web", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new ProviderEnvVar("env_runtime", "API_URL", "https://old.example.com", "plain", [], false, IsBuildTime: false),
+                new ProviderEnvVar("env_build", "DEPLOYAI_API_URL", "https://old.example.com", "plain", [], false, IsBuildTime: true)
+            ]);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(coolifyManagement.Object);
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        var service = CreateService(db, factory, new Mock<IProviderServiceOperationsFactory>(), tokens);
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, websiteTarget, CancellationToken.None);
+
+        // The runtime-only record is removed and rewritten as build-time...
+        coolifyManagement.Verify(m => m.DeleteEnvVarAsync(
+            It.IsAny<ProviderCredentials>(), "app_web", "env_runtime", It.IsAny<CancellationToken>()), Times.Once);
+        coolifyManagement.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "app_web",
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Key == "API_URL" && r.Type == ProviderEnvVarTypes.BuildTime),
+            It.IsAny<CancellationToken>()), Times.Once);
+        // ...while one that is already build-time is only updated.
+        coolifyManagement.Verify(m => m.DeleteEnvVarAsync(
+            It.IsAny<ProviderCredentials>(), "app_web", "env_build", It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

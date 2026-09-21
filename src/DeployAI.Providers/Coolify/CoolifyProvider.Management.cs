@@ -693,7 +693,8 @@ public sealed partial class CoolifyProvider
                 env.IsShownOnce == true ? null : env.Value,
                 "plain",
                 [],
-                env.IsShownOnce == true))
+                env.IsShownOnce == true,
+                IsBuildTime: env.IsBuildtime == true))
             .OrderBy(env => env.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -1014,6 +1015,18 @@ public sealed partial class CoolifyProvider
         }
 
         var projects = await ListCoolifyProjectsAsync(session, cancellationToken);
+
+        // A name is an explicit choice, so it is honoured however many projects exist. Reuse by
+        // name first: Coolify's POST /projects is not idempotent, and a wizard step retried after
+        // a timeout must not leave two projects called the same thing.
+        if (!string.IsNullOrWhiteSpace(request.CoolifyProjectName))
+        {
+            var wanted = request.CoolifyProjectName.Trim();
+            var existing = projects.FirstOrDefault(project =>
+                string.Equals(project.Name, wanted, StringComparison.OrdinalIgnoreCase));
+            return existing?.Uuid ?? await CreateCoolifyProjectAsync(session, wanted, cancellationToken);
+        }
+
         if (projects.Count == 1)
         {
             return projects[0].Uuid;
@@ -1021,7 +1034,9 @@ public sealed partial class CoolifyProvider
 
         // Taking [0] out of several was fine for a demo, wrong for the default production
         // target — it silently drops the app into whichever project Coolify happened to list
-        // first. Make the caller choose instead.
+        // first. Make the caller choose instead. Creating one here without being asked would be
+        // the same guess in a different form: the first deploy into a new Coolify project used to
+        // be a manual step in Coolify's UI for exactly this reason.
         if (projects.Count > 1)
         {
             throw new DeployAIException(
@@ -1030,8 +1045,16 @@ public sealed partial class CoolifyProvider
                 string.Join(", ", projects.Select(project => project.Name)));
         }
 
+        return await CreateCoolifyProjectAsync(session, request.Name.Trim(), cancellationToken);
+    }
+
+    private async Task<string> CreateCoolifyProjectAsync(
+        CoolifyApiSupport.CoolifySession session,
+        string name,
+        CancellationToken cancellationToken)
+    {
         using var createRequest = CreateRequest(HttpMethod.Post, session, "projects");
-        createRequest.Content = JsonContent.Create(new { name = request.Name.Trim() });
+        createRequest.Content = JsonContent.Create(new { name });
         var response = await _httpClient.SendAsync(createRequest, cancellationToken);
         var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode)
@@ -1308,6 +1331,9 @@ public sealed partial class CoolifyProvider
 
         [JsonPropertyName("is_shown_once")]
         public bool? IsShownOnce { get; set; }
+
+        [JsonPropertyName("is_buildtime")]
+        public bool? IsBuildtime { get; set; }
     }
 
     internal sealed class CoolifyNamedResource

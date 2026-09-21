@@ -70,6 +70,7 @@ The API client auto-refreshes on `401` via `POST /api/auth/refresh`.
 | `merge_deployment_fix` | `POST .../deployment-fix/merge` |
 | `list_credentials` | `GET /api/credentials` |
 | `list_provider_projects` | `GET /api/credentials/{id}/projects` |
+| `coolify_inventory` | `GET /api/credentials/{id}/coolify/inventory` — read-only: projects → environments → apps (build pack, status, domains) and databases |
 
 ## Streaming endpoints
 

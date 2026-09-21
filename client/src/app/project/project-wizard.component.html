@@ -215,6 +215,9 @@
         [missingConnections]="missingConnections()"
         [destinations]="coolifyDestinations()"
         [selectedDestinationId]="selectedCoolifyProjectUuid"
+        [newDestinationId]="newCoolifyProjectId"
+        [newDestinationName]="coolifyProjectToCreate"
+        (newDestinationNameChange)="coolifyProjectToCreate = $event"
         [showDomainField]="isSingleOriginComposePlan()"
         [customDomain]="customDomain"
         [githubApps]="coolifyInfrastructure()?.githubApps ?? []"
@@ -523,14 +526,19 @@
               @if (loadingCoolifyInfrastructure()) {
                 <p class="wizard__muted">Loading Coolify servers…</p>
               } @else if (coolifyInfrastructure()) {
-                @if (coolifyInfrastructure()!.projects.length > 1) {
+                <label class="wizard__field">
+                  <span class="u-label-caps">Coolify project</span>
+                  <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
+                    @for (project of coolifyDestinations(); track project.id) {
+                      <option [value]="project.id">{{ project.name }}</option>
+                    }
+                  </select>
+                </label>
+                @if (isNewCoolifyProject()) {
                   <label class="wizard__field">
-                    <span class="u-label-caps">Coolify project</span>
-                    <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
-                      @for (project of coolifyInfrastructure()!.projects; track project.id) {
-                        <option [value]="project.id">{{ project.name }}</option>
-                      }
-                    </select>
+                    <span class="u-label-caps">New project name</span>
+                    <input type="text" [(ngModel)]="coolifyProjectToCreate" placeholder="my-app" />
+                    <span class="wizard__hint">Created in Coolify on publish, with a <code>production</code> environment. Reused if a project with this name already exists.</span>
                   </label>
                 }
                 @if (coolifyInfrastructure()!.servers.length > 1) {
@@ -607,14 +615,19 @@
               @if (loadingCoolifyInfrastructure()) {
                 <p class="wizard__muted">Loading Coolify servers…</p>
               } @else if (coolifyInfrastructure()) {
-                @if (coolifyInfrastructure()!.projects.length > 1) {
+                <label class="wizard__field">
+                  <span class="u-label-caps">Coolify project</span>
+                  <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
+                    @for (project of coolifyDestinations(); track project.id) {
+                      <option [value]="project.id">{{ project.name }}</option>
+                    }
+                  </select>
+                </label>
+                @if (isNewCoolifyProject()) {
                   <label class="wizard__field">
-                    <span class="u-label-caps">Coolify project</span>
-                    <select [(ngModel)]="selectedCoolifyProjectUuid" (ngModelChange)="onCoolifyProjectUuidChange()">
-                      @for (project of coolifyInfrastructure()!.projects; track project.id) {
-                        <option [value]="project.id">{{ project.name }}</option>
-                      }
-                    </select>
+                    <span class="u-label-caps">New project name</span>
+                    <input type="text" [(ngModel)]="coolifyProjectToCreate" placeholder="my-app" />
+                    <span class="wizard__hint">Created in Coolify on publish, with a <code>production</code> environment. Reused if a project with this name already exists.</span>
                   </label>
                 }
                 @if (coolifyInfrastructure()!.servers.length > 1) {

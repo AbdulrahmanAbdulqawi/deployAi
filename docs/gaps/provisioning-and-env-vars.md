@@ -1,21 +1,25 @@
 # Provisioning and environment variables
 
-**Status:** partially closed, three open items below.
+**Status:** partially closed, two open items below.
 
-## Duplicate repair only runs on the database-linking path
+## Duplicate repair only ran on the database-linking path — closed
 
-The write race is fixed — `CoolifyProvider.UpsertEnvVarAsync` now goes through Coolify's
+The write race is fixed — `CoolifyProvider.UpsertEnvVarAsync` goes through Coolify's
 `PATCH /envs/bulk`, which resolves by key server-side, instead of the old non-atomic
-list-then-create. Repair now exists too: `ReconcileDuplicateEnvVarsAsync` deletes every record
-after the first for a key, which is the only safe rule because Coolify's bulk handler resolves
-with `->where('key', $key)->first()` and so writes to the first record and leaves later ones
-stale.
+list-then-create. Repair exists too: `ReconcileDuplicateEnvVarsAsync` deletes every record after
+the first for a key, which is the only safe rule because Coolify's bulk handler resolves with
+`->where('key', $key)->first()` and so writes to the first record and leaves later ones stale.
 
-**But it is only wired into `LinkDatabaseVariablesAsync`.** An application that carries
-duplicates and never gets a database link is still never repaired, and there is no way to ask
-for a repair without deploying. One app was observed with 32 records for 16 keys, including two
-`DATABASE_URL`s pointing at *different* Postgres instances — and the stale copies pointed at a
-database that no longer existed at all.
+It was at first wired only into `LinkDatabaseVariablesAsync`, so an application that never got a
+database link was never repaired. `511db92` ("Repair duplicate env-var records on every deploy,
+not just when linking a database", 2026-07-30) moved the call into `DeploymentOrchestrator.RunAsync`,
+where it runs for every target before every deploy. The observation that motivated it — one app
+with 32 records for 16 keys, two `DATABASE_URL`s pointing at *different* Postgres instances, one of
+which no longer existed — stands as the reason the rule is "keep the first".
+
+This entry advertised the gap as open for seven weeks after that commit (found 2026-09-21 while
+inventorying the Coolify instance). Second time in a day a gaps entry had outlived its gap; see
+`verification-and-config-checks.md` for the first, and the same note about nothing detecting it.
 
 ## Callers still upsert one key at a time
 
@@ -23,6 +27,33 @@ database that no longer existed at all.
 `FrontendEnvironmentWiringService` and `CoolifyProvider.Database` still loop key by key.
 Batching would cut N round trips to one and leave no window for a concurrent sync to
 interleave mid-set.
+
+## A brand-new application is born with duplicate variables
+
+The repair described above works. What it also does is hide the thing that makes it necessary.
+
+On 2026-09-22 a compose application was created from scratch by the wizard — project created,
+application created, environment values collected, first deploy triggered — and the very first
+line of its deploy log read:
+
+> Removed 14 duplicate environment variable record(s) on this app. Duplicates make the value an
+> app reads differ from the one shown.
+
+Fourteen duplicates on an application that had existed for under a minute and had never been
+deployed. Every variable had been written twice. `PATCH /envs/bulk` resolves by key, so two
+sequential writes of the same set cannot produce this; either two writers race, or one of them
+is not going through the bulk path. The wizard's env step and the pre-deploy wiring
+(`FrontendEnvironmentWiringService`) both write the same keys, and the per-key looping recorded
+above is the window that makes interleaving possible.
+
+Nobody noticed for as long as this has been happening because the reconciler cleans it up and
+reports a tidy number. A repair that runs on every deploy is exactly the thing that lets a
+duplicate-producing write path stay invisible — the log line reads like maintenance rather than
+like a defect report.
+
+**The reflected fix is one write path, not a better repair:** find the second writer, batch both
+callers through `UpsertEnvVarsAsync`, and treat a non-zero reconcile count on a
+*newly created* application as an error rather than a statistic.
 
 ## The managed environment store was project-wide — closed
 

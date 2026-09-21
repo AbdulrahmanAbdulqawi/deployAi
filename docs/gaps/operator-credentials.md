@@ -62,6 +62,28 @@ unencrypted file that co-locates every provider secret means any read of it, by 
 agent, is a full compromise rather than a partial one. Guidance to "be careful what you cat" is
 a design smell by this project's own standard.
 
+## A read-only provider token validates green, then fails at the first write
+
+Found live on 2026-09-22, on the first real use of the new Coolify-project flow. A Coolify API
+token pasted into Settings → Connections was accepted, the card said **CONNECTED**, and the
+instance name appeared. The first deploy then stopped at Coolify's own
+`403 Missing required permissions: write`, on `POST /projects`.
+
+`CoolifyProvider.ValidateCredentialsAsync` calls `GET /health` and `GET /applications`. Both are
+reads, so a read-only token passes both. Every write DeployAI needs — create the project, create
+the application, `PATCH /envs/bulk`, `POST /deploy` — is untested until the user is several
+minutes into a deploy they believed was configured.
+
+The connect form *warns about exactly this case* in prose ("a read-only token connects fine and
+then fails at the first deploy"). The warning was right and still did not help: a sentence asking
+the user to get the permission right is the design smell CLAUDE.md names, where a check would do.
+
+**The reflected fix:** prove write access at connect time — Coolify's token-permission endpoint
+if one exists, otherwise a harmless authenticated write that is immediately undone — and label
+the connection *read-only* rather than *connected* when it cannot. The same question applies to
+every provider: nothing anywhere checks that a stored credential can do what it will be asked to
+do, only that it can authenticate.
+
 **The shape to watch for:** a rule enforced at the product boundary and assumed at the
 operator boundary. The people running DeployAI are technical, so their pasting feels acceptable
 in a way a user's would not — which is precisely how it stays unexamined. The reflected fixes,
