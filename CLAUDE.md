@@ -371,7 +371,10 @@ here, and the doc it links to. The `curate-project-knowledge` skill is this loop
 - Coolify's logs API only ever returns one container's output, with no way to pick another — a compose app's non-primary service is invisible to it.
 
 ### Verification & required config — [docs/gaps/verification-and-config-checks.md](docs/gaps/verification-and-config-checks.md)
-- The wizard shows nothing different for an inconclusive env scan vs. a genuinely empty one.
+- ~~The wizard shows nothing different for an inconclusive env scan vs. a genuinely empty one~~ —
+  closed in `e9b5708`, and the one-liner here stayed wrong for seven weeks after it. The branch is
+  now covered by `project-wizard.component.spec.ts`, verified by disabling it and watching the
+  screen go back to telling an unreadable repository it needs no settings.
 - The required-configuration check warns but never blocks a deploy into a known crash-loop.
 - Nothing flags a setting the app has that no code actually reads.
 - ~~Project status is never revalidated against the provider~~ — closed; `IProviderApplicationExistence`

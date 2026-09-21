@@ -4,16 +4,33 @@
 capabilities — but every one of them is advisory. Nothing here yet stops a deploy from
 proceeding into a known-bad state; each only makes the bad state visible in the log.
 
-## The wizard still shows nothing for an inconclusive env scan
+## The wizard showed nothing for an inconclusive env scan — closed
 
-`env-schema` now finds config wherever the app actually lives, flags `inconclusive` for both
-"read no sources" and "could not list the repository", and returns `projectDirectory` /
-`searchedIn` so a wrong answer is recognisable. The wizard ignores all of it: an empty result
-and an unreadable repository still render the same — no environment step — so a user can still
-deploy with nothing set and no warning. This is the last piece of the `Jwt configuration
-missing` crash-loop still open, and it is now a UI change rather than a detection problem. The
-screen has also **not been exercised** against the new input: nested repos will start producing
-variables where they produced none.
+`env-schema` finds config wherever the app actually lives, flags `inconclusive` for both "read no
+sources" and "could not list the repository", and returns `projectDirectory` / `searchedIn` so a
+wrong answer is recognisable.
+
+**The wizard now uses all of it** (`e9b5708`, "Stop the wizard telling you an unreadable app needs
+no settings"). An inconclusive scan renders its own branch — *"We couldn't read this app's
+configuration. That's not the same as it needing none"* — followed by the `Looked in:` list, while
+a scan that genuinely read the repository and found nothing keeps the reassurance *"No settings
+detected — your app should run as-is."* The two answers no longer share a rendering, which was the
+last piece of the `Jwt configuration missing` crash-loop.
+
+**What this entry got wrong, and why it is worth recording.** The paragraph above said "the wizard
+ignores all of it" for seven weeks after the wizard stopped ignoring it. The fix landed on
+2026-07-30; the gap it closed was still being advertised as open on 2026-09-21, alongside the
+sentence "it is now a UI change rather than a detection problem" — an instruction to go build
+something that already existed. Nothing detects a gaps entry that has outlived its gap, which is
+the same shape as the stale-README problem in `process.md`: documentation whose accuracy nothing
+depends on drifts until someone is misled by it.
+
+**Now covered.** The doc's other complaint — that the screen had never been exercised — was true,
+and `client/src/app/project/project-wizard.component.spec.ts` closes it: four specs pinning the two
+empty answers apart, including the scan's error path. They were written against working code, so
+they were verified by mutation rather than by being seen red first — disabling the branch makes the
+screen tell an unreadable repository that it "should run as-is" again, and two of the four fail on
+exactly that string.
 
 ## The required-configuration check warns; it does not stop a deploy
 
