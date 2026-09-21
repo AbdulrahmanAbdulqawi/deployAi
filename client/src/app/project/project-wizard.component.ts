@@ -475,6 +475,11 @@ export class ProjectWizardComponent implements OnInit {
       return;
     }
 
+    if (this.needsCoolifyProjectName()) {
+      this.error.set('Give the new Coolify project a name, or pick an existing one.');
+      return;
+    }
+
     this.applyPlanParts(parts);
 
     // A compose app boots straight into its env, so the env is collected *before* the first
@@ -1479,7 +1484,17 @@ export class ProjectWizardComponent implements OnInit {
    * UI: the picker only ever listed existing ones and the provider refused to guess among several.
    */
   static readonly NewCoolifyProject = '__new__';
+  /** Instance alias so templates can bind the sentinel. */
+  readonly newCoolifyProjectId = ProjectWizardComponent.NewCoolifyProject;
   coolifyProjectToCreate = '';
+
+  /**
+   * True when "create a project" is chosen but no name has been given. Checked before any
+   * provider call, so the user sees one sentence instead of a provider error after a round trip.
+   */
+  needsCoolifyProjectName(): boolean {
+    return this.isNewCoolifyProject() && !this.coolifyProjectToCreate.trim();
+  }
 
   isNewCoolifyProject(): boolean {
     return this.selectedCoolifyProjectUuid === ProjectWizardComponent.NewCoolifyProject;

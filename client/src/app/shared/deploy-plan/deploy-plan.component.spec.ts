@@ -66,4 +66,45 @@ describe('DeployPlanComponent', () => {
     // "Static site on Coolify" implies a second URL that a compose deployment does not have.
     expect(text).not.toContain('Static site on Coolify');
   });
+
+  /**
+   * The destination picker can offer "create a new project". Offering it without asking for the
+   * name meant the recommended path submitted nameless and the provider refused. The name field
+   * exists only while that option is selected, so an existing project never shows it.
+   */
+  it('asks for a name only when the new-destination option is selected', () => {
+    fixture.componentRef.setInput('destinations', [
+      { id: 'proj-a', name: 'alpha' },
+      { id: 'proj-b', name: 'beta' },
+      { id: '__new__', name: 'New Coolify project…' }
+    ]);
+    fixture.componentRef.setInput('newDestinationId', '__new__');
+    fixture.componentRef.setInput('selectedDestinationId', 'proj-a');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).not.toContain('New project name');
+
+    fixture.componentRef.setInput('selectedDestinationId', '__new__');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('New project name');
+  });
+
+  it('reports the typed project name to its parent', () => {
+    fixture.componentRef.setInput('destinations', [
+      { id: 'proj-a', name: 'alpha' },
+      { id: '__new__', name: 'New Coolify project…' }
+    ]);
+    fixture.componentRef.setInput('newDestinationId', '__new__');
+    fixture.componentRef.setInput('selectedDestinationId', '__new__');
+    fixture.detectChanges();
+
+    const emitted: string[] = [];
+    fixture.componentInstance.newDestinationNameChange.subscribe(name => emitted.push(name));
+    const input: HTMLInputElement = fixture.nativeElement.querySelector('input[placeholder="my-app"]');
+    input.value = 'deployai-shapes';
+    input.dispatchEvent(new Event('input'));
+
+    expect(emitted).toEqual(['deployai-shapes']);
+  });
 });

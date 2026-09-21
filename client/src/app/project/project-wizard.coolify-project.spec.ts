@@ -104,4 +104,15 @@ describe('ProjectWizardComponent Coolify project selection', () => {
 
     expect(component.selectedCoolifyEnvironmentName).toBe('production');
   });
+
+  it('refuses to accept the plan when the new project has no name', () => {
+    component.selectedCoolifyProjectUuid = ProjectWizardComponent.NewCoolifyProject;
+    component.coolifyProjectToCreate = '   ';
+    component.activePlanParts.set([{ role: 'website', providerName: 'coolify' }] as never);
+
+    component.acceptDeploymentPlan();
+
+    expect(component.error()).toContain('name');
+    expect(component.needsCoolifyProjectName()).toBeTrue();
+  });
 });

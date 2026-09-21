@@ -95,6 +95,17 @@
             }
           </select>
         </label>
+        @if (isCreatingDestination()) {
+          <label class="plan-card__destination">
+            <span class="u-label-caps">New project name</span>
+            <input
+              type="text"
+              placeholder="my-app"
+              [ngModel]="newDestinationName"
+              (ngModelChange)="newDestinationNameChange.emit($event)" />
+            <span class="plan-card__hint">Created on your server when you deploy, with a <code>production</code> environment. Reused if one with this name already exists.</span>
+          </label>
+        }
       </div>
     }
 
