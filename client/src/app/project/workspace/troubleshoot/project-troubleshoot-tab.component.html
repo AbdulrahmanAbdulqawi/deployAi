@@ -17,14 +17,95 @@
   </section>
 } @else if (project()) {
   <section class="troubleshoot">
-    <header class="troubleshoot__header">
-      <div class="troubleshoot__header-copy">
-        <h1 class="u-headline-md">Troubleshoot</h1>
-        <p class="troubleshoot__intro u-text-secondary">
-          Review setup files, inspect deploy logs, run health checks, and apply AI-suggested fixes for this app.
+    <!--
+      What happened comes first, in a sentence, before any of the tooling below it. This page used
+      to open on setup files and log panels and never state the problem, although the API returns a
+      failure analysis that the live deploy view was already rendering. Someone arriving here has
+      one question — what broke, and is my site still up — and it is answerable.
+    -->
+    @if (hasTrouble()) {
+      <header class="trouble">
+        <p class="trouble__eyebrow u-label-caps">
+          <span class="trouble__dot" aria-hidden="true"></span>
+          Needs attention
         </p>
-      </div>
-    </header>
+        <h1 class="trouble__headline">{{ troubleHeadline() }}</h1>
+
+        @if (stillWorkingSummary(); as working) {
+          <p class="trouble__reassurance">
+            {{ working }} Anything that needs the part below is not working right now.
+          </p>
+        }
+
+        @if (analysedFailure(); as failed) {
+          @if (failed.failureAnalysis; as analysis) {
+            <div class="trouble__why">
+              <h2 class="trouble__why-title">Why</h2>
+              <p class="trouble__summary">{{ analysis.summary }}</p>
+
+              @if (analysis.errorExcerpt) {
+                <div class="trouble__evidence">
+                  <p class="trouble__evidence-label u-label-caps">What the {{ partLabel(failed).toLowerCase() }} said</p>
+                  <pre class="trouble__excerpt u-code-sm">{{ analysis.errorExcerpt }}</pre>
+                </div>
+              }
+
+              @if (analysis.referencedFiles.length > 0) {
+                <p class="trouble__files">
+                  In
+                  @for (file of analysis.referencedFiles; track file; let last = $last) {
+                    <span class="u-code-sm">{{ file }}</span>{{ last ? '' : ', ' }}
+                  }
+                </p>
+              }
+            </div>
+          } @else {
+            <!--
+              A failure with no analysis is not a failure we understand. Saying so is better than
+              an empty panel that reads as though nothing is wrong.
+            -->
+            <div class="trouble__why trouble__why--unknown">
+              <h2 class="trouble__why-title">Why</h2>
+              <p class="trouble__summary">
+                DeployAI couldn't work out what went wrong here. The deploy log below is the raw
+                account of what happened.
+              </p>
+            </div>
+          }
+
+          @if (failed.failureAnalysis?.canRequestClaudeFix && repoOwner() && repoName()) {
+            <app-deployment-fix-panel
+              [deploymentId]="deployment()!.id"
+              [targetId]="failed.id"
+              [projectId]="projectId"
+              [owner]="repoOwner()!"
+              [repo]="repoName()!"
+              [baseBranch]="deployment()!.branch"
+              [failureAnalysis]="failed.failureAnalysis!" />
+          } @else if (canRedeployTarget(failed)) {
+            <div class="trouble__actions">
+              <button
+                type="button"
+                class="trouble__retry"
+                [disabled]="isRedeploying(failed.id)"
+                (click)="redeployTarget(failed)">
+                {{ isRedeploying(failed.id) ? 'Publishing…' : 'Try publishing again' }}
+              </button>
+            </div>
+          }
+        }
+      </header>
+    } @else {
+      <header class="troubleshoot__header">
+        <div class="troubleshoot__header-copy">
+          <h1 class="u-headline-md">If something breaks</h1>
+          <p class="troubleshoot__intro u-text-secondary">
+            Nothing is failing right now. The tools below are here when it is — setup files, deploy
+            logs, and live checks against your app.
+          </p>
+        </div>
+      </header>
+    }
 
     <div class="troubleshoot__ai-toggle">
       <div class="settings-toggle-list">

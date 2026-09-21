@@ -44,6 +44,36 @@ export function providerLabel(providerName: string): string {
   return providerName;
 }
 
+/**
+ * Names the part of the app a target is — website, server, database, file storage — for anywhere
+ * the user needs to know *what* broke rather than *where* it runs.
+ *
+ * Prefer this over `roleLabelForProvider` whenever the question is about the app. Provider-name
+ * dispatch cannot answer it: Coolify hosts a website and a server as two applications, so both
+ * come back "Your Coolify app" and a screen reporting a failure cannot say which one failed.
+ * CLAUDE.md states the rule — dispatch keys off role, never provider name.
+ *
+ * Provider is the fallback only because `role` is absent on targets saved before roles were
+ * recorded; a legacy deployment must still render something rather than a blank.
+ */
+export function partLabelForTarget(target: { role?: string | null; providerName: string }): string {
+  switch (target.role) {
+    case 'website':
+      return 'Website';
+    case 'server':
+      return 'Server';
+    case 'database':
+      return 'Database';
+    case 'storage':
+      return 'File storage';
+  }
+
+  // No usable role: infer from the provider, which is only unambiguous for the single-purpose ones.
+  if (target.providerName === ProviderName.Vercel) return 'Website';
+  if (target.providerName === ProviderName.Railway) return 'Server';
+  return target.providerName;
+}
+
 export function roleLabelForProvider(providerName: string): string {
   if (providerName === ProviderName.Vercel) return 'Your site';
   if (providerName === ProviderName.Railway) return 'Your API';

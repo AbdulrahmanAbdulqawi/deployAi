@@ -14,12 +14,13 @@ import {
   ProjectDetail,
   ProviderName
 } from '../../../core/models/api.models';
-import { parseTargetConfig, roleLabelForProvider } from '../../../core/utils/target-config';
+import { parseTargetConfig, partLabelForTarget, roleLabelForProvider } from '../../../core/utils/target-config';
 import { canSyncEnvironmentUrls } from '../../../core/utils/environment-sync-eligibility';
 import { IconComponent } from '../../../shared/ui/icon/icon.component';
 import { DeploymentSetupPanelComponent } from '../../../shared/deployment-setup-panel/deployment-setup-panel.component';
 import { DeploymentVerificationPanelComponent } from '../../../shared/deployment-verification-panel/deployment-verification-panel.component';
 import { ProviderStatusCardComponent } from '../../../shared/provider-status-card/provider-status-card.component';
+import { DeploymentFixPanelComponent } from '../../../shared/deployment-fix-panel/deployment-fix-panel.component';
 import { ActivityLine } from '../../../shared/live-log-panel/live-log-panel.component';
 
 @Component({
@@ -30,7 +31,8 @@ import { ActivityLine } from '../../../shared/live-log-panel/live-log-panel.comp
     IconComponent,
     DeploymentSetupPanelComponent,
     DeploymentVerificationPanelComponent,
-    ProviderStatusCardComponent
+    ProviderStatusCardComponent,
+    DeploymentFixPanelComponent
   ],
   templateUrl: './project-troubleshoot-tab.component.html',
   styleUrl: './project-troubleshoot-tab.component.scss'
@@ -105,6 +107,70 @@ export class ProjectTroubleshootTabComponent implements OnInit {
     }
 
     return roleLabelForProvider(providerName);
+  }
+
+  // ---- What's wrong -------------------------------------------------------------------------
+  //
+  // This screen used to open with the tools — setup files, logs, health checks — and never said
+  // what had actually happened. The failure analysis the API already returns was rendered on the
+  // live deploy view and on the fix panel, but not here, so the page named "Troubleshoot" was the
+  // one page that did not tell you what was wrong. These read that analysis and say it plainly.
+
+  failedTargets(): DeploymentDetail['targets'] {
+    return this.deployment()?.targets.filter(t => t.status === 'failed') ?? [];
+  }
+
+  workingTargets(): DeploymentDetail['targets'] {
+    return this.deployment()?.targets.filter(t => t.status === 'success') ?? [];
+  }
+
+  hasTrouble(): boolean {
+    return this.failedTargets().length > 0;
+  }
+
+  /** The failed target carrying an explanation, which is the one worth leading with. */
+  analysedFailure(): DeploymentDetail['targets'][number] | null {
+    return this.failedTargets().find(t => !!t.failureAnalysis) ?? this.failedTargets()[0] ?? null;
+  }
+
+  /**
+   * A sentence naming what broke, using the part's role. Deliberately not "Deployment failed": the
+   * user's question is which part of their app stopped working, and a website can be fine while
+   * the server is down.
+   */
+  troubleHeadline(): string {
+    const failed = this.failedTargets();
+    if (failed.length === 0) {
+      return 'Everything is working';
+    }
+
+    if (failed.length === 1) {
+      return `Your ${this.partLabel(failed[0]).toLowerCase()} didn't start`;
+    }
+
+    return `${failed.length} parts of your app didn't start`;
+  }
+
+  /**
+   * What is still serving. Stated before the failure on purpose — "your website is still up" is
+   * the first thing a non-technical user needs, and reading it after the error is too late.
+   */
+  stillWorkingSummary(): string | null {
+    const working = this.workingTargets();
+    if (working.length === 0) {
+      return null;
+    }
+
+    const names = working.map(t => this.partLabel(t).toLowerCase());
+    if (names.length === 1) {
+      return `Your ${names[0]} is still running.`;
+    }
+
+    return `Your ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are still running.`;
+  }
+
+  partLabel(target: { role?: string | null; providerName: string }): string {
+    return partLabelForTarget(target);
   }
 
   isLogTargetExpanded(targetId: string): boolean {
