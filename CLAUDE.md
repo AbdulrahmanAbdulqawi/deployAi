@@ -353,7 +353,9 @@ as `docs/12-repository-scanning.md`. When you close or open a gap, update both: 
 here, and the doc it links to. The `curate-project-knowledge` skill is this loop as a checklist.
 
 ### Provisioning & environment variables — [docs/gaps/provisioning-and-env-vars.md](docs/gaps/provisioning-and-env-vars.md)
-- Duplicate env-var repair only runs on the database-linking path, not every target.
+- ~~Duplicate env-var repair only runs on the database-linking path~~ — closed in `511db92`
+  (`DeploymentOrchestrator` reconciles every target on every deploy); this line outlived the fix by
+  seven weeks, the same way the env-scan bullet did.
 - Env-var upserts still loop one key at a time in two callers instead of batching.
 - ~~The managed environment store was project-wide~~ — closed; a secret on a website-only project still has nowhere else to go.
 - CORS wiring is a guessed key-name list with nothing checking whether the guess was right.

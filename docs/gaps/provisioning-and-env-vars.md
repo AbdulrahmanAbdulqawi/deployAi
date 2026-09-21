@@ -1,21 +1,25 @@
 # Provisioning and environment variables
 
-**Status:** partially closed, three open items below.
+**Status:** partially closed, two open items below.
 
-## Duplicate repair only runs on the database-linking path
+## Duplicate repair only ran on the database-linking path — closed
 
-The write race is fixed — `CoolifyProvider.UpsertEnvVarAsync` now goes through Coolify's
+The write race is fixed — `CoolifyProvider.UpsertEnvVarAsync` goes through Coolify's
 `PATCH /envs/bulk`, which resolves by key server-side, instead of the old non-atomic
-list-then-create. Repair now exists too: `ReconcileDuplicateEnvVarsAsync` deletes every record
-after the first for a key, which is the only safe rule because Coolify's bulk handler resolves
-with `->where('key', $key)->first()` and so writes to the first record and leaves later ones
-stale.
+list-then-create. Repair exists too: `ReconcileDuplicateEnvVarsAsync` deletes every record after
+the first for a key, which is the only safe rule because Coolify's bulk handler resolves with
+`->where('key', $key)->first()` and so writes to the first record and leaves later ones stale.
 
-**But it is only wired into `LinkDatabaseVariablesAsync`.** An application that carries
-duplicates and never gets a database link is still never repaired, and there is no way to ask
-for a repair without deploying. One app was observed with 32 records for 16 keys, including two
-`DATABASE_URL`s pointing at *different* Postgres instances — and the stale copies pointed at a
-database that no longer existed at all.
+It was at first wired only into `LinkDatabaseVariablesAsync`, so an application that never got a
+database link was never repaired. `511db92` ("Repair duplicate env-var records on every deploy,
+not just when linking a database", 2026-07-30) moved the call into `DeploymentOrchestrator.RunAsync`,
+where it runs for every target before every deploy. The observation that motivated it — one app
+with 32 records for 16 keys, two `DATABASE_URL`s pointing at *different* Postgres instances, one of
+which no longer existed — stands as the reason the rule is "keep the first".
+
+This entry advertised the gap as open for seven weeks after that commit (found 2026-09-21 while
+inventorying the Coolify instance). Second time in a day a gaps entry had outlived its gap; see
+`verification-and-config-checks.md` for the first, and the same note about nothing detecting it.
 
 ## Callers still upsert one key at a time
 

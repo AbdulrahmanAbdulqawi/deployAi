@@ -1472,8 +1472,38 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   /** Projects on the Coolify server — the choice of where an app lands. */
+  /**
+   * Sentinel for "create a Coolify project" in the project pickers. A Coolify project is the
+   * folder an application lives in, not the application itself (that is `newCoolifyProjectName`,
+   * a legacy name). Until now the first deploy into a new folder was a manual step in Coolify's
+   * UI: the picker only ever listed existing ones and the provider refused to guess among several.
+   */
+  static readonly NewCoolifyProject = '__new__';
+  coolifyProjectToCreate = '';
+
+  isNewCoolifyProject(): boolean {
+    return this.selectedCoolifyProjectUuid === ProjectWizardComponent.NewCoolifyProject;
+  }
+
   coolifyDestinations(): { id: string; name: string }[] {
-    return this.coolifyInfrastructure()?.projects ?? [];
+    const projects = this.coolifyInfrastructure()?.projects;
+    if (!projects) {
+      return [];
+    }
+    return [...projects, { id: ProjectWizardComponent.NewCoolifyProject, name: 'New Coolify project…' }];
+  }
+
+  /** The uuid to deploy into, or nothing when a project is being created by name instead. */
+  private coolifyProjectUuidForCreate(): string | undefined {
+    return this.isNewCoolifyProject() ? undefined : this.selectedCoolifyProjectUuid || undefined;
+  }
+
+  /**
+   * Sent on every create of the wizard run, not only the first: the provider reuses a project by
+   * name, so the website and the server of a full-stack plan land in the same new project.
+   */
+  private coolifyProjectNameForCreate(): string | undefined {
+    return this.isNewCoolifyProject() ? this.coolifyProjectToCreate.trim() || undefined : undefined;
   }
 
   private ensureCoolifyDestinations(): void {
@@ -1502,7 +1532,9 @@ export class ProjectWizardComponent implements OnInit {
   }
 
   loadCoolifyEnvironments(): void {
-    if (!this.selectedCoolifyCredentialId || !this.selectedCoolifyProjectUuid) {
+    // A project that does not exist yet has no environments to list; the provider creates
+    // `production` in it on the first deploy.
+    if (!this.selectedCoolifyCredentialId || !this.selectedCoolifyProjectUuid || this.isNewCoolifyProject()) {
       this.coolifyEnvironments.set([]);
       return;
     }
@@ -1515,7 +1547,11 @@ export class ProjectWizardComponent implements OnInit {
       next: (response) => {
         this.coolifyEnvironments.set(response.environments);
         if (!this.selectedCoolifyEnvironmentName && response.environments.length > 0) {
-          this.selectedCoolifyEnvironmentName = response.environments[0].name;
+          // Prefer `production` over whichever environment Coolify lists first: the provider
+          // makes the same choice when nothing is sent, and the two layers disagreeing meant a
+          // project with a `staging` listed first deployed there by default.
+          const production = response.environments.find(env => env.name.toLowerCase() === 'production');
+          this.selectedCoolifyEnvironmentName = (production ?? response.environments[0]).name;
         }
         this.loadingCoolifyEnvironments.set(false);
       },
@@ -1557,7 +1593,8 @@ export class ProjectWizardComponent implements OnInit {
     if (this.isSingleOriginComposePlan()) {
       return {
         isPrivateRepository,
-        coolifyProjectUuid: this.selectedCoolifyProjectUuid || undefined,
+        coolifyProjectUuid: this.coolifyProjectUuidForCreate(),
+        coolifyProjectName: this.coolifyProjectNameForCreate(),
         coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
         coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
         coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,
@@ -1572,7 +1609,8 @@ export class ProjectWizardComponent implements OnInit {
 
     return {
       isPrivateRepository,
-      coolifyProjectUuid: this.selectedCoolifyProjectUuid || undefined,
+      coolifyProjectUuid: this.coolifyProjectUuidForCreate(),
+        coolifyProjectName: this.coolifyProjectNameForCreate(),
       coolifyServerUuid: this.selectedCoolifyServerUuid || undefined,
       coolifyEnvironmentName: this.selectedCoolifyEnvironmentName || undefined,
       coolifyGithubAppUuid: this.selectedCoolifyGithubAppId || undefined,

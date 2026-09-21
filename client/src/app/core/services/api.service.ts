@@ -800,6 +800,8 @@ export class ApiService {
     options?: {
       isPrivateRepository?: boolean;
       coolifyProjectUuid?: string;
+      /** Creates (or reuses, by name) a Coolify project instead of picking an existing uuid. */
+      coolifyProjectName?: string;
       coolifyServerUuid?: string;
       coolifyEnvironmentName?: string;
       coolifyGithubAppUuid?: string;
@@ -826,6 +828,7 @@ export class ApiService {
       gitBranch,
       isPrivateRepository: options?.isPrivateRepository ?? false,
       coolifyProjectUuid: options?.coolifyProjectUuid,
+      coolifyProjectName: options?.coolifyProjectName,
       coolifyServerUuid: options?.coolifyServerUuid,
       coolifyEnvironmentName: options?.coolifyEnvironmentName,
       coolifyGithubAppUuid: options?.coolifyGithubAppUuid,

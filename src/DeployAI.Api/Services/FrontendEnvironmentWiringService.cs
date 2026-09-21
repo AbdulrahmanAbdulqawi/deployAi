@@ -904,12 +904,45 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
         var normalizedApiUrl = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
 
+        // A framework that inlines its environment bakes the API URL into the bundle at build
+        // time, so the variable has to reach the image build. This used to be written as a plain
+        // runtime variable and only worked because Coolify defaults is_buildtime to true on
+        // create -- never on update -- so the first deploy got it right and every later one
+        // depended on that accident.
+        var buildTime = SsrFrontendFrameworks.Inlines(websiteFramework);
+        var type = buildTime ? ProviderEnvVarTypes.BuildTime : ProviderEnvVarTypes.Plain;
+
+        // Coolify's update path guards is_buildtime with has(), so an upsert cannot promote a
+        // record that exists as runtime-only. The only way to make the build see it is to remove
+        // that record and write a fresh one, which the create path marks build-time.
+        var runtimeOnly = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (buildTime)
+        {
+            var existing = await management.ListEnvVarsAsync(
+                credentials,
+                websiteDeployTarget.ProviderProjectId,
+                cancellationToken);
+            foreach (var envVar in existing.Where(envVar => !envVar.IsBuildTime))
+            {
+                runtimeOnly.TryAdd(envVar.Key, envVar.Id);
+            }
+        }
+
         foreach (var key in CrossProviderUrlWiring.ResolveApiEnvKeys(websiteFramework))
         {
+            if (runtimeOnly.TryGetValue(key, out var staleRecordId))
+            {
+                await management.DeleteEnvVarAsync(
+                    credentials,
+                    websiteDeployTarget.ProviderProjectId,
+                    staleRecordId,
+                    cancellationToken);
+            }
+
             await management.UpsertEnvVarAsync(
                 credentials,
                 websiteDeployTarget.ProviderProjectId,
-                new UpsertProviderEnvVarRequest(key, normalizedApiUrl, "plain", []),
+                new UpsertProviderEnvVarRequest(key, normalizedApiUrl, type, []),
                 cancellationToken);
             appliedKeys.Add(key);
         }

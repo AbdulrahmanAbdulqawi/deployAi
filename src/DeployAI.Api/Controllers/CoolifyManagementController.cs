@@ -147,16 +147,17 @@ public sealed class CoolifyManagementController : ControllerBase
                 request.StartCommand,
                 request.GitBranch,
                 request.IsPrivateRepository,
-                request.CoolifyProjectUuid,
-                request.CoolifyServerUuid,
-                request.CoolifyEnvironmentName,
-                request.CoolifyGithubAppUuid,
-                buildPack,
-                request.ComposeFileLocation,
-                request.CustomDomain,
-                request.DomainServiceName,
-                exposedPort,
-                request.AutoDeployEnabled),
+                CoolifyProjectUuid: request.CoolifyProjectUuid,
+                CoolifyProjectName: request.CoolifyProjectName,
+                CoolifyServerUuid: request.CoolifyServerUuid,
+                CoolifyEnvironmentName: request.CoolifyEnvironmentName,
+                CoolifyGithubAppUuid: request.CoolifyGithubAppUuid,
+                CoolifyBuildPack: buildPack,
+                ComposeFileLocation: request.ComposeFileLocation,
+                CustomDomain: request.CustomDomain,
+                DomainServiceName: request.DomainServiceName,
+                ExposedPort: exposedPort,
+                AutoDeployEnabled: request.AutoDeployEnabled),
             cancellationToken);
 
         return Ok(new { project });
@@ -273,6 +274,8 @@ public sealed class CoolifyManagementController : ControllerBase
         string? CoolifyGithubAppUuid,
         string? BuildPack,
         string? ComposeFileLocation = null,
+        // A name creates (or reuses, by name) a Coolify project; a uuid picks an existing one.
+        string? CoolifyProjectName = null,
         string? CustomDomain = null,
         string? DomainServiceName = null,
         bool AutoDeployEnabled = false);
