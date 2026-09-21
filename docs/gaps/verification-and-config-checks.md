@@ -56,6 +56,22 @@ user's other branches. See the standing rule "Detect divergence before deploying
 Nothing checks for colliding or misordered migrations before a deploy. See the standing rule
 "Validate the migration chain before deploying, not during" in `CLAUDE.md` — same relationship.
 
+**It has already happened here, on a developer machine** (2026-09-22). The Postgres on the
+default port held a DeployAI database last migrated on 2026-07-09, with eight migrations pending
+and a `projects.AutoDeployEnabled` column that `20260723212702_AddCredentialKind` then tries to
+add again: `42701: column "AutoDeployEnabled" of relation "projects" already exists`. A
+branch-local migration created that column before `main` folded it into a different one, so the
+committed chain applies to that database and to no other.
+
+Two things follow, both inside this gap. `Program.cs` calls `Migrate()` at startup with no
+pre-check, so the API dies mid-chain — after `AddCredentialKind` has already altered a table —
+leaving the database in a state no migration describes. And nothing tells the developer that the
+database they are pointed at belongs to a different lineage; the only symptom is a Npgsql
+exception in a stack trace. A chain validated before the first `ALTER` would have said so in one
+line and changed nothing.
+
+Not repaired: it holds real local data, and reconciling it is a schema decision, not a cleanup.
+
 ## Verification is shallow for everything except storage
 
 A deployment probing `/health` successfully can still have a fully broken API surface. See
@@ -81,6 +97,22 @@ more than one container.
 
 **What remains**: nothing acts on the finding — a deploy proceeds, and an app that logged a
 thousand errors an hour deploys as quietly as one that logged none.
+
+**And an app can be reported healthy while every deploy it has attempted for weeks has failed.**
+Observed 2026-09-22 on `yemeni-breeze`: Coolify shows the application *Running*, the fleet sweep
+agrees, and the site serves. Its deployment list tells a different story — 22 deployments, the
+most recent successful one predating 2026-07-31, and every attempt since then failed, including
+two on the same commit DeployAI tried today. The container that is running is an artifact built
+before the repository stopped compiling; `main` has been unbuildable for about seven weeks.
+
+Nothing DeployAI checks is wrong, and that is the problem: *is it serving* and *can what is in
+the repository still be built and deployed* are different questions, and only the first is ever
+asked. An app in this state looks healthier than one mid-deploy. The signal already exists — the
+provider returns the deployment history, and the last-successful-deploy commit can be compared
+with the branch head — so this is a check that does not exist rather than data that is missing.
+It is the same argument as the divergence warning below, arrived at from the other end: there,
+what is deployed is behind what you have; here, what is deployed is the only thing that *can* be
+deployed, and nobody has said so.
 
 ## Nothing requires a change to arrive with tests
 

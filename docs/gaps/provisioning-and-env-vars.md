@@ -28,6 +28,33 @@ inventorying the Coolify instance). Second time in a day a gaps entry had outliv
 Batching would cut N round trips to one and leave no window for a concurrent sync to
 interleave mid-set.
 
+## A brand-new application is born with duplicate variables
+
+The repair described above works. What it also does is hide the thing that makes it necessary.
+
+On 2026-09-22 a compose application was created from scratch by the wizard — project created,
+application created, environment values collected, first deploy triggered — and the very first
+line of its deploy log read:
+
+> Removed 14 duplicate environment variable record(s) on this app. Duplicates make the value an
+> app reads differ from the one shown.
+
+Fourteen duplicates on an application that had existed for under a minute and had never been
+deployed. Every variable had been written twice. `PATCH /envs/bulk` resolves by key, so two
+sequential writes of the same set cannot produce this; either two writers race, or one of them
+is not going through the bulk path. The wizard's env step and the pre-deploy wiring
+(`FrontendEnvironmentWiringService`) both write the same keys, and the per-key looping recorded
+above is the window that makes interleaving possible.
+
+Nobody noticed for as long as this has been happening because the reconciler cleans it up and
+reports a tidy number. A repair that runs on every deploy is exactly the thing that lets a
+duplicate-producing write path stay invisible — the log line reads like maintenance rather than
+like a defect report.
+
+**The reflected fix is one write path, not a better repair:** find the second writer, batch both
+callers through `UpsertEnvVarsAsync`, and treat a non-zero reconcile count on a
+*newly created* application as an error rather than a statistic.
+
 ## The managed environment store was project-wide — closed
 
 `ProjectEnvironmentStore` now keys by target as well as name, so a website and a server that
