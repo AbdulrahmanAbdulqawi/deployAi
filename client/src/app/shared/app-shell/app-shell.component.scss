@@ -20,7 +20,7 @@
   justify-content: space-between;
   gap: var(--space-6);
   padding: var(--space-5) var(--space-4);
-  background: #fafafa;
+  background: var(--surface-subtle);
   border-right: 1px solid var(--border-default);
   overflow-y: auto;
   transition: width var(--motion-normal) var(--motion-ease);

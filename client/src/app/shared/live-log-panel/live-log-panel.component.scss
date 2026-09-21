@@ -54,9 +54,12 @@
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 50%;
-    background: #484f58;
+    background: var(--terminal-border);
   }
 
+  // Left as literals on purpose. These are the macOS window-control colours, quoted the way the
+  // provider logo tiles quote Railway's purple: they are recognisable precisely because they do not
+  // move, and a palette change should not repaint them. Nothing else in this file may do this.
   span:nth-child(1) {
     background: #ff5f57;
   }
@@ -122,8 +125,8 @@
 
   &:hover {
     color: var(--terminal-fg);
-    border-color: #484f58;
-    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--terminal-border);
+    background: var(--terminal-header);
   }
 }
 

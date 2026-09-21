@@ -15,13 +15,13 @@
   &__summary-line,
   &__empty {
     margin: 0.25rem 0 0;
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
     font-size: 0.875rem;
   }
 
   &__error {
     margin: 0;
-    color: var(--danger, #b91c1c);
+    color: var(--status-danger);
   }
 
   &__summary {
@@ -31,11 +31,11 @@
   }
 
   &__count--danger {
-    color: var(--danger, #b91c1c);
+    color: var(--status-danger);
   }
 
   &__count--muted {
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
   }
 
   &__list {
@@ -48,7 +48,7 @@
   }
 
   &__project {
-    border: 1px solid var(--border, #e5e7eb);
+    border: 1px solid var(--border-default);
     border-radius: 0.5rem;
     padding: 0.75rem 1rem;
   }
@@ -71,7 +71,7 @@
   }
 
   &__status {
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
     font-size: 0.875rem;
   }
 
@@ -90,25 +90,25 @@
   text-align: center;
 
   &--success {
-    background: var(--success-bg, #ecfdf5);
-    color: var(--success, #047857);
+    background: var(--status-success-bg);
+    color: var(--status-success);
   }
 
   &--danger {
-    background: var(--danger-bg, #fef2f2);
-    color: var(--danger, #b91c1c);
+    background: var(--status-danger-bg);
+    color: var(--status-danger);
   }
 
   &--warning {
-    background: var(--warning-bg, #fffbeb);
-    color: var(--warning, #b45309);
+    background: var(--status-warning-bg);
+    color: var(--status-warning);
   }
 
   // Inconclusive counts are grey, never red. "DeployAI could not look" is not a verdict about the
   // app, and colouring it like one turns every provider blip into a reported outage.
   &--muted {
-    background: var(--muted-bg, #f3f4f6);
-    color: var(--text-muted, #6b7280);
+    background: var(--status-unknown-bg);
+    color: var(--status-unknown);
   }
 }
 
@@ -124,25 +124,31 @@
     display: flex;
     gap: 0.625rem;
     padding: 0.5rem 0.75rem;
-    border-left: 3px solid var(--border, #e5e7eb);
+    border-left: 3px solid var(--border-default);
     border-radius: 0.25rem;
-    background: var(--surface-subtle, #fafafa);
+    background: var(--surface-subtle);
 
     &--danger {
-      border-left-color: var(--danger, #b91c1c);
+      border-left-color: var(--status-danger);
     }
 
     &--warning {
-      border-left-color: var(--warning, #b45309);
+      border-left-color: var(--status-warning);
     }
 
     &--success {
-      border-left-color: var(--success, #047857);
+      border-left-color: var(--status-success);
     }
 
     // Muted covers both "doesn't apply" and "couldn't check": neither is a claim about the app.
+    //
+    // Dashed, not solid. The three states above are answers DeployAI arrived at; this one is the
+    // absence of an answer, and a broken edge reads as absence without depending on colour — so it
+    // survives greyscale, colour blindness, and a future palette change. A dashed edge means
+    // "nobody looked" nowhere else in the app, and must not be borrowed for decoration.
     &--muted {
-      border-left-color: var(--border, #e5e7eb);
+      border-left-color: var(--border-unknown);
+      border-left-style: dashed;
     }
   }
 
@@ -161,14 +167,14 @@
     margin-left: 0.5rem;
     font-weight: 400;
     font-size: 0.75rem;
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
   }
 
   &__message,
   &__meta {
     margin: 0;
     font-size: 0.875rem;
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
   }
 
   &__meta {
