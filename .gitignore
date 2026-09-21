@@ -87,4 +87,5 @@ yarn-error.log*
 # Cursor (local editor state; keep .cursor/rules if you want them shared)
 .cursor/plans/
 .cursor/mcp.json
-/mcp/deployai-mcp
+# mcp/deployai-mcp is source: docs/mcp described a server the repo did not contain (docs/gaps/process.md).
+# Its node_modules/ and dist/ stay ignored above.
