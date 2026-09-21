@@ -38,8 +38,12 @@
   line-height: 1.33;
 }
 
+// The two display sizes are where --font-display earns its place. Anything smaller stays in
+// --font-sans: Fraunces is an optical-size face tuned for headings, and set at body size it
+// reads as a decorative choice rather than a structural one.
 .u-display-lg {
   margin: 0;
+  font-family: var(--font-display);
   font-size: clamp(2rem, 5vw, var(--font-size-display-lg));
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -48,6 +52,7 @@
 
 .u-headline-md {
   margin: 0;
+  font-family: var(--font-display);
   font-size: var(--font-size-headline-md);
   font-weight: 600;
   letter-spacing: -0.01em;

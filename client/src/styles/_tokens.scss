@@ -1,7 +1,22 @@
+// Design tokens — the "Daylight" palette.
+//
+// Replaces the previous scheme (Inter, cool grey-blue surfaces, indigo→cyan gradients). Two
+// things drove the change. The gradient washes and Inter are the visual default of generated
+// UI, so the product read as templated; and a cool grey ground made every status colour fight
+// the page. Daylight is a warm paper ground with one accent, and semantic colours that share
+// its chroma so nothing shouts.
+//
+// NAMES ARE UNCHANGED ON PURPOSE. `--brand-indigo` no longer holds an indigo — it holds the
+// accent — because it has ~48 consumers across the app and renaming them is a separate,
+// riskier change than restyling. The names are now inaccurate and that is a known debt, listed
+// under "Legacy names" at the bottom of this file.
+
 :root {
   --black: #000000;
-  --font-display: var(--font-sans);
   --white: #ffffff;
+
+  // Kept dark. These back the provider/service logo tiles, which stay dark whatever the page
+  // does, because they are other companies' brand chrome rather than our surface.
   --neutral-950: #0a0a0a;
   --neutral-900: #111111;
   --neutral-850: #141414;
@@ -10,89 +25,124 @@
   --neutral-700: #2a2a2a;
   --neutral-600: #404040;
 
-  --surface-page: #f7f8fa;
-  --surface-card: #f9fafb;
-  --surface-raised: #f9fafb;
-  --surface-popover: #f9fafb;
-  --surface-subtle: #e9eef4;
-  --surface-inset: #eef2f6;
-  --surface-chip: #e9eef4;
-
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
-  --text-muted: #6b7280;
-  --text-on-accent: var(--white);
-  --text-link: #2563eb;
-
-  --status-success: #059669;
-  --status-success-bg: #ecfdf5;
-  --status-accent: #2563eb;
-  --status-accent-bg: #eff6ff;
-  --status-accent-strong: #1d4ed8;
-  --status-danger: #dc2626;
-  --status-danger-bg: #fef2f2;
-  --status-danger-border: #fecaca;
-  --status-danger-strong: #b91c1c;
-  --status-warning: #d97706;
-  --status-warning-bg: #fffbeb;
-  --status-warning-border: #fde68a;
-
-  --btn-primary-bg: #18181b;
-  --btn-primary-hover: #27272a;
-  --btn-primary-text: var(--white);
-  --btn-primary-border: #18181b;
-
-  --btn-secondary-bg: #f9fafb;
-  --btn-secondary-text: #111827;
-  --btn-secondary-border: #cbd5e1;
-  --btn-secondary-hover: #e9eef4;
-  --btn-secondary-icon: #2563eb;
-
-  --btn-success-bg: #059669;
-  --btn-success-hover: #047857;
-  --btn-success-text: var(--white);
-  --btn-success-border: #059669;
-
-  --brand-indigo: #4f46e5;
-  --brand-blue: #2563eb;
-  --brand-cyan: #0891b2;
-  --brand-violet: #7c3aed;
-  --brand-emerald: #059669;
-
-  --brand-text-gradient: linear-gradient(135deg, #4f46e5 0%, #2563eb 45%, #0891b2 100%);
-  --brand-bar-gradient: linear-gradient(90deg, #4f46e5, #2563eb, #06b6d4);
-  --btn-primary-gradient: #18181b;
-  --btn-primary-hover-gradient: #27272a;
-  --btn-success-gradient: linear-gradient(135deg, #047857 0%, #059669 50%, #10b981 100%);
-  --btn-success-hover-gradient: linear-gradient(135deg, #065f46 0%, #047857 50%, #059669 100%);
+  // ── Surfaces ──────────────────────────────────────────────────────────────
+  // Warm, not blue. The page is paper; cards are the white sitting on it.
+  --surface-page: #faf8f4;
+  --surface-card: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-popover: #ffffff;
+  --surface-subtle: #f2eee7;
+  --surface-inset: #f4f1ea;
+  --surface-chip: #efebe3;
+  --surface-hover: #efebe3;
+  --surface-interactive: #f4f1ea;
   --page-bg: var(--surface-page);
-  --border-accent: rgba(79, 70, 229, 0.35);
-  --glow-accent: 0 8px 28px rgba(37, 99, 235, 0.18);
-  --shadow-card-hover: none;
+
+  // ── Text ──────────────────────────────────────────────────────────────────
+  // --text-muted is the lightest text allowed on --surface-page and still clears 4.5:1.
+  // Anything lighter than this is a contrast failure, not a design choice.
+  --text-primary: #16150f;
+  --text-secondary: #3d3a33;
+  --text-muted: #6b655a;
+  --text-on-accent: var(--white);
+  --text-link: #2f5d45;
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  --status-success: #2f6b4f;
+  --status-success-bg: #e3f0e8;
+  --status-accent: #2f5d45;
+  --status-accent-bg: #eaf0eb;
+  --status-accent-strong: #1e3e2e;
+  --status-danger: #a32e22;
+  --status-danger-bg: #fbe9e6;
+  --status-danger-border: #f0cdc6;
+  --status-danger-strong: #86251b;
+  --status-warning: #96590b;
+  --status-warning-bg: #fbf1df;
+  --status-warning-border: #efd9ae;
+
+  // The fourth state, and the reason this palette exists in the form it does.
+  //
+  // "Could not check" is not "failed" — CLAUDE.md's standing rule that an absence must say
+  // which absence it is. Rendering an inconclusive check in the danger colour tells the user
+  // their app is broken when the truth is that nobody looked. This state is deliberately
+  // COLOURLESS: it reads as absence rather than alarm, and it pairs with a DASHED border
+  // (see --border-unknown) so it is distinguishable without relying on colour at all.
+  --status-unknown: #6b655a;
+  --status-unknown-bg: #f4f1ea;
+  --status-unknown-border: #c2baa9;
+
+  --status-emerald: #2f6b4f;
+  --status-emerald-bg: #e3f0e8;
+  --status-emerald-border: #c6dfd1;
+
+  // ── Buttons ───────────────────────────────────────────────────────────────
+  --btn-primary-bg: #16150f;
+  --btn-primary-hover: #2a2820;
+  --btn-primary-text: #faf8f4;
+  --btn-primary-border: #16150f;
+
+  --btn-secondary-bg: #ffffff;
+  --btn-secondary-text: #16150f;
+  --btn-secondary-border: #d8d2c6;
+  --btn-secondary-hover: #f4f1ea;
+  --btn-secondary-icon: #2f5d45;
+
+  --btn-success-bg: #2f6b4f;
+  --btn-success-hover: #245640;
+  --btn-success-text: var(--white);
+  --btn-success-border: #2f6b4f;
+
+  // ── Accents ───────────────────────────────────────────────────────────────
+  // One accent, one partner. Both sit at the same lightness so neither jumps forward.
+  --brand-indigo: #2f5d45;
+  --brand-blue: #2c5a57;
+  --brand-cyan: #2c5a57;
+  --brand-violet: #5a4a6b;
+  --brand-emerald: #2f6b4f;
+
+  // Flat, not gradients. These four tokens still exist under their old names because
+  // `.u-brand-text` and three progress-bar rules consume them; a solid value works unchanged
+  // through `background-clip: text` and through a bar fill, so no consumer needed editing.
+  --brand-text-gradient: #16150f;
+  --brand-bar-gradient: #2f5d45;
+  --btn-primary-gradient: #16150f;
+  --btn-primary-hover-gradient: #2a2820;
+  --btn-success-gradient: #2f6b4f;
+  --btn-success-hover-gradient: #245640;
+
+  --border-accent: rgba(47, 93, 69, 0.32);
+  --glow-accent: none;
+
+  // ── Provider chrome ───────────────────────────────────────────────────────
+  // Other companies' colours. Not ours to restyle.
   --provider-vercel: var(--black);
   --provider-railway: #853bce;
-
-  // Dark logo-tile backgrounds for provider/service badges — deliberately dark regardless of
-  // page theme, since they're brand chrome (Railway/Coolify dashboards, S3-style storage icon).
   --provider-railway-bg: #0b0d19;
   --provider-coolify-bg: #1a2e1a;
   --provider-coolify-fg: #5cdb5c;
   --provider-storage-bg: #1a2333;
   --provider-storage-fg: #7aa7ff;
 
-  --border-default: #ececec;
-  --border-strong: #d1d5db;
-  --border-dashed: #d1d5db;
-  --border-subtle: #f1f5f9;
-  --border-faint: #e2e8f0;
+  // ── Borders ───────────────────────────────────────────────────────────────
+  --border-default: #e4dfd5;
+  --border-strong: #d8d2c6;
+  --border-dashed: #d2cbbd;
+  --border-subtle: #f2eee7;
+  --border-faint: #efebe3;
 
-  --surface-hover: #e9eef4;
-  --surface-interactive: #eef2f6;
+  // Pair with `border-style: dashed`. Reserved for the unknown state above — a dashed edge
+  // must never be used for decoration, or it stops meaning "nobody looked".
+  --border-unknown: #c2baa9;
 
-  --backdrop: rgba(15, 23, 42, 0.45);
+  --backdrop: rgba(22, 21, 15, 0.42);
 
-  --font-sans: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  // ── Type ──────────────────────────────────────────────────────────────────
+  // Fraunces for display, IBM Plex Sans for body. Plex covers Arabic, which Inter does not —
+  // this app deploys apps whose owners write in it. Loaded in index.html.
+  --font-sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
   --font-size-sm: 0.8125rem;
   --font-size-base: 0.875rem;
@@ -123,26 +173,36 @@
   --radius-xl: 14px;
   --radius-pill: 999px;
 
-  --status-emerald: #34d399;
-  --status-emerald-bg: rgba(16, 185, 129, 0.1);
-  --status-emerald-border: rgba(16, 185, 129, 0.2);
-
   --motion-fast: 150ms;
   --motion-normal: 250ms;
   --motion-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
-  --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  --focus-ring: 0 0 0 3px rgba(47, 93, 69, 0.3);
   --shadow-raised: none;
-  --shadow-overlay: 0 8px 24px rgba(15, 23, 42, 0.12);
+  --shadow-card-hover: none;
+  --shadow-overlay: 0 8px 24px rgba(22, 21, 15, 0.14);
 
-  --terminal-bg: #f6f8fa;
-  --terminal-header: #eaeef2;
-  --terminal-border: #d0d7de;
-  --terminal-fg: #1f2328;
-  --terminal-muted: #59636e;
-  --terminal-error: #cf222e;
-  --terminal-warn: #9a6700;
-  --terminal-success: #1a7f37;
-  --terminal-stage: #0969da;
-  --terminal-live: #1a7f37;
+  // ── Terminal ──────────────────────────────────────────────────────────────
+  // Stays light. A black terminal panel dropped into a paper page is the single loudest thing
+  // on screen, and this product's whole claim is that the log is optional.
+  --terminal-bg: #f4f1ea;
+  --terminal-header: #efebe3;
+  --terminal-border: #dcd6c9;
+  --terminal-fg: #2a2820;
+  --terminal-muted: #6b655a;
+  --terminal-error: #a32e22;
+  --terminal-warn: #96590b;
+  --terminal-success: #2f6b4f;
+  --terminal-stage: #2f5d45;
+  --terminal-live: #2f6b4f;
 }
+
+// ── Legacy names ────────────────────────────────────────────────────────────
+// These carry Daylight values under names describing the old palette. Renaming them is a
+// mechanical change across ~80 consumers and belongs in its own commit, not this one:
+//
+//   --brand-indigo        (~48 consumers)  → should be --accent
+//   --brand-cyan          (~14 consumers)  → should be --accent-partner
+//   --status-emerald      (~19 consumers)  → duplicates --status-success; should be deleted
+//   --brand-blue, --brand-violet           → no consumers; should be deleted
+//   --*-gradient           (6 tokens)      → no longer gradients; should be --accent-fill etc.
