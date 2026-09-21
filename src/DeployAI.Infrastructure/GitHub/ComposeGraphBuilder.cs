@@ -163,7 +163,13 @@ public static class ComposeGraphBuilder
     /// Compose contexts are written relative to the compose file (<c>./server</c>, <c>./</c>);
     /// every layout in DeployAI is repository-relative with no leading or trailing slash.
     /// </summary>
-    private static string NormalizeContext(string? context)
+    /// <remarks>
+    /// Public because the caller that fetches signals has to key its dictionary by exactly what
+    /// this produces. Two copies of the rule would mean the dictionary is filled under one
+    /// spelling and read under another, and every service would silently lose its framework —
+    /// a failure that looks like "no adapter claimed it" rather than like a mismatch.
+    /// </remarks>
+    public static string NormalizeContext(string? context)
     {
         var trimmed = (context ?? string.Empty).Trim().Replace('\\', '/');
         if (trimmed.StartsWith("./", StringComparison.Ordinal))

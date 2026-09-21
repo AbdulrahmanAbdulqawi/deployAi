@@ -45,6 +45,7 @@ public static class DependencyInjection
         services.AddScoped<IRepositoryLayoutResolver>(sp => sp.GetRequiredService<RepositoryLayoutResolver>());
         services.AddScoped<IRepositoryReader>(sp => sp.GetRequiredService<RepositoryLayoutResolver>());
         services.AddScoped<IComposeSignalsReader, ComposeSignalsReader>();
+        services.AddScoped<IRepositoryGraphScanner, RepositoryGraphScanner>();
 
         services.AddScoped<IServerBuildProfileDiscovery, ServerBuildProfileDiscovery>();
         services.AddScoped<IWebsiteBuildProfileDiscovery, WebsiteBuildProfileDiscovery>();
