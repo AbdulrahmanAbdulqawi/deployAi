@@ -54,12 +54,18 @@ public class GraphComposeFileGeneratorTests
     {
         var gitHub = new Mock<IGitHubService>();
 
-        gitHub.Setup(g => g.ListContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
+        // ListAllContentsAsync is the one that returns files; ListContentsAsync filters its result
+        // to directories and can never return one. A fake that ignored the difference is how the
+        // reader shipped calling the wrong method, and every test here still passed.
+        gitHub.Setup(g => g.ListAllContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, string _, string _, string? path, string? _, CancellationToken _) =>
                 listings.TryGetValue(path ?? string.Empty, out var names)
                     ? names.Select(name => new GitHubContentItem(
                         name, string.IsNullOrEmpty(path) ? name : $"{path}/{name}", "file")).ToList()
                     : []);
+
+        gitHub.Setup(g => g.ListContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
 
         gitHub.Setup(g => g.GetFileContentAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, string _, string _, string path, string? _, CancellationToken _) =>

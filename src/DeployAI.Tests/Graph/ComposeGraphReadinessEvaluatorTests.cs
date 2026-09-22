@@ -73,6 +73,28 @@ public class ComposeGraphReadinessEvaluatorTests
     }
 
     /// <summary>
+    /// "DeployAI could not read this directory" and "this directory has no Dockerfile" are
+    /// different answers, and only the second is the service's fault. Collapsing them refuses a
+    /// repository that deploys perfectly well and tells its owner to add a file that is already
+    /// there — which is what three live compose apps were told the first time this ran against
+    /// real repositories, because the listing call it used could not return files at all.
+    /// </summary>
+    [Fact]
+    public void Evaluate_DoesNotCallAServiceUnbuildable_WhenNobodyCouldReadItsDirectory()
+    {
+        var graph = new DeploymentGraph(
+            [Built("scraper", ServiceCapability.HttpService, 9000, withDockerfile: false)],
+            [],
+            []);
+
+        var findings = ComposeGraphReadinessEvaluator.Evaluate(
+            graph, Compose(), "docker-compose.coolify.yml", unreadableDirectories: ["scraper"]);
+
+        Assert.False(Blocks(findings));
+        Assert.Contains(findings, f => f.Reason.Contains("could not be read", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// A pulled image needs no Dockerfile — it is not built. Demanding one would refuse every
     /// compose file that declares its own database.
     /// </summary>

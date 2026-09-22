@@ -134,23 +134,40 @@ internal static class SingleOriginComposeReadinessEvaluator
                 missing.AddRange(ComposeGraphReadinessEvaluator.Evaluate(
                     structure.Graph,
                     structure.Compose!,
-                    ComposeFileName));
+                    ComposeFileName,
+                    structure.UnreadableDirectories));
             }
         }
 
+        // These three paths are guesses — where DeployAI *would* write each file. They are what
+        // tells the generator what to produce, so they block while the repository has no compose
+        // file. Once it has one, the compose file itself says where each service builds from and
+        // which Dockerfile it uses, and the guesses are wrong as often as not: reel-hub's api
+        // builds from the repository root with `dockerfile: ReelHub.Server/Dockerfile`, and its web
+        // renders nginx.conf.template with envsubst at container start rather than shipping an
+        // nginx.conf. It had been serving for weeks, and these rules refused it twice over.
+        // The graph answers the real question — can every service be built — above.
+        var repositoryDescribesItsOwnDeployment = structure is { HasCompose: true };
+
         if (IsMissing(fileContentsByPath, webDockerfilePath))
         {
-            missing.Add(new MissingDeploymentFile(
-                webDockerfilePath,
-                "The web service builds from this directory, so it needs its own Dockerfile.",
-                DeploymentFileSeverity.Blocking));
+            if (!repositoryDescribesItsOwnDeployment)
+            {
+                missing.Add(new MissingDeploymentFile(
+                    webDockerfilePath,
+                    "The web service builds from this directory, so it needs its own Dockerfile.",
+                    DeploymentFileSeverity.Blocking));
+            }
         }
         else
         {
+            // A file that is present and wrong is a different claim from one that is absent, so
+            // the content checks run either way — this is the Mirqab guard, and it still applies
+            // to a repository that brought its own compose file.
             missing.AddRange(EvaluateWebDockerfile(webDockerfilePath, fileContentsByPath[webDockerfilePath]!));
         }
 
-        if (IsMissing(fileContentsByPath, apiDockerfilePath))
+        if (IsMissing(fileContentsByPath, apiDockerfilePath) && !repositoryDescribesItsOwnDeployment)
         {
             missing.Add(new MissingDeploymentFile(
                 apiDockerfilePath,
@@ -160,10 +177,13 @@ internal static class SingleOriginComposeReadinessEvaluator
 
         if (IsMissing(fileContentsByPath, nginxPath))
         {
-            missing.Add(new MissingDeploymentFile(
-                nginxPath,
-                "nginx.conf is what makes this single-origin: it serves the SPA and proxies /api to the api service.",
-                DeploymentFileSeverity.Blocking));
+            if (!repositoryDescribesItsOwnDeployment)
+            {
+                missing.Add(new MissingDeploymentFile(
+                    nginxPath,
+                    "nginx.conf is what makes this single-origin: it serves the SPA and proxies /api to the api service.",
+                    DeploymentFileSeverity.Blocking));
+            }
         }
         else
         {

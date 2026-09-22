@@ -23,10 +23,14 @@ namespace DeployAI.Infrastructure.GitHub;
 /// </remarks>
 public static class ComposeGraphReadinessEvaluator
 {
+    /// <param name="unreadableDirectories">Build contexts the scan could not list. A service in one
+    /// of these is not known to be unbuildable — nobody looked — and saying otherwise turns a blind
+    /// scan into a confident refusal.</param>
     public static IReadOnlyList<MissingDeploymentFile> Evaluate(
         DeploymentGraph graph,
         ComposeFile compose,
-        string composePath)
+        string composePath,
+        IReadOnlyCollection<string>? unreadableDirectories = null)
     {
         // No services is not a compose app. Saying nothing is the honest answer — a single
         // Dockerfile repository is a different shape, not an unready one.
@@ -43,6 +47,19 @@ public static class ComposeGraphReadinessEvaluator
             // every compose file that declares its own database.
             if (!service.Source.IsBuilt || service.Source.Dockerfile is not null)
             {
+                continue;
+            }
+
+            // Nobody looked, so nothing is known. Reporting it keeps the gap visible without
+            // refusing a deployment on the strength of a scan that did not happen.
+            if (unreadableDirectories is not null &&
+                unreadableDirectories.Contains(service.Source.BuildContext ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+            {
+                findings.Add(new MissingDeploymentFile(
+                    composePath,
+                    $"`{service.Source.BuildContext}` could not be read, so what `{service.Id}` builds from is unknown. "
+                    + "This is not a finding about the repository — the deployment may be perfectly fine.",
+                    DeploymentFileSeverity.Recommended));
                 continue;
             }
 

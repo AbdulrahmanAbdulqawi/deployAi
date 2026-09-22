@@ -16,16 +16,32 @@ public class ComposeSignalsReaderTests
 {
     private const string Token = "gh-token";
 
+    /// <summary>
+    /// The two listing methods behave as the real service does, and they are not the same:
+    /// <c>ListContentsAsync</c> filters its result to <c>type == "dir"</c> and never returns a
+    /// file, while <c>ListAllContentsAsync</c> returns everything. A fake that served files from
+    /// the first one let every test here pass against a reader that, in production, saw nothing at
+    /// all — which is exactly what happened: three deployed compose apps were told their build
+    /// contexts had no Dockerfile.
+    /// </summary>
     private static Mock<IGitHubService> GitHubWith(
         Dictionary<string, string[]> listings,
         Dictionary<string, string>? files = null)
     {
         var gitHub = new Mock<IGitHubService>(MockBehavior.Strict);
 
-        gitHub.Setup(g => g.ListContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
+        gitHub.Setup(g => g.ListAllContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
             .ReturnsAsync((string _, string _, string _, string? path, string? _, CancellationToken _) =>
                 listings.TryGetValue(path ?? string.Empty, out var names)
                     ? names.Select(name => new GitHubContentItem(name, string.IsNullOrEmpty(path) ? name : $"{path}/{name}", "file")).ToList()
+                    : []);
+
+        gitHub.Setup(g => g.ListContentsAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string _, string _, string? path, string? _, CancellationToken _) =>
+                listings.TryGetValue(path ?? string.Empty, out var names)
+                    ? names.Where(IsDirectoryName)
+                        .Select(name => new GitHubContentItem(name, string.IsNullOrEmpty(path) ? name : $"{path}/{name}", "dir"))
+                        .ToList()
                     : []);
 
         gitHub.Setup(g => g.GetFileContentAsync(Token, "acme", "app", It.IsAny<string>(), "main", It.IsAny<CancellationToken>()))
@@ -34,6 +50,11 @@ public class ComposeSignalsReaderTests
 
         return gitHub;
     }
+
+    /// <summary>Fixture convention: an entry with no extension and no known filename is a folder.</summary>
+    private static bool IsDirectoryName(string name) =>
+        !name.Contains('.', StringComparison.Ordinal) &&
+        !name.Equals("Dockerfile", StringComparison.OrdinalIgnoreCase);
 
     private static ComposeSignalsReader Reader(Mock<IGitHubService> gitHub) => new(gitHub.Object);
 
@@ -131,7 +152,7 @@ public class ComposeSignalsReaderTests
         await Reader(gitHub).ReadAsync(Token, "acme", "app", "main", ["server", "server"], CancellationToken.None);
 
         gitHub.Verify(
-            g => g.ListContentsAsync(Token, "acme", "app", "server", "main", It.IsAny<CancellationToken>()),
+            g => g.ListAllContentsAsync(Token, "acme", "app", "server", "main", It.IsAny<CancellationToken>()),
             Times.Once);
     }
 

@@ -59,7 +59,12 @@ public sealed class ComposeSignalsReader(IGitHubService gitHub) : IComposeSignal
         // listing it twice is a request bought for nothing.
         foreach (var directory in directories.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var contents = await _gitHub.ListContentsAsync(token, owner, repo, directory, branch, cancellationToken);
+            // ListAllContentsAsync, not ListContentsAsync: the latter filters its result to
+            // `type == "dir"` and can never return a file, so filtering it for files below found
+            // nothing, every context was reported unreadable, and three deployed compose apps were
+            // told their build directories held no Dockerfile. The unit tests did not catch it
+            // because the fake served files from the dirs-only method.
+            var contents = await _gitHub.ListAllContentsAsync(token, owner, repo, directory, branch, cancellationToken);
             var files = contents
                 .Where(item => string.Equals(item.Type, "file", StringComparison.OrdinalIgnoreCase))
                 .Select(item => item.Name)

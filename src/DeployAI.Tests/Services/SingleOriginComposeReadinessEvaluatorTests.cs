@@ -427,6 +427,69 @@ public class SingleOriginComposeReadinessEvaluatorTests
             issue.Reason.Contains("nowhere to send", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// A repository that already has a compose file is not one DeployAI is generating files for,
+    /// so "this path holds no file" is not a finding about it — the compose file says where each
+    /// service's Dockerfile is, and it is often not where the guess looks.
+    ///
+    /// reel-hub is both halves of that at once: its api builds from the repository root with
+    /// <c>dockerfile: ReelHub.Server/Dockerfile</c>, and its web renders <c>nginx.conf.template</c>
+    /// with envsubst at container start rather than shipping an <c>nginx.conf</c>. It has been
+    /// serving for weeks, and the path rules refused it twice over.
+    /// </summary>
+    [Fact]
+    public void Evaluate_DoesNotDemandFilesAtGuessedPaths_WhenTheRepositoryAlreadyHasAComposeFile()
+    {
+        var files = BuildCompleteFiles();
+        files.Remove("src/api/Dockerfile");   // named by compose's `dockerfile:` key instead
+        files.Remove("client/nginx.conf");    // rendered from a template at container start
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(
+            Website, Server, files, ScanRoutingTo("web", servesAPort: true));
+
+        Assert.True(
+            SingleOriginComposeReadinessEvaluator.IsReady(issues),
+            "Refused a working compose deployment for files at guessed paths:\n  " + string.Join(
+                "\n  ",
+                issues.Where(i => i.Severity == DeploymentFileSeverity.Blocking)
+                      .Select(i => $"{i.Path}: {i.Reason}")));
+    }
+
+    /// <summary>
+    /// Dropping the presence checks must not drop the content ones. A web Dockerfile that exists
+    /// and was written for a standalone site — nginx on its own port, its config inlined, no /api
+    /// proxy — is the Mirqab incident, and it is still wrong when a compose file is present.
+    /// </summary>
+    [Fact]
+    public void Evaluate_StillRefusesAWebImageThatCannotServeTheDeployment_WhenAComposeFileExists()
+    {
+        var files = BuildCompleteFiles();
+        files["client/Dockerfile"] = StandaloneWebsiteDockerfile;
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(
+            Website, Server, files, ScanRoutingTo("web", servesAPort: true));
+
+        Assert.False(SingleOriginComposeReadinessEvaluator.IsReady(issues));
+    }
+
+    /// <summary>
+    /// With no compose file, the path checks are what tell the generator which files to write, so
+    /// they must keep blocking — that is the setup flow.
+    /// </summary>
+    [Fact]
+    public void Evaluate_StillAsksForTheFilesItWouldGenerate_WhenThereIsNoComposeFileYet()
+    {
+        var files = BuildCompleteFiles();
+        files.Remove("docker-compose.coolify.yml");
+        files.Remove("client/Dockerfile");
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, Server, files);
+
+        Assert.False(SingleOriginComposeReadinessEvaluator.IsReady(issues));
+        Assert.Contains(issues, issue =>
+            issue.Path == "client/Dockerfile" && issue.Severity == DeploymentFileSeverity.Blocking);
+    }
+
     private static RepositoryGraphScan ScanRoutingTo(string serviceId, bool servesAPort)
     {
         var graph = new DeploymentGraph(
