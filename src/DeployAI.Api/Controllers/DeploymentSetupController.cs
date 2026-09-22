@@ -177,6 +177,36 @@ public sealed class DeploymentSetupController : ControllerBase
     /// <param name="owner">Repo owner/org.</param>
     /// <param name="repo">Repo name.</param>
     /// <param name="request">The PR number to merge and, optionally, the project to re-sync env wiring for.</param>
+    /// <summary>
+    /// The setup pull request this repository already has open, so the merge can be offered again
+    /// after a reload instead of stranding it somewhere only GitHub can finish.
+    /// </summary>
+    /// <param name="owner">Repo owner/org.</param>
+    /// <param name="repo">Repo name.</param>
+    /// <param name="ref">The branch the setup would merge into.</param>
+    [HttpGet("deployment-setup/pending")]
+    public async Task<IActionResult> GetPendingDeploymentSetup(
+        string owner,
+        string repo,
+        [FromQuery] string @ref,
+        CancellationToken cancellationToken)
+    {
+        var pending = await _setupService.FindPendingSetupAsync(
+            RequireUserId(), owner, repo, @ref, cancellationToken);
+
+        return pending is null
+            ? Ok(new { pending = (object?)null })
+            : Ok(new
+            {
+                pending = new
+                {
+                    branchName = pending.BranchName,
+                    pullRequestNumber = pending.PullRequestNumber,
+                    pullRequestUrl = pending.PullRequestUrl
+                }
+            });
+    }
+
     [HttpPost("deployment-setup/merge")]
     public async Task<IActionResult> MergeDeploymentSetup(
         string owner,

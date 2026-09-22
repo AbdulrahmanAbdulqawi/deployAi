@@ -61,7 +61,12 @@
         <p class="repo-changes__duration u-text-muted">Generated in {{ duration }}</p>
       }
       <p>
-        Changes are on branch <code class="u-code-sm">{{ changeResult()!.branchName }}</code>.
+        @if (recoveredExistingChanges()) {
+          DeployAI already prepared these changes on branch
+        } @else {
+          Changes are on branch
+        }
+        <code class="u-code-sm">{{ changeResult()!.branchName }}</code>.
         <a class="repo-changes__link" [href]="changeResult()!.pullRequestUrl" target="_blank" rel="noopener">
           Review pull request
         </a>

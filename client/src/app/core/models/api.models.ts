@@ -555,6 +555,16 @@ export interface DeploymentFixResult {
   durationSeconds?: number;
 }
 
+/**
+ * A setup pull request that is open and waiting. Carries no committed file list — it is recovered
+ * from GitHub rather than from the run that created it, and the files are in the pull request.
+ */
+export interface PendingDeploymentSetup {
+  branchName: string;
+  pullRequestNumber: number;
+  pullRequestUrl: string;
+}
+
 export interface DeploymentDetail {
   id: string;
   projectId: string;

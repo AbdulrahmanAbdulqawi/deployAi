@@ -83,6 +83,15 @@ public sealed record GitHubPullRequestResponse(
     [property: JsonPropertyName("number")] int Number,
     [property: JsonPropertyName("html_url")] string HtmlUrl);
 
+/// <summary>An open pull request, with the branch it would merge — enough to offer the merge again.</summary>
+public sealed record GitHubOpenPullRequest(
+    [property: JsonPropertyName("number")] int Number,
+    [property: JsonPropertyName("html_url")] string HtmlUrl,
+    [property: JsonPropertyName("head")] GitHubPullRequestRef Head);
+
+public sealed record GitHubPullRequestRef(
+    [property: JsonPropertyName("ref")] string Ref);
+
 public sealed record GitHubPullRequestRequest(
     [property: JsonPropertyName("title")] string Title,
     [property: JsonPropertyName("head")] string Head,
@@ -143,6 +152,18 @@ public interface IGitHubService
         string baseBranch,
         string body,
         CancellationToken cancellationToken);
+    /// <summary>
+    /// The newest open pull request into <paramref name="baseBranch"/> whose head branch starts
+    /// with <paramref name="headBranchPrefix"/>; null when there is none.
+    /// </summary>
+    Task<GitHubOpenPullRequest?> FindOpenPullRequestAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string baseBranch,
+        string headBranchPrefix,
+        CancellationToken cancellationToken);
+
     Task<bool> MergePullRequestAsync(
         string accessToken,
         string owner,
@@ -559,6 +580,33 @@ public sealed class GitHubService : IGitHubService
         var response = await _httpClient.SendAsync(request, cancellationToken);
         EnsureGitHubSuccess(response);
         return await response.Content.ReadFromJsonAsync<GitHubPullRequestResponse>(cancellationToken);
+    }
+
+    public async Task<GitHubOpenPullRequest?> FindOpenPullRequestAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string baseBranch,
+        string headBranchPrefix,
+        CancellationToken cancellationToken)
+    {
+        var url = $"https://api.github.com/repos/{owner}/{repo}/pulls" +
+                  $"?state=open&base={Uri.EscapeDataString(baseBranch)}&sort=created&direction=desc&per_page=30";
+
+        using var request = CreateAuthorizedRequest(HttpMethod.Get, url, accessToken);
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        EnsureGitHubSuccess(response);
+        var payload = await response.Content.ReadFromJsonAsync<List<GitHubOpenPullRequest>>(cancellationToken) ?? [];
+
+        return payload.FirstOrDefault(pull =>
+            pull.Head?.Ref is { } head &&
+            head.StartsWith(headBranchPrefix, StringComparison.OrdinalIgnoreCase));
     }
 
     public async Task<bool> MergePullRequestAsync(

@@ -11,6 +11,96 @@ namespace DeployAI.Tests.Services;
 
 public class DeploymentSetupServiceTests
 {
+    /// <summary>
+    /// The pull request DeployAI opened is one DeployAI can still find.
+    ///
+    /// The merge was offered only while the page that opened it stayed loaded; after a refresh the
+    /// state was gone and the only way to finish was GitHub — the manual step this whole flow
+    /// exists to remove, reached by pressing F5. Regenerating instead is worse: it opens a second
+    /// pull request for the same work, which is how TicketHub ended up with two.
+    ///
+    /// The search has to match what creating it produced, which is why both sides read one prefix
+    /// constant rather than spelling it twice.
+    /// </summary>
+    [Fact]
+    public async Task FindPendingSetupAsync_FindsTheSetupPullRequestThisServiceWouldHaveOpened()
+    {
+        await using var db = CreateDb();
+        var userId = await SeedUserAsync(db);
+
+        var gitHub = new Mock<IGitHubService>();
+        gitHub
+            .Setup(service => service.FindOpenPullRequestAsync(
+                "token", "owner", "repo", "master", DeploymentSetupService.SetupBranchPrefix,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitHubOpenPullRequest(
+                30,
+                "https://github.com/owner/repo/pull/30",
+                new GitHubPullRequestRef("deployai/setup-20260922-123537")));
+
+        var pending = await CreateService(db, gitHub).FindPendingSetupAsync(
+            userId, "owner", "repo", "master", CancellationToken.None);
+
+        Assert.NotNull(pending);
+        Assert.Equal(30, pending!.PullRequestNumber);
+        Assert.Equal("deployai/setup-20260922-123537", pending.BranchName);
+        Assert.StartsWith(DeploymentSetupService.SetupBranchPrefix, pending.BranchName);
+    }
+
+    /// <summary>
+    /// No open setup pull request is an ordinary answer, not an error — it is what a repository
+    /// looks like before anything has been generated for it.
+    /// </summary>
+    [Fact]
+    public async Task FindPendingSetupAsync_ReturnsNothing_WhenTheRepositoryHasNoOpenSetup()
+    {
+        await using var db = CreateDb();
+        var userId = await SeedUserAsync(db);
+
+        var gitHub = new Mock<IGitHubService>();
+        gitHub
+            .Setup(service => service.FindOpenPullRequestAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((GitHubOpenPullRequest?)null);
+
+        var pending = await CreateService(db, gitHub).FindPendingSetupAsync(
+            userId, "owner", "repo", "master", CancellationToken.None);
+
+        Assert.Null(pending);
+    }
+
+    private static async Task<Guid> SeedUserAsync(DeployAIDbContext db)
+    {
+        var userId = Guid.NewGuid();
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 9,
+            GitHubLogin = "tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            GitHubTokenEncrypted = [1]
+        });
+        await db.SaveChangesAsync();
+        return userId;
+    }
+
+    private static DeploymentSetupService CreateService(DeployAIDbContext db, Mock<IGitHubService> gitHub)
+    {
+        var encryption = new Mock<IEncryptionService>();
+        encryption.Setup(e => e.Decrypt(It.IsAny<byte[]>())).Returns("token");
+
+        return new DeploymentSetupService(
+            db,
+            gitHub.Object,
+            new Mock<IDeploymentReadinessService>().Object,
+            SelectorReturning(new Mock<IDeploymentFileGenerator>().Object),
+            new Mock<IFrontendEnvironmentWiringService>().Object,
+            encryption.Object,
+            new Mock<IProjectBranchDeployService>().Object);
+    }
+
     [Fact]
     public async Task GenerateSetupBranchAsync_UsesRepositoryDefaultBranch_ForPullRequestBase()
     {

@@ -44,6 +44,12 @@ public sealed record DeploymentSetupRequest(
     bool ForceRegenerate = false,
     bool? UseAi = null);
 
+/// <summary>A setup pull request that is open and waiting to be merged.</summary>
+public sealed record PendingDeploymentSetup(
+    string BranchName,
+    int PullRequestNumber,
+    string PullRequestUrl);
+
 /// <summary>The result of merging a deployment-setup pull request, including whether env sync ran and what it applied.</summary>
 public sealed record DeploymentSetupMergeResult(
     bool Merged,

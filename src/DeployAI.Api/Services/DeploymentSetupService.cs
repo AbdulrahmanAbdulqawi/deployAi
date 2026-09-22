@@ -39,6 +39,37 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
         _branchDeployService = branchDeployService;
     }
 
+    /// <summary>
+    /// Every branch this service opens starts with this. Shared rather than written twice, because
+    /// finding the pull request again is a search for exactly what creating it produced.
+    /// </summary>
+    internal const string SetupBranchPrefix = "deployai/setup-";
+
+    /// <summary>
+    /// The setup pull request this repository already has open, if any.
+    /// </summary>
+    /// <remarks>
+    /// DeployAI opens the pull request and then offered to merge it only while the page that
+    /// opened it stayed loaded. After a refresh the state was gone and the only way to merge was
+    /// GitHub — which is the manual step the whole flow exists to remove, reached by pressing F5.
+    /// Regenerating instead of merging is worse: it opens a second pull request for the same work.
+    /// </remarks>
+    public async Task<PendingDeploymentSetup?> FindPendingSetupAsync(
+        Guid userId,
+        string owner,
+        string repo,
+        string baseBranch,
+        CancellationToken cancellationToken)
+    {
+        var token = await GetGitHubTokenAsync(userId, cancellationToken);
+        var pull = await _gitHubService.FindOpenPullRequestAsync(
+            token, owner, repo, baseBranch, SetupBranchPrefix, cancellationToken);
+
+        return pull is null
+            ? null
+            : new PendingDeploymentSetup(pull.Head.Ref, pull.Number, pull.HtmlUrl);
+    }
+
     public async Task<DeploymentSetupResult> GenerateSetupBranchAsync(
         Guid userId,
         string owner,
@@ -131,7 +162,7 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
             throw new DeployAIException("github_ref_unavailable", "Could not resolve the Git reference for setup.");
         }
 
-        var branchName = $"deployai/setup-{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
+        var branchName = $"{SetupBranchPrefix}{DateTimeOffset.UtcNow:yyyyMMdd-HHmmss}";
         await ReportActivityAsync(reportActivity, "Creating setup branch on GitHub…");
         string? createdBranch = null;
         for (var attempt = 0; attempt < 5; attempt++)

@@ -12,6 +12,18 @@ public interface IDeploymentSetupService
         Func<string, Task>? reportActivity,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The setup pull request this repository already has open against <paramref name="baseBranch"/>,
+    /// or null when there is none. Lets the merge be offered again after a reload, instead of
+    /// stranding the change in a pull request only GitHub can finish.
+    /// </summary>
+    Task<PendingDeploymentSetup?> FindPendingSetupAsync(
+        Guid userId,
+        string owner,
+        string repo,
+        string baseBranch,
+        CancellationToken cancellationToken);
+
     /// <summary>Merges a generated setup pull request, then re-syncs env wiring for the linked project if one is specified.</summary>
     Task<DeploymentSetupMergeResult> MergeSetupPullRequestAsync(
         Guid userId,

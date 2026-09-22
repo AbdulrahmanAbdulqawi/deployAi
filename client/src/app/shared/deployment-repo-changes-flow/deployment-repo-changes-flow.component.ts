@@ -90,11 +90,52 @@ export class DeploymentRepoChangesFlowComponent {
   private readonly router = inject(Router);
   private generateSubscription?: Subscription;
 
+  /**
+   * True when the pull request on screen was recovered rather than produced here — there is no
+   * activity log for it, and its committed files live in the pull request, not in this session.
+   */
+  readonly recoveredExistingChanges = signal(false);
+
   constructor(elapsedTimerService: ElapsedTimerService) {
     this.generateTimer = elapsedTimerService.create();
     this.destroyRef.onDestroy(() => {
       this.generateSubscription?.unsubscribe();
       this.generateTimer.destroy();
+    });
+
+    // DeployAI opened the pull request and then offered the merge only while this component
+    // stayed alive. A refresh lost it, and the only way left to finish was GitHub — the manual
+    // step the flow exists to remove, reached by pressing F5. Regenerating instead opens a second
+    // pull request for the same work, which is how one repository ended up with two.
+    effect(() => {
+      const owner = this.owner();
+      const repo = this.repo();
+      const base = this.baseBranch();
+
+      if (this.mergeMode() !== 'setup' || !owner || !repo || !base || this.changeResult()) {
+        return;
+      }
+
+      this.api.findPendingDeploymentSetup(owner, repo, base).subscribe({
+        next: ({ pending }) => {
+          // Nothing generated meanwhile, and nothing open: both mean leave the panel alone.
+          if (!pending || this.changeResult() || this.generating()) {
+            return;
+          }
+
+          this.recoveredExistingChanges.set(true);
+          this.changeResult.set({
+            branchName: pending.branchName,
+            pullRequestNumber: pending.pullRequestNumber,
+            pullRequestUrl: pending.pullRequestUrl,
+            committedFiles: []
+          });
+        },
+        // A lookup that fails leaves the panel exactly as it was. It is an offer to finish
+        // something, not a step, and an error banner over a working Generate button would be
+        // noise about a pull request that may not exist.
+        error: () => undefined
+      });
     });
   }
 
@@ -120,6 +161,7 @@ export class DeploymentRepoChangesFlowComponent {
 
   private startGenerate(stream: Observable<RepoChangesStreamEvent>): void {
     this.generateSubscription?.unsubscribe();
+    this.recoveredExistingChanges.set(false);
     this.generating.set(true);
     this.error.set(null);
     this.changeResult.set(null);

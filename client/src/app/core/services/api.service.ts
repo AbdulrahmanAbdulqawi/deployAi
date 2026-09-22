@@ -20,6 +20,7 @@ import {
   DeploymentSetupStreamEvent,
   DeploymentSetupMergeResult,
   DeploymentSummary,
+  PendingDeploymentSetup,
   GitHubBranch,
   GitHubContentDirectory,
   FrontendBuildProfile,
@@ -264,6 +265,17 @@ export class ApiService {
         abortController.abort();
       };
     });
+  }
+
+  /**
+   * The setup pull request this repository already has open, so the merge can be offered again
+   * after a reload rather than stranding the change somewhere only GitHub can finish.
+   */
+  findPendingDeploymentSetup(owner: string, repo: string, ref: string) {
+    return this.http.get<{ pending: PendingDeploymentSetup | null }>(
+      `/api/github/repos/${owner}/${repo}/deployment-setup/pending`,
+      { params: { ref } }
+    );
   }
 
   mergeDeploymentSetup(owner: string, repo: string, pullRequestNumber: number, projectId?: string) {
