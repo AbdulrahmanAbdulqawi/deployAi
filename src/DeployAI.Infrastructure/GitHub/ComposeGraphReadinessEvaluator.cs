@@ -45,8 +45,29 @@ public static class ComposeGraphReadinessEvaluator
         {
             // A pulled image is not built, so it needs no Dockerfile; asking for one would refuse
             // every compose file that declares its own database.
-            if (!service.Source.IsBuilt || service.Source.Dockerfile is not null)
+            if (!service.Source.IsBuilt)
             {
+                continue;
+            }
+
+            // A Dockerfile the repository has. Either the compose file named it or the directory
+            // held one — either way the build has a file to use.
+            if (service.Source.Dockerfile?.ExistingPath is not null)
+            {
+                continue;
+            }
+
+            // A Dockerfile an adapter *would* write is not one the repository has, and the build
+            // uses what is committed. Reporting this as ready is worse than refusing it: the
+            // deploy goes green and the build fails afterwards. It is what a setup run leaves
+            // behind when it writes some of the files and not all of them.
+            if (service.Source.Dockerfile?.Content is not null)
+            {
+                findings.Add(new MissingDeploymentFile(
+                    composePath,
+                    $"`{service.Id}` builds from `{Describe(service.Source.BuildContext)}`, which has no Dockerfile yet. "
+                    + "DeployAI can write one — set up the deployment files and it will be included.",
+                    DeploymentFileSeverity.Blocking));
                 continue;
             }
 
@@ -136,4 +157,7 @@ public static class ComposeGraphReadinessEvaluator
 
         return findings;
     }
+
+    private static string Describe(string? buildContext) =>
+        string.IsNullOrEmpty(buildContext) ? "the repository root" : buildContext;
 }

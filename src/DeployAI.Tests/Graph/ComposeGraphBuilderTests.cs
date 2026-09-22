@@ -239,6 +239,38 @@ public class ComposeGraphBuilderTests
     }
 
     /// <summary>
+    /// Compose's own <c>dockerfile:</c> key names the file the build uses, and it is regularly not
+    /// <c>Dockerfile</c> in the context root — reel-hub builds its api from the repository root
+    /// with <c>dockerfile: ReelHub.Server/Dockerfile</c>. Ignoring it makes the node look like one
+    /// DeployAI still has to write a Dockerfile for, on a deployment that has been serving for
+    /// weeks with its own.
+    /// </summary>
+    [Fact]
+    public void Build_UsesTheDockerfileTheComposeFileNames()
+    {
+        var graph = ComposeGraphBuilder.Build(
+            ComposeFileReader.Read("""
+                services:
+                  api:
+                    build:
+                      context: .
+                      dockerfile: ReelHub.Server/Dockerfile
+                    expose:
+                      - '8080'
+                """),
+            new Dictionary<string, RepositorySignals>(StringComparer.OrdinalIgnoreCase)
+            {
+                [""] = new RepositorySignals("", CsprojContent: "<Project Sdk=\"Microsoft.NET.Sdk.Web\" />")
+            },
+            Adapters);
+
+        var dockerfile = graph.FindService("api")!.Source.Dockerfile;
+        Assert.Equal("ReelHub.Server/Dockerfile", dockerfile?.ExistingPath);
+        // No content: the repository wrote this one, and DeployAI must not claim it can replace it.
+        Assert.Null(dockerfile?.Content);
+    }
+
+    /// <summary>
     /// Without a compose <c>expose</c>, the Dockerfile's own EXPOSE is the only statement of what
     /// the image listens on. Guessing instead is how a proxy ends up pointed at a port nothing
     /// serves — a deploy that reports success and 502s every request.

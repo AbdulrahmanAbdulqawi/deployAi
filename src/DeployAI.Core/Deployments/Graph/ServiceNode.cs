@@ -38,7 +38,19 @@ public sealed record ServiceSource(
     /// <summary>Registry image for provisioned resources ("postgres:16", "redis:7"); null when built.</summary>
     string? PrebuiltImage = null)
 {
-    public bool IsBuilt => !string.IsNullOrWhiteSpace(BuildContext);
+    /// <summary>
+    /// Whether this service is built from the repository rather than pulled.
+    /// </summary>
+    /// <remarks>
+    /// Null means pulled; any string — including the empty one — is a build context. This asked
+    /// whether the context was non-empty, and a repository-root context <em>is</em> the empty
+    /// string, so every root-context service counted as neither built nor pulled: no
+    /// <c>build:</c> line in the compose file, no Dockerfile written, and nothing said. The shape
+    /// is not rare — it is what a multi-project .NET solution forces, because the API references
+    /// siblings and has to build from the directory holding them all. TicketHub's setup run
+    /// committed three of four files because of this line.
+    /// </remarks>
+    public bool IsBuilt => BuildContext is not null;
 
     public static ServiceSource FromBuild(string context, DockerfileSpec? dockerfile = null) =>
         new(BuildContext: context, Dockerfile: dockerfile);

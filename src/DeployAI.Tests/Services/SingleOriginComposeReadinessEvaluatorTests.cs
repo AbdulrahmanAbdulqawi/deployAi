@@ -497,7 +497,9 @@ public class SingleOriginComposeReadinessEvaluatorTests
                 new ServiceNode(
                     serviceId,
                     ServiceCapability.StaticSite | ServiceCapability.ReverseProxy,
-                    ServiceSource.FromBuild("client", new DockerfileSpec("FROM nginx", null, 80)),
+                    // ExistingPath: the repository has this one. Content would mean DeployAI could
+                    // write it and has not, which is a different answer and a blocking one.
+                    ServiceSource.FromBuild("client", new DockerfileSpec(null, "Dockerfile", 80)),
                     Ports: servesAPort ? [80] : [])
             ],
             [],

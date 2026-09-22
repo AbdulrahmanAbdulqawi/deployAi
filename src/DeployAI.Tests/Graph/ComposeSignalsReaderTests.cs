@@ -129,6 +129,90 @@ public class ComposeSignalsReaderTests
         Assert.True(scan.SignalsByDirectory.ContainsKey("client"));
     }
 
+    private const string Solution = """
+        Microsoft Visual Studio Solution File, Format Version 12.00
+        Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TicketHub.Domain", "TicketHub.Domain\TicketHub.Domain.csproj", "{A1}"
+        EndProject
+        Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TicketHub.Server", "TicketHub.Server\TicketHub.Server.csproj", "{A2}"
+        EndProject
+        Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TicketHub.Tests", "TicketHub.Tests\TicketHub.Tests.csproj", "{A3}"
+        EndProject
+        """;
+
+    /// <summary>
+    /// A build context whose project file is somewhere inside it, rather than in it.
+    ///
+    /// An API that references sibling projects has to build from the directory that holds them
+    /// all, and that directory has no csproj — so nothing recognised it, nothing generated a
+    /// Dockerfile, and a real setup run produced three of the four files the deployment needed.
+    /// The solution file is what says which projects exist; reading them is what says which one
+    /// is the app.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_FindsTheAppProjectThroughTheSolution_WhenTheContextHasNoProjectFile()
+    {
+        var gitHub = GitHubWith(
+            new Dictionary<string, string[]> { [""] = ["TicketHub.sln", ".dockerignore"] },
+            new Dictionary<string, string>
+            {
+                ["TicketHub.sln"] = Solution,
+                ["TicketHub.Domain/TicketHub.Domain.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+                ["TicketHub.Server/TicketHub.Server.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk.Web\" />",
+                ["TicketHub.Tests/TicketHub.Tests.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />"
+            });
+
+        var scan = await Reader(gitHub).ReadAsync(Token, "acme", "app", "main", [""], CancellationToken.None);
+
+        var root = scan.SignalsByDirectory[""];
+        Assert.Equal("TicketHub.Server/TicketHub.Server.csproj", root.ProjectFilePath);
+        Assert.Equal("TicketHub.Server.csproj", root.CsprojFileName);
+        Assert.Contains("Microsoft.NET.Sdk.Web", root.CsprojContent);
+    }
+
+    /// <summary>
+    /// A solution of libraries is not an app. Picking one anyway produces an image with no entry
+    /// point — the failure the csproj-ranking rule already exists to prevent one level down.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_ClaimsNoProject_WhenTheSolutionHoldsNoRunnableApp()
+    {
+        var gitHub = GitHubWith(
+            new Dictionary<string, string[]> { [""] = ["TicketHub.sln"] },
+            new Dictionary<string, string>
+            {
+                ["TicketHub.sln"] = Solution,
+                ["TicketHub.Domain/TicketHub.Domain.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+                ["TicketHub.Server/TicketHub.Server.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+                ["TicketHub.Tests/TicketHub.Tests.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />"
+            });
+
+        var scan = await Reader(gitHub).ReadAsync(Token, "acme", "app", "main", [""], CancellationToken.None);
+
+        Assert.Null(scan.SignalsByDirectory[""].ProjectFilePath);
+        Assert.Null(scan.SignalsByDirectory[""].CsprojContent);
+    }
+
+    /// <summary>
+    /// A project sitting in its own context keeps answering through the directory listing, and
+    /// must not be given a path — that is what selects the image it already builds with.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_LeavesTheProjectPathUnset_WhenTheContextHoldsItsOwnProjectFile()
+    {
+        var gitHub = GitHubWith(
+            new Dictionary<string, string[]> { ["server"] = ["Breeze.Api.csproj", "App.sln"] },
+            new Dictionary<string, string>
+            {
+                ["server/Breeze.Api.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk.Web\" />",
+                ["server/App.sln"] = Solution
+            });
+
+        var scan = await Reader(gitHub).ReadAsync(Token, "acme", "app", "main", ["server"], CancellationToken.None);
+
+        Assert.Null(scan.SignalsByDirectory["server"].ProjectFilePath);
+        Assert.Equal("Breeze.Api.csproj", scan.SignalsByDirectory["server"].CsprojFileName);
+    }
+
     [Fact]
     public async Task ReadAsync_ReadsTheRepositoryRootAsAContext()
     {

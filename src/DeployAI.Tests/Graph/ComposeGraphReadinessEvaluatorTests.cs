@@ -16,13 +16,18 @@ namespace DeployAI.Tests.Graph;
 /// </summary>
 public class ComposeGraphReadinessEvaluatorTests
 {
+    /// <summary>
+    /// A service the repository can build: its Dockerfile is one that exists, which is
+    /// <c>ExistingPath</c>. Content would mean the opposite — a file an adapter is able to write
+    /// and nobody has written yet — and the two are what this evaluator has to tell apart.
+    /// </summary>
     private static ServiceNode Built(string id, ServiceCapability capabilities, int? port = null, bool withDockerfile = true) =>
         new(
             id,
             capabilities,
             ServiceSource.FromBuild(
                 id,
-                withDockerfile ? new DockerfileSpec("FROM scratch", null, port ?? 80) : null),
+                withDockerfile ? new DockerfileSpec(null, "Dockerfile", port ?? 80) : null),
             Framework: withDockerfile ? "dotnet" : null,
             Ports: port is null ? [] : [port.Value]);
 
@@ -70,6 +75,51 @@ public class ComposeGraphReadinessEvaluatorTests
 
         var finding = Assert.Single(Evaluate(graph), f => f.Severity == DeploymentFileSeverity.Blocking);
         Assert.Contains("scraper", finding.Reason);
+    }
+
+    /// <summary>
+    /// A Dockerfile DeployAI *would write* is not a Dockerfile the repository *has*. The deploy
+    /// builds from what is committed, so a service still waiting for its file cannot be ready —
+    /// and saying it is ready is worse than refusing, because the build fails after a green
+    /// deploy. This is the case a setup run leaves behind when it writes some files and not others.
+    /// </summary>
+    [Fact]
+    public void Evaluate_BlocksOnAServiceWhoseDockerfileHasNotBeenWrittenYet()
+    {
+        var graph = new DeploymentGraph(
+            [
+                new ServiceNode(
+                    "api",
+                    ServiceCapability.HttpService,
+                    // Content but no ExistingPath: an adapter can write this, and nobody has.
+                    ServiceSource.FromBuild("", new DockerfileSpec("FROM mcr.microsoft.com/dotnet/sdk:8.0", null, 8080)),
+                    Framework: "dotnet",
+                    Ports: [8080])
+            ],
+            [],
+            []);
+
+        var finding = Assert.Single(Evaluate(graph), f => f.Severity == DeploymentFileSeverity.Blocking);
+        Assert.Contains("api", finding.Reason);
+    }
+
+    /// <summary>The same service, once the file is actually in the repository, is fine.</summary>
+    [Fact]
+    public void Evaluate_AcceptsAServiceWhoseDockerfileIsInTheRepository()
+    {
+        var graph = new DeploymentGraph(
+            [
+                new ServiceNode(
+                    "api",
+                    ServiceCapability.HttpService,
+                    ServiceSource.FromBuild("", new DockerfileSpec(null, "ReelHub.Server/Dockerfile", 8080)),
+                    Framework: "dotnet",
+                    Ports: [8080])
+            ],
+            [],
+            []);
+
+        Assert.False(Blocks(Evaluate(graph)));
     }
 
     /// <summary>

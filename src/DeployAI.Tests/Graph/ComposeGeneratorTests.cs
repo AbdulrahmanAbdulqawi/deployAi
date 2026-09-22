@@ -41,6 +41,32 @@ public class ComposeGeneratorTests
             "server",
             PackageJson: """{ "main": "server.js", "dependencies": { "express": "4.0.0" } }"""));
 
+    /// <summary>
+    /// A service that builds from the repository root is still a service that builds.
+    ///
+    /// <c>IsBuilt</c> asked whether the build context was non-empty, and a root context is the
+    /// empty string — so every root-context service was treated as neither built nor pulled. It
+    /// got no <c>build:</c> line in the compose file and no Dockerfile written, and the shape is
+    /// not rare: it is what a multi-project .NET solution forces, and what Mirqab and TicketHub
+    /// both do. TicketHub's setup run committed three files and left the API with nothing.
+    /// </summary>
+    [Fact]
+    public void Generate_BuildsAServiceWhoseContextIsTheRepositoryRoot()
+    {
+        var graph = BuildGraph(
+            new DotnetAdapter(),
+            new RepositorySignals(
+                Directory: string.Empty,
+                CsprojContent: "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>",
+                CsprojFileName: "TicketHub.Server.csproj",
+                ProjectFilePath: "TicketHub.Server/TicketHub.Server.csproj"));
+
+        var artifacts = new ComposeGenerator().Generate(graph);
+
+        Assert.NotNull(artifacts.Find("Dockerfile"));
+        Assert.Contains("build: ./", artifacts.Find(ComposeGenerator.ComposeFileName)!.Content);
+    }
+
     [Fact]
     public void Generate_EmitsComposeDockerfilesAndNginx()
     {

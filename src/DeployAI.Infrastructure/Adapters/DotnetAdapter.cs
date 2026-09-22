@@ -45,6 +45,13 @@ public sealed class DotnetAdapter : IFrameworkAdapter
                 ExistingPath: "Dockerfile",
                 ExposedPort: ContainerPort);
         }
+        else if (!string.IsNullOrWhiteSpace(signals.ProjectFilePath))
+        {
+            dockerfile = new DockerfileSpec(
+                RootContextDockerfile(signals.Directory, signals.ProjectFilePath!, assemblyName, targetSdkMajor),
+                ExistingPath: null,
+                ExposedPort: ContainerPort);
+        }
         else
         {
             var content = $"""
@@ -74,6 +81,52 @@ public sealed class DotnetAdapter : IFrameworkAdapter
             Framework: Id,
             Ports: [ContainerPort],
             HealthPath: HealthPath);
+    }
+
+    /// <summary>
+    /// The image for a project that cannot build from its own folder.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An API that references sibling projects — TicketHub.Server needs TicketHub.Business, .Data
+    /// and .Domain — has to build from the directory that contains them all, and that directory
+    /// holds no project file. Restore and publish therefore name the project explicitly: a bare
+    /// <c>dotnet restore</c> at a solution root restores every project in it, tests and worker and
+    /// AppHost included, and publish would have nothing to pick.
+    /// </para>
+    /// <para>
+    /// The whole context is copied before restore, which the single-project image deliberately
+    /// does not do — it copies its csproj first so the restore layer survives a source edit. That
+    /// trick cannot work here: which files the restore needs is exactly what the project graph
+    /// decides, and copying a guess produces a build that fails on a missing reference. A
+    /// <c>.dockerignore</c> is what keeps this context small, and it belongs to the repository.
+    /// </para>
+    /// </remarks>
+    private static string RootContextDockerfile(
+        string directory,
+        string projectFilePath,
+        string assemblyName,
+        int targetSdkMajor)
+    {
+        var project = projectFilePath.Replace('\\', '/').TrimStart('/');
+        var context = string.IsNullOrEmpty(directory) ? string.Empty : directory;
+
+        return $"""
+            # Built with ./{context} as the context — the project references siblings inside it, so
+            # the build cannot run from the project's own folder. COPY paths are relative to it.
+            FROM mcr.microsoft.com/dotnet/sdk:{targetSdkMajor}.0 AS build
+            WORKDIR /src
+            COPY . .
+            RUN dotnet restore "{project}"
+            RUN dotnet publish "{project}" -c Release -o /app --no-restore
+
+            FROM mcr.microsoft.com/dotnet/aspnet:{targetSdkMajor}.0
+            WORKDIR /app
+            COPY --from=build /app .
+            ENV ASPNETCORE_URLS=http://+:{ContainerPort}
+            EXPOSE {ContainerPort}
+            ENTRYPOINT ["dotnet", "{assemblyName}.dll"]
+            """;
     }
 
     /// <summary>

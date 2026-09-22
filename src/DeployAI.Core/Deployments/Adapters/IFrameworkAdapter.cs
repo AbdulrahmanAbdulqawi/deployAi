@@ -53,7 +53,18 @@ public sealed record RepositorySignals(
     /// <summary>vite.config.{ts,js,mjs} — where a Vite build's output directory is declared.
     /// Without it the directory is a guess, and a wrong guess is a Dockerfile that copies from
     /// a path the build never wrote.</summary>
-    string? ViteConfig = null);
+    string? ViteConfig = null,
+    /// <summary>
+    /// Where the project file sits inside this build context, when it is not the context itself.
+    /// </summary>
+    /// <remarks>
+    /// Null is the ordinary case — one project, its own directory, build from there. It is set for
+    /// the shape that cannot work that way: an API that references sibling projects has to build
+    /// from the directory that contains them all, which holds no project file of its own. Without
+    /// this the context looks like nothing an adapter recognises, and the deployment gets no
+    /// Dockerfile at all.
+    /// </remarks>
+    string? ProjectFilePath = null);
 
 public sealed record AdapterDetection(
     /// <summary>0..1. Specific signals (angular.json, a csproj) score high; generic ones (bare package.json) low.</summary>

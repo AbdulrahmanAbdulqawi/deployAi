@@ -103,6 +103,26 @@ public static class ComposeGraphBuilder
             adapters,
             service.ExposedPorts);
 
+        // Compose's own `dockerfile:` key names the file the build uses, and it is regularly not
+        // `Dockerfile` in the context root — reel-hub builds its api from the repository root with
+        // `dockerfile: ReelHub.Server/Dockerfile`. Whatever the adapter would have written, the
+        // repository has already answered, so the node carries the repository's path and no
+        // content of ours.
+        if (!string.IsNullOrWhiteSpace(service.DockerfilePath))
+        {
+            node = node with
+            {
+                Source = node.Source with
+                {
+                    Dockerfile = new DockerfileSpec(
+                        Content: null,
+                        ExistingPath: service.DockerfilePath!.Replace('\\', '/').TrimStart('/'),
+                        ExposedPort: node.Source.Dockerfile?.ExposedPort
+                                     ?? (service.ExposedPorts.Count > 0 ? service.ExposedPorts[0] : DefaultServicePort))
+                }
+            };
+        }
+
         // The compose file is evidence about *this service*; the adapter only ever saw a
         // directory, and two services can build from one directory (api and worker do).
         var capabilities = ResolveCapabilities(service, node.Capabilities);
