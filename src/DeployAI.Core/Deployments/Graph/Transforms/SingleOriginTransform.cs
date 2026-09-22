@@ -8,9 +8,17 @@ namespace DeployAI.Core.Deployments.Graph.Transforms;
 /// </summary>
 public static class SingleOriginTransform
 {
+    /// <summary>
+    /// The path the deployment's proxy forwards to the API. Shared rather than repeated because
+    /// two things have to agree on it and they live in different layers: the generated nginx
+    /// config routes this prefix, and a frontend that bakes its API base in at build time must be
+    /// handed this exact value. If they drift, the app builds against a path nothing serves.
+    /// </summary>
+    public const string DefaultPathPrefix = "/api";
+
     public sealed record Options(
         string? Domain = null,
-        string PathPrefix = "/api",
+        string PathPrefix = DefaultPathPrefix,
         /// <summary>Matched to the app's own upload limit; null keeps the proxy default (usually too small).</summary>
         string? MaxBodySize = null,
         bool WebSockets = false);

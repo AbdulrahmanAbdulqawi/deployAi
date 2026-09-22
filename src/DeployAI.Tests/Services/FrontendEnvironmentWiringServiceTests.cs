@@ -1318,6 +1318,91 @@ public class FrontendEnvironmentWiringServiceTests
         return deploymentId;
     }
 
+    /// <summary>
+    /// A single-origin compose project: one DeployTarget standing for both halves, which is why
+    /// the dual-target load finds no server and every website in this shape came out of the
+    /// pre-deploy wiring untouched.
+    /// </summary>
+    private static async Task<Guid> SeedComposeDeploymentAsync(DeployAIDbContext db, string websiteFramework)
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var credentialId = Guid.NewGuid();
+        var composeTargetId = Guid.NewGuid();
+        var deploymentId = Guid.NewGuid();
+
+        db.Users.Add(new User
+        {
+            Id = userId,
+            GitHubId = 7,
+            GitHubLogin = "compose-tester",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+        db.ProviderCredentials.Add(new ProviderCredential
+        {
+            Id = credentialId,
+            UserId = userId,
+            ProviderName = "coolify",
+            Label = "Coolify",
+            TokenEncrypted = [1, 2, 3],
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        db.Projects.Add(new Project
+        {
+            Id = projectId,
+            UserId = userId,
+            Name = "Compose stack",
+            GitHubRepoFullName = "tester/compose",
+            DefaultBranch = "main",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeployTargets =
+            [
+                new DeployTarget
+                {
+                    Id = composeTargetId,
+                    ProjectId = projectId,
+                    ProviderName = "coolify",
+                    CredentialId = credentialId,
+                    ProviderProjectId = "app_compose",
+                    ConfigJson = $$"""
+                        {
+                          "role": "website",
+                          "framework": "{{websiteFramework}}",
+                          "composeFileLocation": "docker-compose.coolify.yml",
+                          "composeServerDirectory": "server",
+                          "composeServerFramework": "dotnet"
+                        }
+                        """,
+                    CreatedAt = DateTimeOffset.UtcNow
+                }
+            ]
+        });
+        db.Deployments.Add(new Deployment
+        {
+            Id = deploymentId,
+            ProjectId = projectId,
+            Branch = "main",
+            TriggeredBy = "user",
+            Status = DeploymentStatuses.InProgress,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Targets =
+            [
+                new DeploymentTarget
+                {
+                    Id = Guid.NewGuid(),
+                    DeploymentId = deploymentId,
+                    DeployTargetId = composeTargetId,
+                    ProviderName = "coolify",
+                    Status = DeploymentStatuses.InProgress
+                }
+            ]
+        });
+        await db.SaveChangesAsync();
+        return deploymentId;
+    }
+
     private static async Task<Guid> SeedCoolifyDualTargetDeploymentAsync(DeployAIDbContext db)
     {
         var userId = Guid.NewGuid();
@@ -1797,5 +1882,98 @@ public class FrontendEnvironmentWiringServiceTests
         // ...while one that is already build-time is only updated.
         coolifyManagement.Verify(m => m.DeleteEnvVarAsync(
             It.IsAny<ProviderCredentials>(), "app_web", "env_build", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- The API base of a single-origin compose deployment ---------------------------------
+    //
+    // There is no server URL to inject here: the API is on the same origin, behind the proxy the
+    // deployment generates, at /api. Angular asks for exactly that by calling relative paths, so
+    // the shape worked with no wiring at all — which is why nothing noticed that a frontend
+    // baking its API base in at build time would get nothing and ship a localhost default.
+
+    private static (Mock<IProviderManagement> Management, Mock<IProviderManagementFactory> Factory,
+        Mock<IProviderCredentialTokenService> Tokens) ComposeProviderMocks()
+    {
+        var management = new Mock<IProviderManagement>();
+        management.SetupGet(m => m.ProviderName).Returns("coolify");
+        management.Setup(m => m.ListEnvVarsAsync(
+                It.IsAny<ProviderCredentials>(), "app_compose", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+
+        var factory = new Mock<IProviderManagementFactory>();
+        factory.Setup(f => f.GetManagement("coolify")).Returns(management.Object);
+
+        var tokens = new Mock<IProviderCredentialTokenService>();
+        tokens.Setup(t => t.GetTokenAsync(It.IsAny<ProviderCredential>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("token");
+
+        return (management, factory, tokens);
+    }
+
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_GivesAComposeFrontendTheProxyPath_WhenItBakesItsApiBaseIn()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedComposeDeploymentAsync(db, "vite");
+        var target = await db.DeploymentTargets.Include(t => t.DeployTarget).FirstAsync();
+        var (management, factory, tokens) = ComposeProviderMocks();
+
+        var service = CreateService(db, factory, new Mock<IProviderServiceOperationsFactory>(), tokens);
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, target, CancellationToken.None);
+
+        // The key Vite actually reads, the path the generated nginx actually serves, and present
+        // at build time — a runtime-only variable reaches a bundle that was already compiled.
+        management.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            "app_compose",
+            It.Is<UpsertProviderEnvVarRequest>(r =>
+                r.Key == "VITE_API_URL" &&
+                r.Value == "/api" &&
+                r.Type == ProviderEnvVarTypes.BuildTime),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    /// <summary>
+    /// The origin normalizer would turn <c>/api</c> into <c>https:///api</c>, which is not a URL
+    /// any browser resolves — and the app would have built against it without complaint.
+    /// </summary>
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_DoesNotTreatTheProxyPathAsAnOrigin()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedComposeDeploymentAsync(db, "react");
+        var target = await db.DeploymentTargets.Include(t => t.DeployTarget).FirstAsync();
+        var (management, factory, tokens) = ComposeProviderMocks();
+
+        var service = CreateService(db, factory, new Mock<IProviderServiceOperationsFactory>(), tokens);
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, target, CancellationToken.None);
+
+        management.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            It.IsAny<string>(),
+            It.Is<UpsertProviderEnvVarRequest>(r => r.Value!.Contains("http")),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Angular calls relative paths, so it needs no API base and must not be given one. Writing
+    /// variables an app does not read is how a deployment accumulates settings nobody can explain.
+    /// </summary>
+    [Fact]
+    public async Task WireWebsiteTargetBeforeDeployAsync_WritesNothing_WhenTheComposeFrontendCallsRelativePaths()
+    {
+        await using var db = CreateDb();
+        var deploymentId = await SeedComposeDeploymentAsync(db, "angular");
+        var target = await db.DeploymentTargets.Include(t => t.DeployTarget).FirstAsync();
+        var (management, factory, tokens) = ComposeProviderMocks();
+
+        var service = CreateService(db, factory, new Mock<IProviderServiceOperationsFactory>(), tokens);
+        await service.WireWebsiteTargetBeforeDeployAsync(deploymentId, target, CancellationToken.None);
+
+        management.Verify(m => m.UpsertEnvVarAsync(
+            It.IsAny<ProviderCredentials>(),
+            It.IsAny<string>(),
+            It.IsAny<UpsertProviderEnvVarRequest>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -1,4 +1,5 @@
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Deployments.Graph.Transforms;
 using DeployAI.Core.Providers;
 using DeployAI.Core.Security;
 using DeployAI.Data;
@@ -498,6 +499,21 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             return null;
         }
 
+        // A single-origin compose deployment has one DeployTarget standing for both halves, so the
+        // dual-target load below finds no server and returns null — every website in that shape
+        // came out of here unwired. That was harmless while the shape was Angular-only, because
+        // relative paths need no API base at all; it is not harmless for a frontend that bakes one
+        // in at build time.
+        var composeTarget = await LoadComposeWebsiteTargetAsync(deploymentId, websiteTarget, cancellationToken);
+        if (composeTarget is not null)
+        {
+            await ApplyComposeApiEnvironmentAsync(
+                composeTarget,
+                DeployTargetConfig.Parse(composeTarget.ConfigJson).Framework,
+                cancellationToken);
+            return null;
+        }
+
         var context = await LoadDualTargetContextAsync(deploymentId, websiteTarget, cancellationToken);
         if (context is null || string.IsNullOrWhiteSpace(context.ApiUrl))
         {
@@ -641,6 +657,35 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
     {
         var token = await _tokens.GetTokenAsync(deployTarget.Credential!, cancellationToken);
         return new ProviderCredentials(token);
+    }
+
+    /// <summary>
+    /// The website target of a compose deployment, or null when this is not one. Compose targets
+    /// are Coolify-only: one compose resource is what Coolify deploys, and no other provider here
+    /// has that primitive.
+    /// </summary>
+    private async Task<DeployTarget?> LoadComposeWebsiteTargetAsync(
+        Guid deploymentId,
+        DeploymentTarget websiteTarget,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(websiteTarget.ProviderName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var deployTarget = await _db.Deployments
+            .Where(d => d.Id == deploymentId)
+            .SelectMany(d => d.Project.DeployTargets)
+            .Include(t => t.Credential)
+            .FirstOrDefaultAsync(t => t.Id == websiteTarget.DeployTargetId, cancellationToken);
+
+        if (deployTarget?.Credential is null)
+        {
+            return null;
+        }
+
+        return DeployTargetConfig.Parse(deployTarget.ConfigJson).IsComposeTarget ? deployTarget : null;
     }
 
     private async Task<ServerWiringContext?> LoadDualTargetContextAsync(
@@ -893,16 +938,32 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
         string.Equals(providerName, "railway", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(providerName, ProviderNameValues.Coolify, StringComparison.OrdinalIgnoreCase);
 
-    private async Task<IReadOnlyList<string>> ApplyCoolifyApiEnvironmentAsync(
+    private Task<IReadOnlyList<string>> ApplyCoolifyApiEnvironmentAsync(
         DeployTarget websiteDeployTarget,
         string? websiteFramework,
         string apiUrl,
+        CancellationToken cancellationToken) =>
+        WriteCoolifyApiBaseAsync(
+            websiteDeployTarget,
+            websiteFramework,
+            CrossProviderUrlWiring.NormalizeOrigin(apiUrl),
+            cancellationToken);
+
+    /// <summary>
+    /// Writes the API base a frontend should call, under whatever keys its framework reads.
+    /// </summary>
+    /// <param name="apiBase">The final value. A cross-origin deployment passes a normalized origin;
+    /// a single-origin compose deployment passes the proxy path, which must not be normalized — the
+    /// origin normalizer would turn <c>/api</c> into <c>https:///api</c>.</param>
+    private async Task<IReadOnlyList<string>> WriteCoolifyApiBaseAsync(
+        DeployTarget websiteDeployTarget,
+        string? websiteFramework,
+        string apiBase,
         CancellationToken cancellationToken)
     {
         var appliedKeys = new List<string>();
         var management = _managementFactory.GetManagement(ProviderNameValues.Coolify);
         var credentials = await GetCredentialsAsync(websiteDeployTarget, cancellationToken);
-        var normalizedApiUrl = CrossProviderUrlWiring.NormalizeOrigin(apiUrl);
 
         // A framework that inlines its environment bakes the API URL into the bundle at build
         // time, so the variable has to reach the image build. This used to be written as a plain
@@ -942,12 +1003,40 @@ public sealed class FrontendEnvironmentWiringService : IFrontendEnvironmentWirin
             await management.UpsertEnvVarAsync(
                 credentials,
                 websiteDeployTarget.ProviderProjectId,
-                new UpsertProviderEnvVarRequest(key, normalizedApiUrl, type, []),
+                new UpsertProviderEnvVarRequest(key, apiBase, type, []),
                 cancellationToken);
             appliedKeys.Add(key);
         }
 
         return appliedKeys;
+    }
+
+    /// <summary>
+    /// The API base for a single-origin compose deployment: the proxy path, not a server's URL.
+    /// </summary>
+    /// <remarks>
+    /// A frontend that calls relative paths needs nothing — that is what makes Angular work here
+    /// without any wiring at all, and why this gap stayed invisible. A frontend that bakes its API
+    /// base in at build time (Vite and React read <c>VITE_API_URL</c> through
+    /// <c>import.meta.env</c>) needs the value present when the image is built, or the bundle ships
+    /// with whatever its source defaults to — usually a localhost URL — and every call from the
+    /// browser fails against a deployment that reported success.
+    /// </remarks>
+    private async Task<IReadOnlyList<string>> ApplyComposeApiEnvironmentAsync(
+        DeployTarget websiteDeployTarget,
+        string? websiteFramework,
+        CancellationToken cancellationToken)
+    {
+        if (CrossProviderUrlWiring.UsesRelativeApiPaths(websiteFramework))
+        {
+            return [];
+        }
+
+        return await WriteCoolifyApiBaseAsync(
+            websiteDeployTarget,
+            websiteFramework,
+            SingleOriginTransform.DefaultPathPrefix,
+            cancellationToken);
     }
 
     private async Task<IReadOnlyList<string>> ApplyCoolifyServerEnvironmentAsync(
