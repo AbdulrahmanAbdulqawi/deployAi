@@ -79,15 +79,19 @@ public sealed class ViteAdapter : IFrameworkAdapter
         var outputDirectory = ReadOutputDirectory(signals.ViteConfig) ?? DefaultOutputDirectory;
         var buildCommand = ReadBuildScript(signals.PackageJson) is null ? "npx vite build" : "npm run build";
 
+        // A repo that brought its own Dockerfile is respected rather than overwritten, the same
+        // way every other adapter does it.
+        var dockerfile = signals.HasDockerfile
+            ? new DockerfileSpec(Content: null, ExistingPath: "Dockerfile", ExposedPort: StaticBundleDockerfile.ExposedPort)
+            : new DockerfileSpec(
+                StaticBundleDockerfile.Render(signals.Directory, buildCommand, outputDirectory),
+                ExistingPath: null,
+                ExposedPort: StaticBundleDockerfile.ExposedPort);
+
         return new ServiceNode(
             serviceId,
             ServiceCapability.StaticSite,
-            ServiceSource.FromBuild(
-                signals.Directory,
-                new DockerfileSpec(
-                    StaticBundleDockerfile.Render(signals.Directory, buildCommand, outputDirectory),
-                    ExistingPath: null,
-                    ExposedPort: StaticBundleDockerfile.ExposedPort)),
+            ServiceSource.FromBuild(signals.Directory, dockerfile),
             Framework: Id,
             Ports: [StaticBundleDockerfile.ExposedPort]);
     }

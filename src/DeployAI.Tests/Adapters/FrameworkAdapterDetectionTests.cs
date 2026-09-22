@@ -25,6 +25,39 @@ public class FrameworkAdapterDetectionTests
         <Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>
         """;
 
+    /// <summary>
+    /// Every adapter answers "the repository already has a Dockerfile here" the same way: use it.
+    ///
+    /// Only .NET did. Angular and Vite generated one regardless, so their nodes always carried
+    /// content and never a path — and a readiness rule that tells "the repo has a Dockerfile"
+    /// from "DeployAI could write one" then refused a directory whose Dockerfile was sitting
+    /// right there. Two adapters answering the same question differently is the bug; which answer
+    /// is right is not in doubt.
+    /// </summary>
+    [Theory]
+    [InlineData("angular")]
+    [InlineData("vite")]
+    [InlineData("dotnet")]
+    public void AnAdapter_UsesTheDockerfileTheRepositoryAlreadyHas(string adapterId)
+    {
+        var signals = adapterId switch
+        {
+            "angular" => new RepositorySignals("client", PackageJson: AngularPackageJson, HasDockerfile: true,
+                DockerfileContent: "FROM nginx"),
+            "vite" => new RepositorySignals("client",
+                PackageJson: """{ "devDependencies": { "vite": "^5.4.0" } }""", HasDockerfile: true,
+                DockerfileContent: "FROM nginx"),
+            _ => new RepositorySignals("server", CsprojContent: Csproj, CsprojFileName: "Api.csproj",
+                HasDockerfile: true, DockerfileContent: "FROM mcr.microsoft.com/dotnet/aspnet:8.0")
+        };
+
+        var adapter = AllAdapters.Concat([new ViteAdapter()]).First(a => a.Id == adapterId);
+        var dockerfile = adapter.CreateServiceNode("svc", signals).Source.Dockerfile;
+
+        Assert.Equal("Dockerfile", dockerfile?.ExistingPath);
+        Assert.Null(dockerfile?.Content);
+    }
+
     // The ranking that matters: an Angular package.json must be claimed by Angular, not by the
     // generic Node adapter that would also match its start script.
     [Fact]

@@ -43,18 +43,19 @@ public sealed class AngularAdapter : IFrameworkAdapter
 
         // The final stage serves through nginx so the node can also act as the deployment's
         // reverse proxy — the single-origin transform adds that capability and the generator
-        // writes the nginx.conf beside this Dockerfile.
-        var dockerfile = StaticBundleDockerfile.Render(profile.RootDirectory, buildCommand, outputDirectory);
+        // writes the nginx.conf beside this Dockerfile. A repo that brought its own is respected
+        // instead, the same way every other adapter does it.
+        var dockerfile = signals.HasDockerfile
+            ? new DockerfileSpec(Content: null, ExistingPath: "Dockerfile", ExposedPort: StaticBundleDockerfile.ExposedPort)
+            : new DockerfileSpec(
+                StaticBundleDockerfile.Render(profile.RootDirectory, buildCommand, outputDirectory),
+                ExistingPath: null,
+                ExposedPort: StaticBundleDockerfile.ExposedPort);
 
         return new ServiceNode(
             serviceId,
             ServiceCapability.StaticSite,
-            ServiceSource.FromBuild(
-                profile.RootDirectory,
-                new DockerfileSpec(
-                    dockerfile,
-                    ExistingPath: null,
-                    ExposedPort: StaticBundleDockerfile.ExposedPort)),
+            ServiceSource.FromBuild(profile.RootDirectory, dockerfile),
             Framework: Id,
             Ports: [StaticBundleDockerfile.ExposedPort]);
     }
