@@ -21,6 +21,7 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
     private readonly IWebsiteBuildProfileDiscovery _websiteDiscovery;
     private readonly IServerBuildProfileDiscovery _serverDiscovery;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+    private readonly IDotnetProjectLocator _projectLocator;
     private readonly IRepositoryLayoutResolver _layoutResolver;
     private readonly IRepositoryReader _reader;
 
@@ -29,9 +30,11 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         IWebsiteBuildProfileDiscovery websiteDiscovery,
         IServerBuildProfileDiscovery serverDiscovery,
         IDatabaseRequirementDetector databaseRequirementDetector,
+        IDotnetProjectLocator projectLocator,
         IRepositoryLayoutResolver layoutResolver,
         IRepositoryReader reader)
     {
+        _projectLocator = projectLocator;
         _gitHubService = gitHubService;
         _websiteDiscovery = websiteDiscovery;
         _serverDiscovery = serverDiscovery;
@@ -350,8 +353,18 @@ public sealed class RepositoryClassifier : IRepositoryClassifier
         var prismaSchema = await _reader.FindAsync(
             accessToken, owner, repo, gitRef, layout, "prisma/schema.prisma", cancellationToken);
 
+        // The driver package, which is where a .NET app names its database when the connection
+        // string it commits is empty — and an empty one is the only kind worth committing.
+        // TicketHub ships `"DefaultConnection": ""` and runs migrations at startup; without this
+        // the plan offered no database and the API would have crash-looped against nothing.
+        var project = await _projectLocator.LocateAsync(
+            accessToken, owner, repo, gitRef, serverPath, cancellationToken);
+
         return _databaseRequirementDetector.Detect(
-            dockerCompose?.Content, appsettings?.Content, prismaSchema?.Content);
+            dockerCompose?.Content,
+            appsettings?.Content,
+            prismaSchema?.Content,
+            project is null ? null : [project.Content]);
     }
 
     public static string BuildPlainSummary(

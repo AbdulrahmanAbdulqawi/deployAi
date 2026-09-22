@@ -6,10 +6,14 @@ namespace DeployAI.Infrastructure.GitHub;
 
 public interface IDatabaseRequirementDetector
 {
+    /// <param name="projectFileContents">The app's .csproj files. A .NET app names its database in
+    /// its driver package, and for an app that commits an empty connection string — the correct,
+    /// secret-free thing to commit — that is the only place it is named at all.</param>
     DatabaseRequirementProfile Detect(
         string? dockerComposeContent,
         string? appsettingsContent,
-        string? prismaSchemaContent = null);
+        string? prismaSchemaContent = null,
+        IReadOnlyCollection<string>? projectFileContents = null);
 }
 
 public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDetector
@@ -17,7 +21,8 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
     public DatabaseRequirementProfile Detect(
         string? dockerComposeContent,
         string? appsettingsContent,
-        string? prismaSchemaContent = null)
+        string? prismaSchemaContent = null,
+        IReadOnlyCollection<string>? projectFileContents = null)
     {
         var requiresPostgresFromCompose = DetectPostgresInCompose(dockerComposeContent);
         var requiresRedisFromCompose = DetectRedisInCompose(dockerComposeContent);
@@ -25,10 +30,12 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
             DetectConnectionStringsFromComposeEnvironment(dockerComposeContent);
         var (requiresPostgresFromSettings, requiresRedisFromSettings, settingsKeys) = DetectFromAppsettings(appsettingsContent);
         var requiresPostgresFromPrisma = DetectPostgresInPrisma(prismaSchemaContent);
+        var (requiresPostgresFromPackages, requiresRedisFromPackages) = DetectFromProjectFiles(projectFileContents);
 
         var requiresPostgres = requiresPostgresFromCompose || requiresPostgresFromComposeEnv ||
-            requiresPostgresFromSettings || requiresPostgresFromPrisma;
-        var requiresRedis = requiresRedisFromCompose || requiresRedisFromComposeEnv || requiresRedisFromSettings;
+            requiresPostgresFromSettings || requiresPostgresFromPrisma || requiresPostgresFromPackages;
+        var requiresRedis = requiresRedisFromCompose || requiresRedisFromComposeEnv ||
+            requiresRedisFromSettings || requiresRedisFromPackages;
         var keys = MergeKeys(settingsKeys, composeKeys);
         var postgresDatabaseName = requiresPostgres
             ? ExtractPostgresDatabaseName(appsettingsContent)
@@ -37,6 +44,54 @@ public sealed partial class DatabaseRequirementDetector : IDatabaseRequirementDe
 
         return new DatabaseRequirementProfile(requiresPostgres, requiresRedis, keys, postgresDatabaseName);
     }
+
+    /// <summary>
+    /// The database a .NET project declares by referencing its driver.
+    /// </summary>
+    /// <remarks>
+    /// Every other signal here reads a *value* — a connection string with a host in it, a compose
+    /// image, a Prisma provider. An app that commits <c>"DefaultConnection": ""</c>, which is the
+    /// correct thing to commit, has no value to read anywhere, and DeployAI answered "needs no
+    /// database" about an app that runs migrations at startup. The package reference is the
+    /// declaration that survives having no secrets in the repository.
+    /// </remarks>
+    internal static (bool RequiresPostgres, bool RequiresRedis) DetectFromProjectFiles(
+        IReadOnlyCollection<string>? projectFileContents)
+    {
+        if (projectFileContents is null || projectFileContents.Count == 0)
+        {
+            return (false, false);
+        }
+
+        var requiresPostgres = false;
+        var requiresRedis = false;
+
+        foreach (var content in projectFileContents.Where(content => !string.IsNullOrWhiteSpace(content)))
+        {
+            requiresPostgres |= PostgresPackages.Any(package =>
+                content.Contains(package, StringComparison.OrdinalIgnoreCase));
+            requiresRedis |= RedisPackages.Any(package =>
+                content.Contains(package, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return (requiresPostgres, requiresRedis);
+    }
+
+    /// <summary>Driver packages, not ORMs: EntityFrameworkCore alone says nothing about which database.</summary>
+    private static readonly string[] PostgresPackages =
+    [
+        "Npgsql.EntityFrameworkCore.PostgreSQL",
+        "Npgsql\"",
+        "Hangfire.PostgreSql",
+        "Aspire.Npgsql"
+    ];
+
+    private static readonly string[] RedisPackages =
+    [
+        "StackExchange.Redis",
+        "Microsoft.Extensions.Caching.StackExchangeRedis",
+        "Aspire.StackExchange.Redis"
+    ];
 
     internal static bool DetectPostgresInCompose(string? dockerComposeContent)
     {

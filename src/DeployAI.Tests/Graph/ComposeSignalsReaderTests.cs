@@ -56,7 +56,8 @@ public class ComposeSignalsReaderTests
         !name.Contains('.', StringComparison.Ordinal) &&
         !name.Equals("Dockerfile", StringComparison.OrdinalIgnoreCase);
 
-    private static ComposeSignalsReader Reader(Mock<IGitHubService> gitHub) => new(gitHub.Object);
+    private static ComposeSignalsReader Reader(Mock<IGitHubService> gitHub) =>
+        new(gitHub.Object, new DotnetProjectLocator(gitHub.Object));
 
     [Fact]
     public async Task ReadAsync_CollectsTheFilesAnAdapterNeeds_PerBuildContext()

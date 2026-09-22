@@ -40,7 +40,7 @@ public class GraphComposeFileGeneratorTests
     {
         var resolver = new DeploymentTemplateResolver(new DeploymentTemplateCatalog());
         return new GraphComposeFileGenerator(
-            new ComposeSignalsReader(gitHub.Object),
+            new ComposeSignalsReader(gitHub.Object, new DotnetProjectLocator(gitHub.Object)),
             new FrameworkAdapterFactory(
                 [new AngularAdapter(), new ViteAdapter(), new DotnetAdapter(), new NodeExpressAdapter()]),
             new TemplateDeploymentFileGenerator(

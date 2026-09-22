@@ -44,6 +44,11 @@ public static class DependencyInjection
         services.AddScoped<RepositoryLayoutResolver>();
         services.AddScoped<IRepositoryLayoutResolver>(sp => sp.GetRequiredService<RepositoryLayoutResolver>());
         services.AddScoped<IRepositoryReader>(sp => sp.GetRequiredService<RepositoryLayoutResolver>());
+        // One answer to "which project is the app in this directory", shared by the signals reader
+        // and by config-file lookups. Two copies would drift, and the drift would show up as a
+        // deployment missing one file rather than as a disagreement anyone could see.
+        services.AddScoped<DotnetProjectLocator>();
+        services.AddScoped<IDotnetProjectLocator>(sp => sp.GetRequiredService<DotnetProjectLocator>());
         services.AddScoped<IComposeSignalsReader, ComposeSignalsReader>();
         services.AddScoped<IRepositoryGraphScanner, RepositoryGraphScanner>();
 

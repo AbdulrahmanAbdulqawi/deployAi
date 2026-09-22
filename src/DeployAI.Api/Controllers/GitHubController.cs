@@ -26,6 +26,7 @@ public sealed class GitHubController : ControllerBase
     private readonly IGitHubService _gitHubService;
     private readonly IFrontendBuildDetector _buildDetector;
     private readonly IDatabaseRequirementDetector _databaseRequirementDetector;
+    private readonly DotnetProjectLocator _projectLocator;
     private readonly IServerBuildProfileDiscovery _serverBuildProfileDiscovery;
     private readonly IRepositoryClassifier _repositoryClassifier;
     private readonly IEnvVarDetector _envVarDetector;
@@ -41,6 +42,7 @@ public sealed class GitHubController : ControllerBase
         IGitHubService gitHubService,
         IFrontendBuildDetector buildDetector,
         IDatabaseRequirementDetector databaseRequirementDetector,
+        DotnetProjectLocator projectLocator,
         IServerBuildProfileDiscovery serverBuildProfileDiscovery,
         IRepositoryClassifier repositoryClassifier,
         IEnvVarDetector envVarDetector,
@@ -55,6 +57,7 @@ public sealed class GitHubController : ControllerBase
         _gitHubService = gitHubService;
         _buildDetector = buildDetector;
         _databaseRequirementDetector = databaseRequirementDetector;
+        _projectLocator = projectLocator;
         _serverBuildProfileDiscovery = serverBuildProfileDiscovery;
         _repositoryClassifier = repositoryClassifier;
         _envVarDetector = envVarDetector;
@@ -621,14 +624,20 @@ public sealed class GitHubController : ControllerBase
             ["docker-compose.yml", "docker-compose.yaml"],
             @ref,
             cancellationToken);
-        var appsettingsPath = string.IsNullOrEmpty(normalizedPath)
-            ? "appsettings.json"
-            : $"{normalizedPath}/appsettings.json";
+        // A multi-project solution roots everything at the directory holding all the projects, and
+        // that directory has a .sln and no appsettings.json. Reading the app's config where the
+        // build runs rather than where the project is answered "needs no database" about TicketHub,
+        // whose startup runs migrations — so the plan provisioned none.
+        var project = await _projectLocator.LocateAsync(token, owner, repo, @ref, normalizedPath, cancellationToken);
+        var configDirectory = project is null
+            ? normalizedPath
+            : Combine(normalizedPath, project.Directory);
+
         var appsettings = await _gitHubService.GetFileContentAsync(
             token,
             owner,
             repo,
-            appsettingsPath,
+            Combine(configDirectory, "appsettings.json"),
             @ref,
             cancellationToken);
         var prismaPaths = new List<string> { "prisma/schema.prisma" };
@@ -645,7 +654,10 @@ public sealed class GitHubController : ControllerBase
             @ref,
             cancellationToken);
 
-        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings, prismaSchema);
+        // The driver package is where a .NET app names its database when its committed connection
+        // string is empty, which is the only connection string worth committing.
+        var projectFiles = project is null ? null : new[] { project.Content };
+        var profile = _databaseRequirementDetector.Detect(dockerCompose, appsettings, prismaSchema, projectFiles);
         return Ok(new
         {
             requiresPostgres = profile.RequiresPostgres,
@@ -653,6 +665,20 @@ public sealed class GitHubController : ControllerBase
             connectionStringKeys = profile.ConnectionStringKeys,
             postgresDatabaseName = profile.PostgresDatabaseName
         });
+    }
+
+    /// <summary>Joins two repo-relative path segments, either of which may be the repository root.</summary>
+    private static string Combine(string left, string right)
+    {
+        var start = left.Trim().Trim('/');
+        var end = right.Trim().Trim('/');
+
+        if (string.IsNullOrEmpty(start))
+        {
+            return end;
+        }
+
+        return string.IsNullOrEmpty(end) ? start : $"{start}/{end}";
     }
 
     private async Task<string?> ReadFirstExistingFileAsync(

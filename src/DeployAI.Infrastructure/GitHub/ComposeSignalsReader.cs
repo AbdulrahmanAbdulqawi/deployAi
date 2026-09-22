@@ -41,9 +41,10 @@ public interface IComposeSignalsReader
 /// is treated as unread, which is the safer of the two readings.
 /// </para>
 /// </remarks>
-public sealed class ComposeSignalsReader(IGitHubService gitHub) : IComposeSignalsReader
+public sealed class ComposeSignalsReader(IGitHubService gitHub, DotnetProjectLocator projectLocator) : IComposeSignalsReader
 {
     private readonly IGitHubService _gitHub = gitHub;
+    private readonly DotnetProjectLocator _projectLocator = projectLocator;
 
     public async Task<ComposeSignalsScan> ReadAsync(
         string token,
@@ -106,7 +107,7 @@ public sealed class ComposeSignalsReader(IGitHubService gitHub) : IComposeSignal
         // and a solution is the ordinary single-project case, and giving it a path would switch it
         // to the root-context image every app deployed from it does not build with.
         var throughSolution = csprojName is null
-            ? await ResolveProjectThroughSolutionAsync(token, owner, repo, branch, directory, files, cancellationToken)
+            ? await _projectLocator.LocateAsync(token, owner, repo, branch, directory, files, cancellationToken)
             : null;
 
         return new RepositorySignals(
@@ -127,85 +128,6 @@ public sealed class ComposeSignalsReader(IGitHubService gitHub) : IComposeSignal
                 "vite.config.ts", "vite.config.js", "vite.config.mjs"),
             ProjectFilePath: throughSolution?.Path);
     }
-
-    private sealed record SolutionProject(string Path, string FileName, string Content);
-
-    /// <summary>
-    /// The runnable app inside a solution, for a build context that holds no project file itself.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// This is the shape a multi-project .NET solution forces: the API references its siblings, so
-    /// the build has to run from the directory that contains them all, and that directory has only
-    /// a <c>.sln</c>. Without this nothing claims the context, no Dockerfile is generated, and the
-    /// setup commits every file but the one the API needs — observed on TicketHub, three of four.
-    /// </para>
-    /// <para>
-    /// The solution names the projects; reading them is what says which is the app. Nothing is
-    /// claimed when none carries a web or worker SDK: a solution of libraries has no entry point,
-    /// and picking one anyway produces an image that starts nothing — the same failure the
-    /// csproj ranking below exists to prevent one level down. Candidates are read in a likely
-    /// order and capped, because a large solution would otherwise cost a request per project on
-    /// every scan.
-    /// </para>
-    /// </remarks>
-    private async Task<SolutionProject?> ResolveProjectThroughSolutionAsync(
-        string token,
-        string owner,
-        string repo,
-        string? branch,
-        string directory,
-        IReadOnlyList<string> files,
-        CancellationToken cancellationToken)
-    {
-        var solutionName = files.FirstOrDefault(name => name.EndsWith(".sln", StringComparison.OrdinalIgnoreCase));
-        if (solutionName is null)
-        {
-            return null;
-        }
-
-        var solution = await _gitHub.GetFileContentAsync(
-            token, owner, repo, Join(directory, solutionName), branch, cancellationToken);
-        if (string.IsNullOrWhiteSpace(solution))
-        {
-            return null;
-        }
-
-        var candidates = Regex
-            .Matches(solution, @"Project\(""\{[^}]+\}""\)\s*=\s*""[^""]+"",\s*""([^""]+\.csproj)""",
-                RegexOptions.IgnoreCase)
-            .Select(match => match.Groups[1].Value.Replace('\\', '/').Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            // A name that reads like the app is tried first; the SDK check below is what decides.
-            .OrderByDescending(LooksLikeAnApp)
-            .Take(MaxSolutionProjectsRead)
-            .ToList();
-
-        foreach (var candidate in candidates)
-        {
-            var content = await _gitHub.GetFileContentAsync(
-                token, owner, repo, Join(directory, candidate), branch, cancellationToken);
-
-            if (content is not null && DeclaresRunnableSdk(content))
-            {
-                return new SolutionProject(candidate, Path.GetFileName(candidate), content);
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>Enough to cover a real solution without paying a request per project on a huge one.</summary>
-    private const int MaxSolutionProjectsRead = 12;
-
-    private static bool LooksLikeAnApp(string projectPath) =>
-        projectPath.Contains("server", StringComparison.OrdinalIgnoreCase) ||
-        projectPath.Contains("api", StringComparison.OrdinalIgnoreCase) ||
-        projectPath.Contains("web", StringComparison.OrdinalIgnoreCase);
-
-    private static bool DeclaresRunnableSdk(string csproj) =>
-        csproj.Contains("Microsoft.NET.Sdk.Web", StringComparison.OrdinalIgnoreCase) ||
-        csproj.Contains("Microsoft.NET.Sdk.Worker", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The first of several alternative spellings that the directory actually holds. A config file

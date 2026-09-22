@@ -128,7 +128,7 @@ public class DeploymentFileGeneratorSelectorTests
             resolver);
         var template = new TemplateDeploymentFileGenerator(scaffolder, fileFetcher);
         var graph = new GraphComposeFileGenerator(
-            new ComposeSignalsReader(gitHub),
+            new ComposeSignalsReader(gitHub, new DotnetProjectLocator(gitHub)),
             new FrameworkAdapterFactory([new AngularAdapter(), new DotnetAdapter()]),
             template);
         var selector = new DeploymentFileGeneratorSelector(hybrid, template, graph, anthropic, options);

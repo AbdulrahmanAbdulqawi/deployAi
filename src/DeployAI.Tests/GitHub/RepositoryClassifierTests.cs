@@ -336,6 +336,7 @@ public class RepositoryClassifierTests
             websiteDiscovery,
             serverDiscovery,
             _databaseDetector,
+            new DotnetProjectLocator(_gitHub.Object),
             layout,
             layout);
 

@@ -130,6 +130,7 @@ public class MirqabClassificationTests
             new WebsiteBuildProfileDiscovery(_gitHub.Object, new FrontendBuildDetector()),
             new ServerBuildProfileDiscovery(_gitHub.Object, new ServerBuildDetector(), layout),
             new DatabaseRequirementDetector(),
+            new DotnetProjectLocator(_gitHub.Object),
             layout,
             layout);
 

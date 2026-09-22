@@ -6,6 +6,69 @@ public class DatabaseRequirementDetectorTests
 {
     private readonly DatabaseRequirementDetector _detector = new();
 
+    /// <summary>
+    /// A .NET app names its database in its package reference, and that is often the only place.
+    ///
+    /// TicketHub commits <c>"DefaultConnection": ""</c> — which is the correct, secret-free thing
+    /// to commit — and every other signal is absent: no compose file, no Prisma schema, an empty
+    /// connection string to parse. DeployAI answered "needs no database" about an app whose
+    /// startup runs migrations, so the plan provisioned nothing and the API would have crash-looped
+    /// on an empty connection string. The driver package is unambiguous and is in the repository.
+    /// </summary>
+    [Fact]
+    public void Detect_FindsPostgres_FromTheDriverPackage_WhenTheConnectionStringIsEmpty()
+    {
+        const string appsettings = """
+            { "ConnectionStrings": { "DefaultConnection": "" } }
+            """;
+
+        const string csproj = """
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <ItemGroup>
+                <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+              </ItemGroup>
+            </Project>
+            """;
+
+        var profile = _detector.Detect(null, appsettings, null, [csproj]);
+
+        Assert.True(profile.RequiresPostgres);
+        Assert.Contains("DefaultConnection", profile.ConnectionStringKeys);
+    }
+
+    [Theory]
+    [InlineData("StackExchange.Redis")]
+    [InlineData("Microsoft.Extensions.Caching.StackExchangeRedis")]
+    public void Detect_FindsRedis_FromTheDriverPackage(string package)
+    {
+        var csproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <ItemGroup><PackageReference Include="{package}" Version="8.0.0" /></ItemGroup>
+            </Project>
+            """;
+
+        Assert.True(_detector.Detect(null, null, null, [csproj]).RequiresRedis);
+    }
+
+    /// <summary>
+    /// A project with no data packages needs no database. Guessing one would provision a resource
+    /// the app never opens, and bill for it.
+    /// </summary>
+    [Fact]
+    public void Detect_ClaimsNoDatabase_ForAProjectThatReferencesNoDriver()
+    {
+        const string csproj = """
+            <Project Sdk="Microsoft.NET.Sdk.Web">
+              <ItemGroup><PackageReference Include="Serilog.AspNetCore" Version="8.0.0" /></ItemGroup>
+            </Project>
+            """;
+
+        var profile = _detector.Detect(null, null, null, [csproj]);
+
+        Assert.False(profile.RequiresPostgres);
+        Assert.False(profile.RequiresRedis);
+    }
+
     [Fact]
     public void Detect_FindsPostgresAndRedis_FromIdaaraLikeComposeAndAppsettings()
     {
