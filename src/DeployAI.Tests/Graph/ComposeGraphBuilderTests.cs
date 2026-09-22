@@ -203,6 +203,65 @@ public class ComposeGraphBuilderTests
         Assert.Equal("tools/scraper", scraper.Source.BuildContext);
     }
 
+    /// <summary>
+    /// A directory no adapter recognises but which carries its own Dockerfile is buildable —
+    /// just not by DeployAI's generator, which is a different answer from "not buildable at all".
+    /// Collapsing the two makes <c>ComposeGraphReadinessEvaluator</c> refuse a repository that
+    /// would have deployed, with a message telling the user to add a file that is already there.
+    /// Mirqab is exactly this shape: a root-context Dockerfile with its source three levels down,
+    /// so no csproj sits where the adapter looks.
+    /// </summary>
+    [Fact]
+    public void Build_KeepsARepoProvidedDockerfileForAServiceNoAdapterClaims()
+    {
+        var graph = ComposeGraphBuilder.Build(
+            ComposeFileReader.Read("""
+                services:
+                  scraper:
+                    build: ./tools/scraper
+                    expose:
+                      - '9000'
+                """),
+            new Dictionary<string, RepositorySignals>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tools/scraper"] = new RepositorySignals(
+                    "tools/scraper",
+                    HasDockerfile: true,
+                    DockerfileContent: "FROM golang:1.22\nEXPOSE 9000\n")
+            },
+            Adapters);
+
+        var dockerfile = graph.FindService("scraper")!.Source.Dockerfile;
+        Assert.Equal("Dockerfile", dockerfile?.ExistingPath);
+        // No content: DeployAI did not write this one and must not claim it can regenerate it.
+        Assert.Null(dockerfile?.Content);
+        Assert.Equal(9000, dockerfile?.ExposedPort);
+    }
+
+    /// <summary>
+    /// Without a compose <c>expose</c>, the Dockerfile's own EXPOSE is the only statement of what
+    /// the image listens on. Guessing instead is how a proxy ends up pointed at a port nothing
+    /// serves — a deploy that reports success and 502s every request.
+    /// </summary>
+    [Fact]
+    public void Build_ReadsTheListenPortFromAnUnclaimedServicesOwnDockerfile()
+    {
+        var graph = ComposeGraphBuilder.Build(
+            ComposeFileReader.Read("services:\n  scraper:\n    build: ./tools/scraper\n"),
+            new Dictionary<string, RepositorySignals>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["tools/scraper"] = new RepositorySignals(
+                    "tools/scraper",
+                    HasDockerfile: true,
+                    DockerfileContent: "FROM golang:1.22\nEXPOSE 3000\nCMD [\"/app\"]\n")
+            },
+            Adapters);
+
+        var scraper = graph.FindService("scraper")!;
+        Assert.Equal(3000, scraper.Source.Dockerfile?.ExposedPort);
+        Assert.Equal([3000], scraper.ListenPorts);
+    }
+
     [Theory]
     [InlineData("./server", "server")]
     [InlineData("./", "")]

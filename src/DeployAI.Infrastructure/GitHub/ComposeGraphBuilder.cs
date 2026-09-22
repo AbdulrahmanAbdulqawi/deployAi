@@ -1,5 +1,7 @@
+using System.Text.RegularExpressions;
 using DeployAI.Core.Deployments.Adapters;
 using DeployAI.Core.Deployments.Graph;
+using DeployAI.Infrastructure.Adapters;
 
 namespace DeployAI.Infrastructure.GitHub;
 
@@ -107,12 +109,9 @@ public static class ComposeGraphBuilder
         var node = claim.Adapter is not null
             ? claim.Adapter.CreateServiceNode(service.Name, signals)
             // Nothing claimed it, and the service still exists. A node with no framework builds
-            // from its own context; what it cannot get is a generated Dockerfile, which is a
+            // from its own context; what it cannot get is a *generated* Dockerfile, which is a
             // separate answer from "this service is not here".
-            : new ServiceNode(
-                service.Name,
-                ServiceCapability.HttpService,
-                ServiceSource.FromBuild(directory));
+            : UnclaimedNode(service.Name, directory, signals, service.ExposedPorts);
 
         // The compose file is evidence about *this service*; the adapter only ever saw a
         // directory, and two services can build from one directory (api and worker do).
@@ -131,6 +130,58 @@ public static class ComposeGraphBuilder
             Command = service.Command ?? node.Command,
             Source = node.Source with { BuildContext = directory }
         };
+    }
+
+    /// <summary>
+    /// The node for a build context no adapter recognised.
+    /// </summary>
+    /// <remarks>
+    /// The distinction that matters here is between a directory DeployAI cannot write a Dockerfile
+    /// for and one that cannot be built at all. A repository that brought its own Dockerfile is in
+    /// the first group and deploys perfectly well; losing that makes the readiness evaluator refuse
+    /// it and tell the user to add a file that is already sitting there. Mirqab is the shape that
+    /// does it — a root-context Dockerfile with its source three levels down, so no csproj is where
+    /// <see cref="DotnetAdapter"/> looks.
+    /// </remarks>
+    private static ServiceNode UnclaimedNode(
+        string serviceId,
+        string directory,
+        RepositorySignals signals,
+        IReadOnlyList<int> composePorts)
+    {
+        if (!signals.HasDockerfile)
+        {
+            return new ServiceNode(serviceId, ServiceCapability.HttpService, ServiceSource.FromBuild(directory));
+        }
+
+        // Compose's own `expose` wins: it is what this deployment actually routes to, while the
+        // Dockerfile's EXPOSE only describes the image. 8080 is the last resort, and only reached
+        // when neither says anything.
+        var port = composePorts.Count > 0
+            ? composePorts[0]
+            : ReadExposedPort(signals.DockerfileContent) ?? DefaultServicePort;
+
+        return new ServiceNode(
+            serviceId,
+            ServiceCapability.HttpService,
+            // Content stays null: DeployAI did not write this Dockerfile and must not claim it can
+            // regenerate it. ExistingPath is what says "there is one, and it is not ours".
+            ServiceSource.FromBuild(directory, new DockerfileSpec(Content: null, ExistingPath: "Dockerfile", ExposedPort: port)),
+            Ports: [port]);
+    }
+
+    private const int DefaultServicePort = 8080;
+
+    /// <summary>The first port a Dockerfile declares with EXPOSE; null when it declares none.</summary>
+    private static int? ReadExposedPort(string? dockerfile)
+    {
+        if (string.IsNullOrWhiteSpace(dockerfile))
+        {
+            return null;
+        }
+
+        var match = Regex.Match(dockerfile, @"^\s*EXPOSE\s+(\d+)", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var port) ? port : null;
     }
 
     /// <summary>
