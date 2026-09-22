@@ -1,5 +1,7 @@
 using DeployAI.Api.Services;
 using DeployAI.Api.Services.DeploymentTemplates;
+using DeployAI.Core.Deployments;
+using DeployAI.Infrastructure.Adapters;
 using DeployAI.Infrastructure.GitHub;
 using DeployAI.Infrastructure.Options;
 using Microsoft.Extensions.Options;
@@ -9,12 +11,26 @@ namespace DeployAI.Tests.Services;
 
 public class DeploymentFileGeneratorSelectorTests
 {
+    /// <summary>A Vercel site with a Railway server — split origin, so the AI/template choice applies.</summary>
+    private static readonly DeploymentPlanPart[] SplitOriginParts =
+    [
+        new("website", "vercel", RootDirectory: "client", Framework: "angular"),
+        new("server", "railway", RootDirectory: "server", Framework: "dotnet")
+    ];
+
+    /// <summary>Both halves on one Coolify server — one compose resource, one origin.</summary>
+    private static readonly DeploymentPlanPart[] ComposeParts =
+    [
+        new("website", "coolify", RootDirectory: "client", Framework: "angular"),
+        new("server", "coolify", RootDirectory: "server", Framework: "dotnet")
+    ];
+
     [Fact]
     public async Task SelectAsync_ReturnsHybrid_WhenAiRequestedAndConfigured()
     {
-        var (selector, hybrid, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+        var (selector, hybrid, _, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
 
-        var selection = await selector.SelectAsync(useAi: true, reportActivity: null);
+        var selection = await selector.SelectAsync(SplitOriginParts, useAi: true, reportActivity: null);
 
         Assert.Same(hybrid, selection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.AiMode, selection.Mode);
@@ -23,10 +39,11 @@ public class DeploymentFileGeneratorSelectorTests
     [Fact]
     public async Task SelectAsync_FallsBackToTemplate_WhenAiRequestedButNotConfigured()
     {
-        var (selector, _, template, _) = CreateSelector(apiKey: "", preferAiSetup: true);
+        var (selector, _, template, _, _) = CreateSelector(apiKey: "", preferAiSetup: true);
         var messages = new List<string>();
 
         var selection = await selector.SelectAsync(
+            SplitOriginParts,
             useAi: true,
             reportActivity: message =>
             {
@@ -42,9 +59,9 @@ public class DeploymentFileGeneratorSelectorTests
     [Fact]
     public async Task SelectAsync_ReturnsTemplate_WhenAiDisabled()
     {
-        var (selector, _, template, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+        var (selector, _, template, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
 
-        var selection = await selector.SelectAsync(useAi: false, reportActivity: null);
+        var selection = await selector.SelectAsync(SplitOriginParts, useAi: false, reportActivity: null);
 
         Assert.Same(template, selection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.TemplateMode, selection.Mode);
@@ -53,21 +70,43 @@ public class DeploymentFileGeneratorSelectorTests
     [Fact]
     public async Task SelectAsync_UsesServerDefault_WhenPreferenceUnset()
     {
-        var (aiSelector, hybrid, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
-        var aiSelection = await aiSelector.SelectAsync(useAi: null, reportActivity: null);
+        var (aiSelector, hybrid, _, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+        var aiSelection = await aiSelector.SelectAsync(SplitOriginParts, useAi: null, reportActivity: null);
         Assert.Same(hybrid, aiSelection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.AiMode, aiSelection.Mode);
 
-        var (templateSelector, _, template, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: false);
-        var templateSelection = await templateSelector.SelectAsync(useAi: null, reportActivity: null);
+        var (templateSelector, _, template, _, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: false);
+        var templateSelection = await templateSelector.SelectAsync(SplitOriginParts, useAi: null, reportActivity: null);
         Assert.Same(template, templateSelection.Generator);
         Assert.Equal(DeploymentFileGeneratorSelector.TemplateMode, templateSelection.Mode);
+    }
+
+    /// <summary>
+    /// A compose deployment's files are topology — which services exist, what builds them, where
+    /// the proxy sends traffic — and that is read off the repository, not written prose-first.
+    /// Both of the other paths have cost this shape a file: the AI path dropped <c>nginx.conf</c>
+    /// for its extension, and the template path can only produce the literal framework pair it has
+    /// templates for.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task SelectAsync_BuildsAComposePlanFromTheGraph_WhateverTheAiPreference(bool? useAi)
+    {
+        var (selector, _, _, graph, _) = CreateSelector(apiKey: "sk-test", preferAiSetup: true);
+
+        var selection = await selector.SelectAsync(ComposeParts, useAi, reportActivity: null);
+
+        Assert.Same(graph, selection.Generator);
+        Assert.Equal(DeploymentFileGeneratorSelector.GraphMode, selection.Mode);
     }
 
     private static (
         DeploymentFileGeneratorSelector Selector,
         HybridDeploymentFileGenerator Hybrid,
         TemplateDeploymentFileGenerator Template,
+        GraphComposeFileGenerator Graph,
         AnthropicMessageClient Anthropic) CreateSelector(string apiKey, bool preferAiSetup)
     {
         var options = Options.Create(new AnthropicOptions
@@ -88,7 +127,11 @@ public class DeploymentFileGeneratorSelectorTests
             fileFetcher,
             resolver);
         var template = new TemplateDeploymentFileGenerator(scaffolder, fileFetcher);
-        var selector = new DeploymentFileGeneratorSelector(hybrid, template, anthropic, options);
-        return (selector, hybrid, template, anthropic);
+        var graph = new GraphComposeFileGenerator(
+            new ComposeSignalsReader(gitHub),
+            new FrameworkAdapterFactory([new AngularAdapter(), new DotnetAdapter()]),
+            template);
+        var selector = new DeploymentFileGeneratorSelector(hybrid, template, graph, anthropic, options);
+        return (selector, hybrid, template, graph, anthropic);
     }
 }

@@ -96,22 +96,12 @@ public static class ComposeGraphBuilder
                 Command: service.Command);
         }
 
-        var directory = NormalizeContext(service.BuildContext);
-        signalsByDirectory.TryGetValue(directory, out var signals);
-        signals ??= new RepositorySignals(directory);
-
-        var claim = adapters
-            .Select(adapter => (Adapter: adapter, Detection: adapter.Detect(signals)))
-            .Where(candidate => candidate.Detection is not null)
-            .OrderByDescending(candidate => candidate.Detection!.Confidence)
-            .FirstOrDefault();
-
-        var node = claim.Adapter is not null
-            ? claim.Adapter.CreateServiceNode(service.Name, signals)
-            // Nothing claimed it, and the service still exists. A node with no framework builds
-            // from its own context; what it cannot get is a *generated* Dockerfile, which is a
-            // separate answer from "this service is not here".
-            : UnclaimedNode(service.Name, directory, signals, service.ExposedPorts);
+        var node = BuildNodeForDirectory(
+            service.Name,
+            service.BuildContext,
+            signalsByDirectory,
+            adapters,
+            service.ExposedPorts);
 
         // The compose file is evidence about *this service*; the adapter only ever saw a
         // directory, and two services can build from one directory (api and worker do).
@@ -127,9 +117,50 @@ public static class ComposeGraphBuilder
                 ? service.ExposedPorts
                 : capabilities.HasCapability(ServiceCapability.Worker) ? [] : node.ListenPorts,
             Volumes = volumes.Count > 0 ? volumes : node.VolumeMounts,
-            Command = service.Command ?? node.Command,
-            Source = node.Source with { BuildContext = directory }
+            Command = service.Command ?? node.Command
         };
+    }
+
+    /// <summary>
+    /// The node for one build context: whichever adapter claims the directory most confidently
+    /// builds it, and nothing does when none of them recognises it.
+    /// </summary>
+    /// <remarks>
+    /// Public because the setup path has no compose file to read and still has to reach the same
+    /// answer for the same directory. A second copy of the ranking would drift — and would drift
+    /// invisibly, since both copies produce a plausible node and only the Dockerfile inside it
+    /// would differ.
+    /// </remarks>
+    /// <param name="declaredPorts">Ports the caller already knows this service listens on
+    /// (compose's <c>expose</c>); empty when only the directory is known.</param>
+    public static ServiceNode BuildNodeForDirectory(
+        string serviceId,
+        string? buildContext,
+        IReadOnlyDictionary<string, RepositorySignals> signalsByDirectory,
+        IReadOnlyList<IFrameworkAdapter> adapters,
+        IReadOnlyList<int>? declaredPorts = null)
+    {
+        var directory = NormalizeContext(buildContext);
+        signalsByDirectory.TryGetValue(directory, out var signals);
+        signals ??= new RepositorySignals(directory);
+
+        var claim = adapters
+            .Select(adapter => (Adapter: adapter, Detection: adapter.Detect(signals)))
+            .Where(candidate => candidate.Detection is not null)
+            .OrderByDescending(candidate => candidate.Detection!.Confidence)
+            .FirstOrDefault();
+
+        var node = claim.Adapter is not null
+            ? claim.Adapter.CreateServiceNode(serviceId, signals)
+            // Nothing claimed it, and the service still exists. A node with no framework builds
+            // from its own context; what it cannot get is a *generated* Dockerfile, which is a
+            // separate answer from "this service is not here".
+            : UnclaimedNode(serviceId, directory, signals, declaredPorts ?? []);
+
+        // An adapter derives the context from the signals it was handed, which is the same
+        // directory — but the graph's contract is that it is normalised, and only here is that
+        // guaranteed.
+        return node with { Source = node.Source with { BuildContext = directory } };
     }
 
     /// <summary>

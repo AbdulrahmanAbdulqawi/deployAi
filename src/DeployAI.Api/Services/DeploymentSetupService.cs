@@ -82,14 +82,19 @@ public sealed class DeploymentSetupService : IDeploymentSetupService
                     : "Repository already has required split-origin deployment files.");
         }
 
-        var selection = await _generatorSelector.SelectAsync(request.UseAi, reportActivity);
+        var selection = await _generatorSelector.SelectAsync(request.Parts, request.UseAi, reportActivity);
         await PersistAiPreferenceAsync(userId, request, selection.Mode, cancellationToken);
 
         await ReportActivityAsync(
             reportActivity,
-            selection.Mode == DeploymentFileGeneratorSelector.AiMode
-                ? $"Found {missing.Length} deployment target(s) for Claude to generate or fix."
-                : $"Found {missing.Length} deployment target(s) to generate from built-in templates.");
+            selection.Mode switch
+            {
+                DeploymentFileGeneratorSelector.AiMode =>
+                    $"Found {missing.Length} deployment target(s) for Claude to generate or fix.",
+                DeploymentFileGeneratorSelector.GraphMode =>
+                    $"Found {missing.Length} deployment target(s) to generate from the repository's structure.",
+                _ => $"Found {missing.Length} deployment target(s) to generate from built-in templates."
+            });
 
         var generated = await selection.Generator.GenerateMissingFilesAsync(
             owner,

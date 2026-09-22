@@ -466,7 +466,10 @@ public class DeploymentSetupServiceTests
     {
         var selector = new Mock<IDeploymentFileGeneratorSelector>();
         selector
-            .Setup(s => s.SelectAsync(It.IsAny<bool?>(), It.IsAny<Func<string, Task>?>()))
+            .Setup(s => s.SelectAsync(
+                It.IsAny<IReadOnlyList<DeploymentPlanPart>>(),
+                It.IsAny<bool?>(),
+                It.IsAny<Func<string, Task>?>()))
             .ReturnsAsync(new DeploymentFileGeneratorSelection(generator, mode));
         return selector.Object;
     }
