@@ -60,6 +60,7 @@ public static class DependencyInjection
         // Framework adapters: everything framework-specific lives behind IFrameworkAdapter, so
         // adding a stack is one class plus one line here — shapes/planner/generators unchanged.
         services.AddSingleton<IFrameworkAdapter, AngularAdapter>();
+        services.AddSingleton<IFrameworkAdapter, ViteAdapter>();
         services.AddSingleton<IFrameworkAdapter, DotnetAdapter>();
         services.AddSingleton<IFrameworkAdapter, NodeExpressAdapter>();
         services.AddSingleton<IFrameworkAdapterFactory, FrameworkAdapterFactory>();

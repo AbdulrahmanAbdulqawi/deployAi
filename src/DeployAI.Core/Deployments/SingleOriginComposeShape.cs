@@ -14,10 +14,20 @@ namespace DeployAI.Core.Deployments;
 public static class SingleOriginComposeShape
 {
     /// <summary>
-    /// Deliberately narrow: only the stack we actually generate compose templates for.
-    /// A frontend with its own server runtime (Next, Nuxt, SvelteKit, Astro) is not a static
-    /// bundle nginx can front, so it stays on the split-origin path until it has templates.
+    /// Any front end that compiles to static files, in front of a .NET server.
     /// </summary>
+    /// <remarks>
+    /// This was <c>"angular"</c> and nothing else, back when the shape meant "the stack we have
+    /// compose templates for". It does not mean that any more: the files come from the deployment
+    /// graph, which asks an adapter what a directory is and contains no framework name. What still
+    /// has to hold is that the front end is a bundle nginx can serve — a framework with its own
+    /// server runtime (Next, Nuxt, SvelteKit, Remix, Astro) is not, and serving its build output
+    /// through nginx drops half the app.
+    ///
+    /// Widening this alone would have shipped broken apps: a bundle that bakes its API base in at
+    /// build time needs that value present when the image is built, which the compose shape never
+    /// provided. That is wired first, in <c>FrontendEnvironmentWiringService</c>.
+    /// </remarks>
     public static bool SupportsFrameworks(string? websiteFramework, string? serverFramework) =>
         IsStaticBundleFrontend(websiteFramework) && IsDotnetServer(serverFramework);
 
@@ -36,7 +46,7 @@ public static class SingleOriginComposeShape
         SupportsFrameworks(websiteFramework, serverFramework);
 
     private static bool IsStaticBundleFrontend(string? framework) =>
-        framework?.ToLowerInvariant() is "angular";
+        framework?.ToLowerInvariant() is "angular" or "vite" or "react" or "vue" or "svelte" or "preact" or "solid";
 
     private static bool IsDotnetServer(string? framework) =>
         framework?.ToLowerInvariant() is "dotnet" or "aspnet" or "aspnetcore" or "docker";

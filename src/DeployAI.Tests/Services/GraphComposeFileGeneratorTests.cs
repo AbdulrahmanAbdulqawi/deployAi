@@ -41,7 +41,8 @@ public class GraphComposeFileGeneratorTests
         var resolver = new DeploymentTemplateResolver(new DeploymentTemplateCatalog());
         return new GraphComposeFileGenerator(
             new ComposeSignalsReader(gitHub.Object),
-            new FrameworkAdapterFactory([new AngularAdapter(), new DotnetAdapter(), new NodeExpressAdapter()]),
+            new FrameworkAdapterFactory(
+                [new AngularAdapter(), new ViteAdapter(), new DotnetAdapter(), new NodeExpressAdapter()]),
             new TemplateDeploymentFileGenerator(
                 new DeploymentFileScaffolder(resolver),
                 new DeploymentSetupFileFetcher(gitHub.Object)));
@@ -199,6 +200,51 @@ public class GraphComposeFileGeneratorTests
 
         Assert.Contains("one static site", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dotnet", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The invariant that makes widening the shape safe: a stack the classifier now routes to the
+    /// compose path is one this generator can actually write files for. Widening
+    /// <c>SingleOriginComposeShape</c> on its own would have sent every Vite repository — portfolio
+    /// and tickethub among them — to a generator with no adapter that claims a Vite bundle, which
+    /// refuses the pair for having two APIs and no site.
+    /// </summary>
+    [Fact]
+    public async Task Generate_ProducesADeploymentForAViteFrontEnd_NowThatTheShapeAcceptsOne()
+    {
+        var viteParts = new DeploymentPlanPart[]
+        {
+            new("website", "coolify", RootDirectory: "client", Framework: "vite"),
+            new("server", "coolify", RootDirectory: "server", Framework: "dotnet")
+        };
+
+        Assert.True(
+            SingleOriginComposeShape.Supports("vite", "dotnet", "coolify", "coolify"),
+            "The classifier no longer routes this stack here, so this test proves nothing.");
+
+        var gitHub = Repository(
+            new Dictionary<string, string[]>
+            {
+                ["client"] = ["package.json", "vite.config.ts"],
+                ["server"] = ["Portfolio.Api.csproj"]
+            },
+            new Dictionary<string, string>
+            {
+                ["client/package.json"] =
+                    """{ "dependencies": { "react": "^18.3.0" }, "devDependencies": { "vite": "^5.4.0" }, "scripts": { "build": "vite build" } }""",
+                ["client/vite.config.ts"] = "export default defineConfig({ build: { outDir: 'build' } })",
+                ["server/Portfolio.Api.csproj"] =
+                    "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>"
+            });
+
+        var files = await Generator(gitHub).GenerateMissingFilesAsync(
+            "acme", "app", "main", Token, viteParts, Missing, null, CancellationToken.None);
+
+        var paths = files.Select(file => file.Path).ToArray();
+        Assert.Contains("docker-compose.coolify.yml", paths);
+        Assert.Contains("client/nginx.conf", paths);
+        // The directory this project's own config declares, not Vite's default.
+        Assert.Contains("/src/build /usr/share/nginx/html", files.Single(f => f.Path == "client/Dockerfile").Content);
     }
 
     /// <summary>

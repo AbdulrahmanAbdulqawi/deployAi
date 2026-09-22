@@ -107,7 +107,33 @@ public sealed class ComposeSignalsReader(IGitHubService gitHub) : IComposeSignal
             PyprojectToml: await Read("pyproject.toml"),
             GoMod: await Read("go.mod"),
             CargoToml: await Read("Cargo.toml"),
-            AppsettingsJson: await Read("appsettings.json"));
+            AppsettingsJson: await Read("appsettings.json"),
+            ViteConfig: await ReadFirstAsync(
+                token, owner, repo, branch, directory, files, cancellationToken,
+                "vite.config.ts", "vite.config.js", "vite.config.mjs"));
+    }
+
+    /// <summary>
+    /// The first of several alternative spellings that the directory actually holds. A config file
+    /// with three accepted extensions is one file, not three, so this fetches at most one.
+    /// </summary>
+    private async Task<string?> ReadFirstAsync(
+        string token,
+        string owner,
+        string repo,
+        string? branch,
+        string directory,
+        IReadOnlyList<string> files,
+        CancellationToken cancellationToken,
+        params string[] names)
+    {
+        foreach (var name in names.Where(name => Has(files, name)))
+        {
+            return await _gitHub.GetFileContentAsync(
+                token, owner, repo, Join(directory, name), branch, cancellationToken);
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -49,7 +49,11 @@ public sealed record RepositorySignals(
     string? PyprojectToml = null,
     string? GoMod = null,
     string? CargoToml = null,
-    string? AppsettingsJson = null);
+    string? AppsettingsJson = null,
+    /// <summary>vite.config.{ts,js,mjs} — where a Vite build's output directory is declared.
+    /// Without it the directory is a guess, and a wrong guess is a Dockerfile that copies from
+    /// a path the build never wrote.</summary>
+    string? ViteConfig = null);
 
 public sealed record AdapterDetection(
     /// <summary>0..1. Specific signals (angular.json, a csproj) score high; generic ones (bare package.json) low.</summary>

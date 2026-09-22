@@ -44,28 +44,18 @@ public sealed class AngularAdapter : IFrameworkAdapter
         // The final stage serves through nginx so the node can also act as the deployment's
         // reverse proxy — the single-origin transform adds that capability and the generator
         // writes the nginx.conf beside this Dockerfile.
-        var dockerfile = $"""
-            # Built with ./{profile.RootDirectory} as the context; COPY paths are relative to it.
-            FROM node:22-alpine AS build
-            WORKDIR /src
-            COPY package*.json ./
-            RUN npm ci
-            COPY . .
-            RUN {buildCommand}
-
-            FROM nginx:alpine
-            COPY nginx.conf /etc/nginx/conf.d/default.conf
-            COPY --from=build /src/{outputDirectory} /usr/share/nginx/html
-            EXPOSE 80
-            """;
+        var dockerfile = StaticBundleDockerfile.Render(profile.RootDirectory, buildCommand, outputDirectory);
 
         return new ServiceNode(
             serviceId,
             ServiceCapability.StaticSite,
             ServiceSource.FromBuild(
                 profile.RootDirectory,
-                new DockerfileSpec(dockerfile, ExistingPath: null, ExposedPort: 80)),
+                new DockerfileSpec(
+                    dockerfile,
+                    ExistingPath: null,
+                    ExposedPort: StaticBundleDockerfile.ExposedPort)),
             Framework: Id,
-            Ports: [80]);
+            Ports: [StaticBundleDockerfile.ExposedPort]);
     }
 }
