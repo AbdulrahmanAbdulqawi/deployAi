@@ -1,5 +1,6 @@
 using DeployAI.Core.Deployments;
 using DeployAI.Core.Providers;
+using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
@@ -152,12 +153,14 @@ internal static class SplitOriginDetection
         bool usesSplitOrigin,
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart,
-        IReadOnlyDictionary<string, string?> fileContentsByPath)
+        IReadOnlyDictionary<string, string?> fileContentsByPath,
+        RepositoryGraphScan? composeStructure = null)
     {
         if (IsSingleOriginComposeStack(
                 websitePart.Framework, serverPart.Framework, websitePart.ProviderName, serverPart.ProviderName))
         {
-            return SingleOriginComposeReadinessEvaluator.Evaluate(websitePart, serverPart, fileContentsByPath);
+            return SingleOriginComposeReadinessEvaluator.Evaluate(
+                websitePart, serverPart, fileContentsByPath, composeStructure);
         }
 
         return usesSplitOrigin

@@ -1,5 +1,7 @@
 using DeployAI.Api.Services;
 using DeployAI.Core.Deployments;
+using DeployAI.Core.Deployments.Graph;
+using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Tests.Services;
 
@@ -341,6 +343,110 @@ public class SingleOriginComposeReadinessEvaluatorTests
             issue.Severity == DeploymentFileSeverity.Recommended &&
             issue.Reason.Contains("client_max_body_size", StringComparison.OrdinalIgnoreCase));
         Assert.True(SingleOriginComposeReadinessEvaluator.IsReady(issues));
+    }
+
+    /// <summary>
+    /// The rule that used to live here required services literally named `api` and `web`, Blocking,
+    /// and <c>DeploymentOrchestrator</c> refuses to publish on Blocking. reel-hub's are `api`,
+    /// `worker`, `web` and `db`; a repository calling them `storefront` and `orders` was refused
+    /// for its naming with nothing wrong with it. What the rule was reaching for — can the proxy
+    /// reach what it routes to — is structural, and is asked of the graph instead.
+    /// </summary>
+    [Fact]
+    public void Evaluate_AcceptsAComposeFileWhoseServicesAreNamedAnythingAtAll()
+    {
+        var files = BuildCompleteFiles();
+        files["docker-compose.coolify.yml"] = """
+            services:
+              orders:
+                build: ./src/api
+                restart: unless-stopped
+              storefront:
+                build: ./client
+                expose:
+                  - "80"
+                depends_on:
+                  - orders
+                restart: unless-stopped
+            """;
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, Server, files);
+
+        Assert.True(
+            SingleOriginComposeReadinessEvaluator.IsReady(issues),
+            "Refused for its service names:\n  " + string.Join(
+                "\n  ",
+                issues.Where(i => i.Severity == DeploymentFileSeverity.Blocking).Select(i => i.Reason)));
+    }
+
+    /// <summary>
+    /// The file checks answer "is it there and does it say the right things". This is the other
+    /// half: what the deployment those files describe would actually do. Routing traffic to a
+    /// service that listens on nothing is the case worth blocking — the deploy reports success and
+    /// every request fails.
+    /// </summary>
+    [Fact]
+    public void Evaluate_AlsoJudgesTheDeploymentTheComposeFileDescribes_WhenItCouldBeRead()
+    {
+        var files = BuildCompleteFiles();
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(
+            Website, Server, files, ScanRoutingTo("web", servesAPort: false));
+
+        Assert.Contains(issues, issue =>
+            issue.Severity == DeploymentFileSeverity.Blocking &&
+            issue.Reason.Contains("nowhere to send", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The same files, with a deployment that works, stay ready — so the structural pass is adding
+    /// judgement rather than refusing everything it is handed.
+    /// </summary>
+    [Fact]
+    public void Evaluate_SaysNothingExtra_WhenTheDeploymentTheComposeFileDescribesWorks()
+    {
+        var files = BuildCompleteFiles();
+
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(
+            Website, Server, files, ScanRoutingTo("web", servesAPort: true));
+
+        Assert.True(SingleOriginComposeReadinessEvaluator.IsReady(issues));
+    }
+
+    /// <summary>
+    /// No scan at all is not the same as a scan that found nothing wrong: the file checks still
+    /// stand on their own, and nothing structural is claimed either way.
+    /// </summary>
+    [Fact]
+    public void Evaluate_WithoutAScan_JudgesTheFilesAlone()
+    {
+        var issues = SingleOriginComposeReadinessEvaluator.Evaluate(Website, Server, BuildCompleteFiles());
+
+        Assert.True(SingleOriginComposeReadinessEvaluator.IsReady(issues));
+        Assert.DoesNotContain(issues, issue =>
+            issue.Reason.Contains("nowhere to send", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static RepositoryGraphScan ScanRoutingTo(string serviceId, bool servesAPort)
+    {
+        var graph = new DeploymentGraph(
+            [
+                new ServiceNode(
+                    serviceId,
+                    ServiceCapability.StaticSite | ServiceCapability.ReverseProxy,
+                    ServiceSource.FromBuild("client", new DockerfileSpec("FROM nginx", null, 80)),
+                    Ports: servesAPort ? [80] : [])
+            ],
+            [],
+            [new IngressRule(serviceId)]);
+
+        return new RepositoryGraphScan(
+            graph,
+            "docker-compose.coolify.yml",
+            IsInconclusive: false,
+            UnreadableDirectories: [],
+            Reason: null,
+            Compose: new ComposeFile([], [], IsInconclusive: false, ParseError: null));
     }
 
     private static Dictionary<string, string?> BuildCompleteFiles() => new(StringComparer.OrdinalIgnoreCase)

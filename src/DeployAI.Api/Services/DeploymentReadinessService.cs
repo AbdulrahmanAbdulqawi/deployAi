@@ -14,17 +14,20 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
 {
     private readonly DeployAIDbContext _db;
     private readonly IGitHubService _gitHubService;
+    private readonly IRepositoryGraphScanner _graphScanner;
     private readonly IEncryptionService _encryption;
     private readonly HttpClient _httpClient;
 
     public DeploymentReadinessService(
         DeployAIDbContext db,
         IGitHubService gitHubService,
+        IRepositoryGraphScanner graphScanner,
         IEncryptionService encryption,
         IHttpClientFactory httpClientFactory)
     {
         _db = db;
         _gitHubService = gitHubService;
+        _graphScanner = graphScanner;
         _encryption = encryption;
         _httpClient = httpClientFactory.CreateClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(10);
@@ -198,8 +201,29 @@ public sealed class DeploymentReadinessService : IDeploymentReadinessService
                 cancellationToken);
         }
 
-        var missing = SplitOriginDetection.EvaluateRepositoryFiles(!usesCompose, website, server, fileContents);
+        // The compose file says what the deployment is; the paths above only say which files exist.
+        // Scanning it is what lets readiness judge the deployment structurally — whether every
+        // service can be built, whether the proxy reaches what it routes to — instead of asking
+        // whether the services happen to be called `api` and `web`.
         var warnings = new List<string>();
+        RepositoryGraphScan? composeStructure = null;
+        if (usesCompose)
+        {
+            composeStructure = await _graphScanner.ScanAsync(
+                token, owner, repo, gitRef, composePathOverride: null, cancellationToken);
+
+            // Inconclusive must not read as "nothing wrong with it". The file checks still run and
+            // can still block, but the structural questions went unasked and the user is told so.
+            if (composeStructure.IsInconclusive)
+            {
+                warnings.Add(
+                    $"Could not inspect this deployment's structure: {composeStructure.Reason} " +
+                    "The file checks below still ran; the questions about how the services fit together did not.");
+            }
+        }
+
+        var missing = SplitOriginDetection.EvaluateRepositoryFiles(
+            !usesCompose, website, server, fileContents, composeStructure);
 
         if (!string.IsNullOrWhiteSpace(website.Framework) &&
             CrossProviderUrlWiring.UsesRelativeApiPaths(website.Framework) &&

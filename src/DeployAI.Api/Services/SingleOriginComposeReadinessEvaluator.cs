@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using DeployAI.Core.Deployments;
+using DeployAI.Infrastructure.GitHub;
 
 namespace DeployAI.Api.Services;
 
@@ -95,10 +96,16 @@ internal static class SingleOriginComposeReadinessEvaluator
             .ToArray();
     }
 
+    /// <param name="structure">What the repository's compose file actually describes, when it could
+    /// be read. The file checks below answer "is the file there and does it say the right things";
+    /// this answers "does the deployment it describes work" — a service nothing can build, a proxy
+    /// pointed at something that listens on nothing. Null when no graph scan ran, in which case the
+    /// file checks stand alone, exactly as before.</param>
     internal static IReadOnlyList<MissingDeploymentFile> Evaluate(
         DeploymentPlanPart websitePart,
         DeploymentPlanPart serverPart,
-        IReadOnlyDictionary<string, string?> fileContentsByPath)
+        IReadOnlyDictionary<string, string?> fileContentsByPath,
+        RepositoryGraphScan? structure = null)
     {
         var missing = new List<MissingDeploymentFile>();
         var clientPrefix = Prefix(websitePart.RootDirectory);
@@ -121,6 +128,14 @@ internal static class SingleOriginComposeReadinessEvaluator
         else
         {
             missing.AddRange(EvaluateComposeFile(composePath, fileContentsByPath[composePath]!));
+
+            if (structure is { HasCompose: true })
+            {
+                missing.AddRange(ComposeGraphReadinessEvaluator.Evaluate(
+                    structure.Graph,
+                    structure.Compose!,
+                    ComposeFileName));
+            }
         }
 
         if (IsMissing(fileContentsByPath, webDockerfilePath))
@@ -199,14 +214,12 @@ internal static class SingleOriginComposeReadinessEvaluator
             ? string.Empty
             : $"`{path}` cannot be used as-is: ";
 
-        if (!DeclaresService(content, "api") || !DeclaresService(content, "web"))
-        {
-            yield return new MissingDeploymentFile(
-                reportedPath,
-                $"{about}the compose file must declare both an `api` and a `web` service — nginx proxies to the api service by name.",
-                DeploymentFileSeverity.Blocking);
-        }
-
+        // There used to be a Blocking rule here requiring services literally named `api` and `web`.
+        // It refused correct repositories for their naming — reel-hub's are `api`, `worker`, `web`
+        // and `db`, and any repo calling them `storefront` and `orders` was turned away with nothing
+        // wrong with it — and DeploymentOrchestrator refuses to publish on Blocking. The question it
+        // was reaching for (does the proxy reach what it routes to) is structural, and
+        // ComposeGraphReadinessEvaluator answers it from the graph instead of from names.
         if (PublishesHostPorts(content))
         {
             yield return new MissingDeploymentFile(

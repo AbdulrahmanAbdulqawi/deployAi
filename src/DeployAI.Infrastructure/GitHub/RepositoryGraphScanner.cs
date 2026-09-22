@@ -12,13 +12,20 @@ namespace DeployAI.Infrastructure.GitHub;
 /// compose services", and the two must not be treated alike.</param>
 /// <param name="UnreadableDirectories">Build contexts that could not be read. Their services are
 /// still in the graph — they exist — but their frameworks are unknown rather than absent.</param>
+/// <param name="Compose">The parsed compose file the graph came from; null when the repo has none.
+/// Kept alongside the graph because some readiness rules are about what the file says rather than
+/// about the deployment it describes — a published host port is a fact of the YAML.</param>
 public sealed record RepositoryGraphScan(
     DeploymentGraph Graph,
     string? ComposePath,
     bool IsInconclusive,
     IReadOnlyList<string> UnreadableDirectories,
-    string? Reason)
+    string? Reason,
+    ComposeFile? Compose = null)
 {
+    /// <summary>Whether this scan actually read a compose file and can be judged.</summary>
+    public bool HasCompose => !IsInconclusive && Compose is not null && ComposePath is not null;
+
     public static RepositoryGraphScan Inconclusive(string reason) =>
         new(DeploymentGraph.Empty, null, true, [], reason);
 }
@@ -122,7 +129,8 @@ public sealed class RepositoryGraphScanner(
             composeFile.Path,
             IsInconclusive: false,
             signals.UnreadableDirectories,
-            Reason: null);
+            Reason: null,
+            Compose: compose);
     }
 
 }
