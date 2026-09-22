@@ -90,6 +90,42 @@ describe('DeployPlanComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('New project name');
   });
 
+  /**
+   * The card that refuses the deploy is where the offer to fix it belongs. It used to say "use
+   * Manual override to set up these files, then come back" — a screen that reconfigures which
+   * parts get deployed and never writes a file, for files DeployAI generates itself. A
+   * non-technical user reads "manual override" as "you do this part by hand".
+   */
+  it('offers to write the missing files rather than sending the user to manual override', () => {
+    const composePlan: DeploymentPlan = {
+      parts: [
+        { role: 'website', providerName: 'coolify' },
+        { role: 'server', providerName: 'coolify' }
+      ],
+      confidence: 'high',
+      plainSummary: 'Deploy everything to Coolify.',
+      planKind: DeploymentPlanKind.CoolifyCompose
+    };
+
+    fixture.componentRef.setInput('plan', composePlan);
+    fixture.componentRef.setInput('activeParts', composePlan.parts);
+    fixture.componentRef.setInput('readiness', {
+      isReady: false,
+      usesSplitOrigin: false,
+      usesSingleOriginCompose: true,
+      warnings: [],
+      missingFiles: [
+        { path: 'docker-compose.coolify.yml', reason: 'A Docker Compose file is required.', severity: 'blocking' }
+      ]
+    });
+    fixture.componentRef.setInput('canSetUpFiles', true);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('DeployAI can write these for you');
+    expect(text).not.toContain('to set up these files, then come back');
+  });
+
   it('reports the typed project name to its parent', () => {
     fixture.componentRef.setInput('destinations', [
       { id: 'proj-a', name: 'alpha' },

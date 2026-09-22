@@ -224,6 +224,7 @@
         [selectedGithubAppId]="selectedCoolifyGithubAppId"
         [requireGithubApp]="requiresCoolifyGithubApp()"
         [readiness]="deploymentReadiness()"
+        [canSetUpFiles]="canSetUpFilesFromPlan()"
         (customDomainChange)="customDomain = $event"
         (githubAppChange)="selectedCoolifyGithubAppId = $event"
         (destinationChange)="onPlanDestinationChange($event)"
@@ -232,6 +233,16 @@
         (selectOption)="selectClarifyingOption($event)"
         (connectProviders)="goToConnections()"
         (back)="step.set(2)">
+        @if (canSetUpFilesFromPlan() && repoOwner() && repoName() && selectedBranch()) {
+          <app-deployment-setup-panel
+            planSetup
+            [owner]="repoOwner()!"
+            [repo]="repoName()!"
+            [gitRef]="selectedBranch()!"
+            [parts]="activePlanParts().length ? activePlanParts() : deploymentPlan()?.parts ?? []"
+            [readiness]="deploymentReadiness()"
+            (setupComplete)="onSetupComplete()" />
+        }
         <div class="wizard__panel u-glass-panel">
           <div class="wizard__section-header">
             <app-ui-icon name="rocket" size="sm" statusClass="accent" />

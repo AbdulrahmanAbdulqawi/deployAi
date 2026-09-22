@@ -175,10 +175,21 @@
               <li><code>{{ file.path }}</code> — {{ file.reason }}</li>
             }
           </ul>
-          <p>Use <strong>Manual override</strong> to set up these files, then come back.</p>
+          @if (canSetUpFiles) {
+            <p>DeployAI can write these for you and open a pull request on your repository.</p>
+          } @else {
+            <p>Use <strong>Manual override</strong> to change what gets deployed.</p>
+          }
         </div>
       }
     }
+
+    <!--
+      The setup itself, on the card that refused the deploy. This used to say "use Manual override
+      to set up these files, then come back" — which sends a non-technical user to a screen that
+      reconfigures the plan and never writes a file, for four files DeployAI generates itself.
+    -->
+    <ng-content select="[planSetup]"></ng-content>
 
     <div class="plan-card__actions">
       <app-ui-button variant="secondary" icon="arrow-left" (click)="back.emit()">Back</app-ui-button>

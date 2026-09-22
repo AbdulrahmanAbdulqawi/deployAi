@@ -543,6 +543,21 @@ export class ProjectWizardComponent implements OnInit {
     return usesCoolifySetupScaffold(readiness);
   }
 
+  /**
+   * Whether the recommended path can write the files it is refusing the deploy over.
+   *
+   * The plan card is where a new app is stopped, and it used to send the user to Manual override —
+   * a screen that changes which parts get deployed and writes nothing. For a shape DeployAI
+   * scaffolds, the files it names are files it generates, so the offer belongs on the card that
+   * named them.
+   */
+  canSetUpFilesFromPlan(): boolean {
+    const readiness = this.deploymentReadiness();
+    return !this.showManualOverride() &&
+      usesCoolifySetupScaffold(readiness) &&
+      !readiness!.isReady;
+  }
+
   deployFromPlan(): void {
     if (this.missingConnections().length > 0) {
       return;

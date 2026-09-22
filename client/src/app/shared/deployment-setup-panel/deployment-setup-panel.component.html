@@ -8,10 +8,8 @@
       <app-ui-icon name="settings" size="sm" statusClass="accent" />
     </div>
     <div class="setup-panel__heading">
-      <h3 class="setup-panel__title u-title-lg">Split-origin deployment setup</h3>
-      <p class="setup-panel__summary">
-        AI reviews your repository and prepares the files and configuration needed for a reliable split-origin deployment.
-      </p>
+      <h3 class="setup-panel__title u-title-lg">{{ title() }}</h3>
+      <p class="setup-panel__summary">{{ summary() }}</p>
     </div>
     <span class="setup-panel__chevron" aria-hidden="true">
       <app-ui-icon name="chevron-down" size="sm" />
@@ -63,7 +61,7 @@
       [projectId]="projectId()"
       [baseBranch]="gitRef()"
       mergeMode="setup"
-      generateLabel="Generate setup with AI"
+      [generateLabel]="generateLabel()"
       [showPrimaryGenerate]="hasMissingFiles()"
       [secondaryGenerateLabel]="hasMissingFiles() ? 'Regenerate' : 'Regenerate with AI'"
       mergeSuccessMessage="Setup merged. Publish again to deploy the updated configuration."

@@ -59,6 +59,15 @@ export class DeployPlanComponent {
    */
   @Input() readiness: DeploymentReadinessResult | null = null;
 
+  /**
+   * Whether DeployAI writes the files this shape needs, rather than leaving them to the user.
+   *
+   * Both scaffolded shapes do. The card used to tell everyone to "use Manual override to set up
+   * these files, then come back" — a screen that reconfigures which parts get deployed and never
+   * writes a file, for files DeployAI generates itself.
+   */
+  @Input() canSetUpFiles = false;
+
   /** Blocking findings only: a recommended doc must not read as the reason a deploy is refused. */
   blockingFindings(): MissingDeploymentFile[] {
     return hasSetupRequirements(this.readiness) && !this.readiness.isReady

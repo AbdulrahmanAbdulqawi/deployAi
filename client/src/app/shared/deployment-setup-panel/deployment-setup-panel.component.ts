@@ -38,6 +38,34 @@ export class DeploymentSetupPanelComponent {
     this.collapsed.update(value => !value);
   }
 
+  /**
+   * The panel named one shape for both. A compose app was told it was getting a "split-origin
+   * deployment setup" — the one thing its whole shape is defined by not being, and the term the
+   * rest of the product uses for the two-domain layout this app deliberately avoids.
+   */
+  title(): string {
+    return this.readiness()?.usesSingleOriginCompose
+      ? 'Single-origin deployment setup'
+      : 'Split-origin deployment setup';
+  }
+
+  summary(): string {
+    return this.readiness()?.usesSingleOriginCompose
+      ? 'DeployAI prepares the compose file, each service\'s Dockerfile, and the proxy config that serves your site and its API from one address.'
+      : 'DeployAI prepares the files and configuration needed for a reliable split-origin deployment.';
+  }
+
+  /**
+   * A compose deployment's files come from the deployment graph — the services the repository
+   * declares, rendered — whatever the AI-setup preference says, because topology is read rather
+   * than written. Offering "Generate setup with AI" for it promises a mechanism that will not run.
+   */
+  generateLabel(): string {
+    return this.readiness()?.usesSingleOriginCompose
+      ? 'Set these up for me'
+      : 'Generate setup with AI';
+  }
+
   hasMissingFiles(): boolean {
     return (this.readiness()?.missingFiles.length ?? 0) > 0;
   }
